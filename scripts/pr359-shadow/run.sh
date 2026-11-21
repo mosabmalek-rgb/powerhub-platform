@@ -464,6 +464,48 @@ check_restore_managed_compatibility(){
       "$restore_work/source-managed-relations.json" "$restore_work/docker-managed-relations.json"
   fi
 }
+# Staging restore is a logical rebuild: raw ACL item ordering and dropped
+# attribute physical positions can legitimately differ. This gate keeps the
+# reviewed raw source SHA fixed, rechecks every unmodified catalog attribute,
+# and requires exact effective grants, roles, definitions, RLS and indexes.
+# NO semantic deviation or unreviewed raw difference is accepted.
+check_staging_restored_schema(){
+  local stage="$1"
+  local target="$restore_work/staging-schema-$stage.jsonl"
+  local semantic_target="$restore_work/staging-schema-semantic-$stage.jsonl"
+  SHADOW_STAGE="staging-schema-semantic-$stage"
+  sql postgres < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$semantic_target" || {
+    echo 'PR359_R4_SEMANTIC_SCHEMA_READ_FAILED' >&2; return 2
+  }
+  if node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+      "$restore_work/staging-schema-source.jsonl" "$target"; then
+    echo 'PR359_R4_RAW_SCHEMA_PARITY_PASS'
+    return 0
+  fi
+  SHADOW_STAGE="staging-schema-object-drift-$stage"
+  sql postgres < scripts/pr359-r4/staging-schema-object-digests.sql \
+    > "$restore_work/staging-schema-objects-$stage.jsonl" || return 2
+  node scripts/pr359-r4/diagnose-staging-schema-object-drift.mjs \
+    "$restore_work/staging-schema-object-source.jsonl" \
+    "$restore_work/staging-schema-objects-$stage.jsonl" || :
+  SHADOW_STAGE="staging-schema-attribute-drift-$stage"
+  sql postgres < scripts/pr359-r4/staging-schema-attribute-digests.sql \
+    > "$restore_work/staging-schema-attributes-$stage.jsonl" || return 2
+  node scripts/pr359-r4/diagnose-staging-schema-attribute-drift.mjs \
+    "$restore_work/staging-schema-attribute-source.jsonl" \
+    "$restore_work/staging-schema-attributes-$stage.jsonl" || :
+  SHADOW_STAGE="staging-semantic-security-parity-$stage"
+  if ! node scripts/pr359-r4/review-staging-schema-semantic-parity.mjs \
+    "$restore_work/staging-schema-semantic-source.jsonl" "$semantic_target" \
+    "$restore_work/staging-schema-object-source.jsonl" \
+    "$restore_work/staging-schema-objects-$stage.jsonl" \
+    "$restore_work/staging-schema-attribute-source.jsonl" \
+    "$restore_work/staging-schema-attributes-$stage.jsonl"; then
+    echo 'PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED' >&2
+    return 2
+  fi
+  echo 'PR359_R4_CANONICAL_SEMANTIC_SCHEMA_PARITY_PASS'
+}
 restore(){
   if [[ "$mode" == staging-restore ]]; then
     r4_progress "disposable-restore-start"
@@ -527,32 +569,8 @@ restore(){
   if [[ "$mode" == staging-restore ]]; then
     SHADOW_STAGE=staging-schema-before-data
     sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$restore_work/staging-schema-pre-data.jsonl"
-    if ! node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
-      "$restore_work/staging-schema-source.jsonl" "$restore_work/staging-schema-pre-data.jsonl"; then
-      # Never bypass schema parity. Before failing, emit bounded object identities
-      # with DIFFERING HASHES only, not SQL definitions or sensitive data.
-      SHADOW_STAGE=staging-schema-object-drift-diagnostics
-      sql postgres < scripts/pr359-r4/staging-schema-object-digests.sql \
-        > "$restore_work/staging-schema-objects-pre-data.jsonl" || {
-        echo 'PR359_R4_SCHEMA_DIGEST_DIAGNOSTIC_QUERY_FAILED' >&2; exit 2;
-      }
-      node scripts/pr359-r4/diagnose-staging-schema-object-drift.mjs \
-        "$restore_work/staging-schema-object-source.jsonl" \
-        "$restore_work/staging-schema-objects-pre-data.jsonl" || :
-      # Show field-level drift counts, never values. This is diagnostic-only;
-      # restoring business data remains prohibited after any schema mismatch.
-      SHADOW_STAGE=staging-schema-attribute-drift-diagnostics
-      sql postgres < scripts/pr359-r4/staging-schema-attribute-digests.sql \
-        > "$restore_work/staging-schema-attributes-pre-data.jsonl" || {
-        echo 'PR359_R4_SCHEMA_ATTRIBUTE_DIAGNOSTIC_QUERY_FAILED' >&2; exit 2;
-      }
-      node scripts/pr359-r4/diagnose-staging-schema-attribute-drift.mjs \
-        "$restore_work/staging-schema-attribute-source.jsonl" \
-        "$restore_work/staging-schema-attributes-pre-data.jsonl" || :
-      echo 'PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED' >&2
-      exit 2
-    fi
-    echo 'PR359_STAGING_SCHEMA_PRE_DATA_FINGERPRINT_PASS'
+    check_staging_restored_schema pre-data
+    echo 'PR359_STAGING_SCHEMA_PRE_DATA_REVIEWED_SEMANTIC_PARITY_PASS'
     SHADOW_STAGE=staging-managed-fks-before-data
     sql postgres < scripts/pr359-r4/staging-managed-fks.sql > "$restore_work/staging-managed-fks-pre-data.jsonl"
     node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
@@ -617,8 +635,7 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
       "$restore_work/staging-managed-source.jsonl" "$restore_work/staging-managed-restored.jsonl"
     SHADOW_STAGE=staging-restored-schema-fingerprint
     sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$restore_work/staging-schema-restored.jsonl"
-    node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
-      "$restore_work/staging-schema-source.jsonl" "$restore_work/staging-schema-restored.jsonl"
+    check_staging_restored_schema restored
     SHADOW_STAGE=staging-restored-all-app-fks
     sql postgres < scripts/pr359-r4/staging-all-fk-integrity.sql > "$restore_work/staging-all-fks-restored.jsonl"
     node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare \
@@ -634,7 +651,7 @@ echo 'PR359_RESTORED_LEGACY_LEDGER_SHA256_PASS'
     node scripts/pr359-r4/check-staging-managed-fks.mjs --compare \
       "$restore_work/staging-managed-fks-source.jsonl" "$restore_work/staging-managed-fks-restored.jsonl"
     echo 'PR359_STAGING_AUTH_USER_FK_DEFINITION_PARITY_PASS'
-    echo 'PR359_STAGING_SCHEMA_FINGERPRINT_PASS'
+    echo 'PR359_STAGING_SCHEMA_FULL_CANONICAL_PARITY_PASS'
     echo 'PR359_STAGING_FULL_APP_TABLE_COUNTS_AND_CONTENT_PASS'
     r4_progress 'disposable-restore-evidence-complete'
     echo 'PR359_STAGING_MANAGED_AUTH_STORAGE_ROW_PARITY_PASS'
@@ -651,7 +668,7 @@ if [[ "$mode" == staging-restore ]]; then
   SHADOW_STAGE=staging-independent-second-restore
   restore_work="$work/second-export"
   restore
-  for restored_file in "target-history-attestation.json" "staging-tables-restored.jsonl" "staging-content-restored.jsonl" "staging-managed-restored.jsonl" "staging-schema-restored.jsonl" "staging-all-fks-restored.jsonl" "staging-managed-fk-orphans-restored.jsonl" "staging-managed-fks-restored.jsonl" "staging-managed-reverse-restored.json"; do
+  for restored_file in "target-history-attestation.json" "staging-tables-restored.jsonl" "staging-content-restored.jsonl" "staging-managed-restored.jsonl" "staging-schema-restored.jsonl" "staging-schema-semantic-restored.jsonl" "staging-all-fks-restored.jsonl" "staging-managed-fk-orphans-restored.jsonl" "staging-managed-fks-restored.jsonl" "staging-managed-reverse-restored.json"; do
     cmp -s "$work/$restored_file" "$restore_work/$restored_file" || {
       echo "PR359_STAGING_TWO_RESTORES_DIFFER=$restored_file" >&2
       exit 1

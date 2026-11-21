@@ -676,3 +676,17 @@ To identify the likely systematic ACL/owner/definition differences without loggi
 `STAGING_INPLACE_GO=false`  
 `PRODUCTION_INPLACE_GO=false`  
 `PR359_MERGE_GO=false`
+
+
+## R4 2026-11-21 — per-field result and strictly canonical semantic schema parity
+
+Protected [run 44903864944](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44903864944) finished **FAILURE** at the first disposable restore after **two independent source exports PASS**. Per-field diagnosis showed exactly 579 **function ACL only** mismatches and 216 **relation ACL only** mismatches. Source and target function definitions, function SECURITY DEFINER flags, owners, relation RLS, relation options, 1437 constraints, 688 indexes, 129 policies, 202 triggers all matched. The one dropped-attribute table had only physically reordered attnum identities. Docker memory: 122.5MiB; not OOM; no data imported.
+
+A new fail-closed **semantic** seven-category fingerprint is captured within BOTH independent source MVCC snapshots and compared at pre-data AND post-data restore gates. Canonicalization includes every ACL privilege's **grantor role name, grantee role name (including PUBLIC), privilege type and is_grantable flag**, with defaults for NULL ACLs; sequences have correct 's' ACL default. Columns are keyed by qualified **live name**, not internal attnum; definition, type, default, not-null, identity, generated, RLS, indexes, policies, triggers and owners remain fully hashed. The original pinned source **raw** fingerprint and per-attribute diagnostics remain unchanged and continue to run. An otherwise raw-mismatched restore passes only when (a) all seven semantic category hashes are exactly equal and (b) the raw object/field differences are exactly the previously documented 579 function ACL, 216 relation ACL and 1 dropped-column attnum renumbering. Any changed effective privilege, grantor, grant option, function definition, RLS, unexpected object or metadata still FAILS before data COPY. Neither this logical compatibility nor the 978 APP_OWNED candidate inventory authorizes any hosted reset or baseline.
+
+This is implemented code, not yet protected-run proof. The failed protected request was disabled. Re-run six CI gates on the new SHA before a request-only protected activation.
+
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`APP_OWNED_APPROVED=false`  
+`PR359_MERGE_GO=false`

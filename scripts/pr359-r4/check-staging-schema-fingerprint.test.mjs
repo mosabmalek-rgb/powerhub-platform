@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {EXPECTED_SURFACE,REVIEWED_STAGING_SHA256,parseSchemaFingerprint,assessSchemaFingerprint,assessReviewedStagingSource} from './check-staging-schema-fingerprint.mjs';
 import {parseSchemaObjectDigests,diagnoseSchemaObjectDrift} from './diagnose-staging-schema-object-drift.mjs';
 import {parseAttributeDigests,compareSchemaAttributes} from './diagnose-staging-schema-attribute-drift.mjs';
+import {reviewRestoredSchemaSemanticParity} from './review-staging-schema-semantic-parity.mjs';
 const fixture=()=>Object.entries(EXPECTED_SURFACE).map(([category,objects])=>
  JSON.stringify({category,objects,sha256:'a'.repeat(64)})).join('\n')+'\n';
 test('R0 complete schema counts are included but cannot grant destructive permission',()=>{
@@ -150,4 +151,68 @@ test('per-attribute R4 diagnostics have identical source snapshot and fail-close
  assert.ok(restore.includes('staging-schema-attribute-drift-diagnostics'));
  assert.ok(restore.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
  assert.ok(restore.indexOf('staging-schema-attribute-drift-diagnostics')<restore.indexOf('staging-managed-fks-before-data'));
+});
+
+test('canonical schema snapshot retains all categories and faithfully normalizes every ACL privilege',()=>{
+ const oldSql=readFileSync('scripts/pr359-r4/staging-schema-fingerprint.sql','utf8');
+ const canonical=readFileSync('scripts/pr359-r4/staging-schema-semantic-fingerprint.sql','utf8');
+ assert.equal((canonical.match(/SELECT '[a-z]+'/g)||[]).length,(oldSql.match(/SELECT '[a-z]+'/g)||[]).length);
+ assert.match(canonical,/aclexplode\(coalesce\(p\.proacl,acldefault\('f'::"char",p\.proowner\)\)\)/);
+ assert.match(canonical,/aclexplode\(coalesce\(c\.relacl,acldefault\(CASE WHEN c\.relkind='S' THEN 's'::"char" ELSE 'r'::"char" END,c\.relowner\)\)\)/);
+ assert.match(canonical,/acl\.is_grantable/);
+ assert.match(canonical,/acl\.privilege_type/);
+ assert.match(canonical,/pg_get_userbyid\(acl\.grantor\)/);
+ assert.match(canonical,/CASE WHEN acl\.grantee=0 THEN 'PUBLIC'/);
+ assert.match(canonical,/quote_ident\(a\.attname\)/);
+ assert.ok(!canonical.includes("'acl',p.proacl::text"));
+ assert.ok(!canonical.includes("'acl',c.relacl::text"));
+ const exporter=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
+ const twins=readFileSync('scripts/pr359-r4/check-independent-staging-exports.mjs','utf8');
+ const runner=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ assert.ok(exporter.includes('staging-schema-semantic-source.jsonl'));
+ assert.ok(twins.includes("'staging-schema-semantic-source.jsonl'"));
+ assert.equal((runner.match(/check_staging_restored_schema (?:pre-data|restored)/g)||[]).length,2);
+ assert.ok(runner.indexOf('check_staging_restored_schema pre-data')<runner.indexOf('SHADOW_STAGE=restore-data'));
+ assert.ok(runner.includes('PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED'));
+ assert.ok(runner.includes('staging-schema-semantic-restored.jsonl'));
+});
+test('semantic parity permits only the exact reviewed raw ACL/physical ordinal differences',()=>{
+ const hex=n=>n.repeat(64);
+ const row=(category,identity,sha)=>JSON.stringify({category,identity,sha256:hex(sha)});
+ const attr=(category,identity,field,sha)=>JSON.stringify({category,identity,field,sha256:hex(sha)});
+ const objs1=[],objs2=[],attrs1=[],attrs2=[];
+ for(let i=0;i<579;i++){
+  const id='public.f_'+i+'()';
+  objs1.push(row('functions',id,'a'));objs2.push(row('functions',id,'b'));
+  attrs1.push(attr('functions',id,'acl','a'));attrs2.push(attr('functions',id,'acl','b'));
+ }
+ for(let i=0;i<216;i++){
+  const id='public.r_'+i;
+  objs1.push(row('relations',id,'a'));objs2.push(row('relations',id,'b'));
+  attrs1.push(attr('relations',id,'acl','a'));attrs2.push(attr('relations',id,'acl','b'));
+ }
+ const prefix='public.tenant_invoice_message_templates.';
+ for(let n=4;n<=9;n++){
+  objs1.push(row('columns',prefix+n,'a'));
+  attrs1.push(attr('columns',prefix+n,'name','a'));
+ }
+ for(let n=3;n<=8;n++){
+  objs2.push(row('columns',prefix+n,'b'));
+  attrs2.push(attr('columns',prefix+n,'name','b'));
+ }
+ const sem=Object.entries(EXPECTED_SURFACE).map(([category,objects])=>
+  JSON.stringify({category,objects,sha256:hex('c')})).join('\n')+'\n';
+ const serialize=x=>x.join('\n')+'\n';
+ const args=[sem,sem,serialize(objs1),serialize(objs2),serialize(attrs1),serialize(attrs2)];
+ assert.equal(reviewRestoredSchemaSemanticParity(...args).canonicalSemanticParity,true);
+ const alt=Object.entries(EXPECTED_SURFACE).map(([category,objects])=>
+  JSON.stringify({category,objects,sha256:hex(category==='functions'?'d':'c')})).join('\n')+'\n';
+ assert.throws(()=>reviewRestoredSchemaSemanticParity(...[args[0],alt,...args.slice(2)]),
+  /effective PostgreSQL privileges or semantic schema/);
+ assert.throws(()=>reviewRestoredSchemaSemanticParity(...[...args.slice(0,5),
+   args[5]+attr('functions','public.f_0()','def','b')+'\n']),
+  /unreviewed function definition/);
+ assert.throws(()=>reviewRestoredSchemaSemanticParity(...[...args.slice(0,5),
+   args[5]+attr('relations','public.r_0','rls','b')+'\n']),
+  /unreviewed relation RLS/);
 });
