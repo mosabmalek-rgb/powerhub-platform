@@ -161,7 +161,7 @@ semantic_fixture_equal(){
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const parse=path=>{
- const rows=readFileSync(path,'utf8').trim().split(/\\r?\\n/).map(JSON.parse);
+ const rows=readFileSync(path,'utf8').trim().split(String.fromCharCode(10)).map(JSON.parse);
  assert.equal(rows.length,7,'all seven schema categories must be present');
  const categories=rows.map(r=>r.category).sort();
  assert.deepEqual(categories,['columns','constraints','functions','indexes','policies','relations','triggers']);
