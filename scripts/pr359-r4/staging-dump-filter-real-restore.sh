@@ -57,6 +57,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
  GRANT SELECT ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
  GRANT ALL ON TABLES TO service_role;
+CREATE SCHEMA private;
+CREATE SCHEMA powerhub_private;
 CREATE SCHEMA auth;
 CREATE TABLE auth.pr359_provider_probe(
  id integer PRIMARY KEY,payload text NOT NULL);
@@ -243,6 +245,25 @@ printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECU
  echo PR359_EXPORT_DEFAULT_ACL_ROUNDTRIP_FAILED >&2; exit 1;
 }
 echo PR359_EXACT_EXPORT_DEFAULT_ACL_PARITY_AND_NEGATIVE_CONTROL_PASS
+# Security boundary beyond the seven existing-object catalog categories.
+db postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-source.jsonl"
+db pr359_export_restored < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-restored.jsonl"
+node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare \
+ "$work/privilege-source.jsonl" "$work/privilege-restored.jsonl" >/dev/null
+printf 'GRANT USAGE ON SCHEMA public TO anon;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-escalated.jsonl"
+if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare \
+ "$work/privilege-source.jsonl" "$work/privilege-escalated.jsonl" >/dev/null 2>&1; then
+ echo PR359_LOCAL_UNAUTHORIZED_SCHEMA_USAGE_ACCEPTED >&2; exit 1
+fi
+printf 'REVOKE USAGE ON SCHEMA public FROM anon;\nGRANT SELECT(payload) ON public.pr359_export_probe TO anon;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-escalated.jsonl"
+if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare \
+ "$work/privilege-source.jsonl" "$work/privilege-escalated.jsonl" >/dev/null 2>&1; then
+ echo PR359_LOCAL_UNAUTHORIZED_COLUMN_READ_ACCEPTED >&2; exit 1
+fi
+printf 'REVOKE SELECT(payload) ON public.pr359_export_probe FROM anon;\n' | db pr359_export_restored >/dev/null
+echo PR359_LOCAL_PRIVILEGE_BOUNDARY_NEGATIVE_CONTROLS_PASS
 result="$(printf '%s\n' \
  "SELECT (SELECT count(*) FROM public.pr359_export_probe)::text||':'||" \
  "(SELECT sum(amount) FROM public.pr359_export_probe)::text||':'||" \

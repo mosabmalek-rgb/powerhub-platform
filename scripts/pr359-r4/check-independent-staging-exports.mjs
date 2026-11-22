@@ -18,6 +18,7 @@ export const INDEPENDENT_SOURCE_EVIDENCE_FILES=Object.freeze([
  'staging-schema-source.jsonl',
  'staging-schema-semantic-source.jsonl',
  'staging-schema-semantic-attributes-source.jsonl',
+ 'staging-privilege-boundary-source.jsonl',
  'staging-schema-object-source.jsonl',
  'staging-schema-attribute-source.jsonl',
  'staging-ownership-source.json',

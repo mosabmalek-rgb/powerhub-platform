@@ -74,6 +74,9 @@ source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-sche
 source_psql "$workdir/staging-schema-semantic-source.jsonl" scripts/pr359-r4/staging-schema-semantic-fingerprint.sql
 # Same exported source snapshot, per-field hashes only, no secret-bearing values.
 source_psql "$workdir/staging-schema-semantic-attributes-source.jsonl" scripts/pr359-r4/staging-schema-semantic-attribute-digests.sql
+# Existing-object parity omits namespace, default and per-column grants.
+source_psql "$workdir/staging-privilege-boundary-source.jsonl" scripts/pr359-r4/staging-privilege-boundary.sql
+node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-source "$workdir/staging-privilege-boundary-source.jsonl"
 # Keep per-object SHA evidence inside the very SAME MVCC source snapshot.
 # These are identity/hash-only diagnostics, never SQL or user data.
 source_psql "$workdir/staging-schema-object-source.jsonl" scripts/pr359-r4/staging-schema-object-digests.sql

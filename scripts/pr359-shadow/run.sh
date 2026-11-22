@@ -469,6 +469,19 @@ check_restore_managed_compatibility(){
 # reviewed raw source SHA fixed, rechecks every unmodified catalog attribute,
 # and requires exact effective grants, roles, definitions, RLS and indexes.
 # NO semantic deviation or unreviewed raw difference is accepted.
+check_staging_privilege_boundary(){
+  local stage="$1"
+  SHADOW_STAGE="staging-privilege-boundary-$stage"
+  sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql \
+    > "$restore_work/staging-privilege-boundary-$stage.jsonl" || {
+    echo 'PR359_PRIVILEGE_BOUNDARY_READ_FAILED' >&2; return 2
+  }
+  if ! node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare \
+    "$restore_work/staging-privilege-boundary-source.jsonl" \
+    "$restore_work/staging-privilege-boundary-$stage.jsonl"; then
+    echo 'PR359_PRIVILEGE_BOUNDARY_MISMATCH_BLOCKED' >&2; return 2
+  fi
+}
 check_staging_restored_schema(){
   local stage="$1"
   local target="$restore_work/staging-schema-$stage.jsonl"
@@ -480,6 +493,7 @@ check_staging_restored_schema(){
   if node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
       "$restore_work/staging-schema-source.jsonl" "$target"; then
     echo 'PR359_R4_RAW_SCHEMA_PARITY_PASS'
+    check_staging_privilege_boundary "$stage"
     return 0
   fi
   SHADOW_STAGE="staging-schema-object-drift-$stage"
@@ -516,6 +530,7 @@ check_staging_restored_schema(){
     echo 'PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED' >&2
     return 2
   fi
+  check_staging_privilege_boundary "$stage"
   echo 'PR359_R4_CANONICAL_SEMANTIC_SCHEMA_PARITY_PASS'
 }
 restore(){
@@ -680,7 +695,7 @@ if [[ "$mode" == staging-restore ]]; then
   SHADOW_STAGE=staging-independent-second-restore
   restore_work="$work/second-export"
   restore
-  for restored_file in "target-history-attestation.json" "staging-tables-restored.jsonl" "staging-content-restored.jsonl" "staging-managed-restored.jsonl" "staging-schema-restored.jsonl" "staging-schema-semantic-restored.jsonl" "staging-all-fks-restored.jsonl" "staging-managed-fk-orphans-restored.jsonl" "staging-managed-fks-restored.jsonl" "staging-managed-reverse-restored.json"; do
+  for restored_file in "target-history-attestation.json" "staging-tables-restored.jsonl" "staging-content-restored.jsonl" "staging-managed-restored.jsonl" "staging-schema-restored.jsonl" "staging-schema-semantic-restored.jsonl" "staging-privilege-boundary-restored.jsonl" "staging-all-fks-restored.jsonl" "staging-managed-fk-orphans-restored.jsonl" "staging-managed-fks-restored.jsonl" "staging-managed-reverse-restored.json"; do
     cmp -s "$work/$restored_file" "$restore_work/$restored_file" || {
       echo "PR359_STAGING_TWO_RESTORES_DIFFER=$restored_file" >&2
       exit 1
