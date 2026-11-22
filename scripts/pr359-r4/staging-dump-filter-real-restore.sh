@@ -61,6 +61,14 @@ REVOKE ALL ON FUNCTION public.pr359_acl_probe() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO service_role;
 GRANT SELECT ON TABLE public.pr359_export_probe TO authenticated;
 GRANT ALL ON TABLE public.pr359_export_probe TO service_role;
+-- Exercise all seven categories required by the strict parity checker.
+ALTER TABLE public.pr359_export_probe ENABLE ROW LEVEL SECURITY;
+CREATE POLICY pr359_fixture_select ON public.pr359_export_probe
+ FOR SELECT TO authenticated USING (true);
+CREATE FUNCTION public.pr359_acl_trigger() RETURNS trigger
+ LANGUAGE plpgsql AS $ BEGIN RETURN NEW; END; $;
+CREATE TRIGGER pr359_acl_probe_trg BEFORE INSERT ON public.pr359_export_probe
+ FOR EACH ROW EXECUTE FUNCTION public.pr359_acl_trigger();
 INSERT INTO public.pr359_export_probe VALUES
  (1,'test-one',12.50),(2,'test-two',0);
 INSERT INTO auth.pr359_provider_probe VALUES(1,'test-provider');
