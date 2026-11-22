@@ -174,14 +174,14 @@ if [[ "${mode:-}" == smoke ]]; then
   SHADOW_STAGE=smoke-supabase-creation-default-acl
   printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;\n' | sql postgres >/dev/null
   sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/supabase-acl-negative.jsonl"
-  if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \\
+  if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \
     "$work/supabase-acl-negative.jsonl" >/dev/null 2>&1; then
     echo PR359_DOCKER_SUPABASE_DEFAULT_ACL_NEGATIVE_CONTROL_FAILED >&2; exit 1
   fi
   echo PR359_DOCKER_SUPABASE_DEFAULT_ACL_NEGATIVE_CONTROL_PASS
   runfile postgres scripts/pr359-r4/bootstrap-local-staging-default-acl.sql
   sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/supabase-acl-bootstrapped.jsonl"
-  node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \\
+  node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \
     "$work/supabase-acl-bootstrapped.jsonl" >/dev/null || {
     echo PR359_DOCKER_SUPABASE_PINNED_DEFAULT_ACL_BOOTSTRAP_FAILED >&2; exit 1
   }
