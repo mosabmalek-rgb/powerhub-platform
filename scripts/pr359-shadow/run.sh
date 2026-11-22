@@ -658,7 +658,7 @@ restore(){
     [[ -s "$restore_work/staging-source-object-acl-replay.sql" ]] || {
       echo PR359_STAGING_SOURCE_ACL_REPLAY_MISSING >&2; exit 2
     }
-    { printf 'BEGIN;\\n'; cat "$restore_work/staging-source-object-acl-replay.sql"; printf '\\nCOMMIT;\\n'; } | sql postgres >/dev/null || {
+    { printf 'BEGIN;\n'; cat "$restore_work/staging-source-object-acl-replay.sql"; printf '\nCOMMIT;\n'; } | sql postgres >/dev/null || {
       echo PR359_STAGING_SOURCE_ACL_REPLAY_FAILED >&2; exit 2
     }
     echo PR359_STAGING_SOURCE_ATTESTED_OBJECT_ACL_REPLAY_PASS
