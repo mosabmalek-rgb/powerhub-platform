@@ -39,6 +39,13 @@ db(){
    psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d "$name" "$@"
 }
 cat <<'SQL' | db postgres >/dev/null
+-- Explicitly revoked PUBLIC function execution plus selected service/browser
+-- grants; the production exporter must preserve these exact privileges.
+CREATE ROLE service_role NOLOGIN;
+CREATE ROLE authenticated NOLOGIN;
+CREATE ROLE anon NOLOGIN;
+CREATE SCHEMA extensions;
+CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
 CREATE SCHEMA auth;
 CREATE TABLE auth.pr359_provider_probe(
  id integer PRIMARY KEY,payload text NOT NULL);
@@ -48,6 +55,12 @@ CREATE TABLE public.pr359_export_probe(
  amount numeric(12,2) NOT NULL CHECK (amount>=0));
 CREATE UNIQUE INDEX pr359_export_payload_uniq
  ON public.pr359_export_probe(payload);
+CREATE FUNCTION public.pr359_acl_probe() RETURNS integer
+ LANGUAGE sql SECURITY DEFINER AS 'SELECT 359';
+REVOKE ALL ON FUNCTION public.pr359_acl_probe() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO service_role;
+GRANT SELECT ON TABLE public.pr359_export_probe TO authenticated;
+GRANT ALL ON TABLE public.pr359_export_probe TO service_role;
 INSERT INTO public.pr359_export_probe VALUES
  (1,'test-one',12.50),(2,'test-two',0);
 INSERT INTO auth.pr359_provider_probe VALUES(1,'test-provider');
@@ -120,12 +133,41 @@ fi
 
 docker exec "$container" createdb -U postgres pr359_export_restored
 cat <<'SQL' | db pr359_export_restored >/dev/null
+CREATE SCHEMA extensions;
+CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
 CREATE SCHEMA auth;
 CREATE TABLE auth.pr359_provider_probe(
  id integer PRIMARY KEY,payload text NOT NULL);
 SQL
 db pr359_export_restored < "$dumpdir/schema.sql" >/dev/null
 db pr359_export_restored < "$dumpdir/data.sql" >/dev/null
+# Check the exact production seven-category semantic catalog on the local
+# source and restored target. A successful count-only restore is insufficient.
+db postgres < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-source.jsonl"
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-restored.jsonl"
+node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+ "$work/semantic-source.jsonl" "$work/semantic-restored.jsonl" >/dev/null || {
+ echo PR359_EXPORT_RESTORED_SEMANTIC_ACL_DRIFT >&2; exit 1;
+}
+# Negative controls must catch EXECUTE and SELECT privilege widening.
+printf 'GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO anon;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-escalated.jsonl"
+if node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+ "$work/semantic-source.jsonl" "$work/semantic-escalated.jsonl" >/dev/null 2>&1; then
+ echo PR359_EXPORT_UNAUTHORIZED_FUNCTION_EXECUTE_ACCEPTED >&2; exit 1;
+fi
+printf 'REVOKE EXECUTE ON FUNCTION public.pr359_acl_probe() FROM anon;\nGRANT SELECT ON TABLE public.pr359_export_probe TO anon;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-escalated.jsonl"
+if node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
+ "$work/semantic-source.jsonl" "$work/semantic-escalated.jsonl" >/dev/null 2>&1; then
+ echo PR359_EXPORT_UNAUTHORIZED_TABLE_READ_ACCEPTED >&2; exit 1;
+fi
+printf 'REVOKE SELECT ON TABLE public.pr359_export_probe FROM anon;\n' | db pr359_export_restored >/dev/null
+[[ "$(printf "SELECT has_function_privilege('anon','public.pr359_acl_probe()','EXECUTE');" | db pr359_export_restored)" == f ]] || exit 1
+[[ "$(printf "SELECT has_function_privilege('service_role','public.pr359_acl_probe()','EXECUTE');" | db pr359_export_restored)" == t ]] || exit 1
+[[ "$(printf "SELECT has_table_privilege('authenticated','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == t ]] || exit 1
+[[ "$(printf "SELECT has_table_privilege('anon','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == f ]] || exit 1
+echo PR359_EXACT_EXPORT_SEMANTIC_ACL_PARITY_AND_NEGATIVE_CONTROLS_PASS
 result="$(printf '%s\n' \
  "SELECT (SELECT count(*) FROM public.pr359_export_probe)::text||':'||" \
  "(SELECT sum(amount) FROM public.pr359_export_probe)::text||':'||" \
