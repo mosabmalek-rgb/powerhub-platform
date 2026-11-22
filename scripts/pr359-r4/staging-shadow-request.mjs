@@ -24,9 +24,11 @@ export function validateStagingRequest(value,context){
  assert.equal(value?.project_ref,'iyuryuhaylhisjfcrwkz');
  assert.equal(value?.purpose,'two isolated read-only source logical exports and Staging legacy-ledger restorations');
  assert.equal(value?.requested,true,'Staging shadow execution must be explicitly requested');
- assert.ok(typeof value.approval_token==='string' &&
-    /^STAGING-SHADOW-[A-Z0-9_-]{10,64}$/.test(value.approval_token),
-    'Staging shadow approval token must be supplied by an authorized reviewer');
+ // A separate reviewer-issued text token is not a security approval.
+ // Real authorization is the explicit request-only commit, reviewed parent,
+ // repo opt-in, and GitHub protected Environment with its native approval.
+ assert.equal(Object.hasOwn(value,'approval_token'),false,
+   'legacy approval_token field is unsupported; use GitHub Environment approval');
  assert.ok(shaPattern.test(value.approved_parent_sha||''),'missing pinned reviewed parent SHA');
  assert.equal(value.approved_parent_sha,context.parentSha,
   'the request must identify the exact reviewed preceding commit');

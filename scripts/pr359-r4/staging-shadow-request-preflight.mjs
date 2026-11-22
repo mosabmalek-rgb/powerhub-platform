@@ -14,8 +14,9 @@ export function classifyStagingRequest(request,context){
  assert.equal(request.purpose,
   'two isolated read-only source logical exports and Staging legacy-ledger restorations');
  assert.equal(typeof request.requested,'boolean','requested must be boolean');
+ assert.equal(Object.hasOwn(request,'approval_token'),false,
+   'legacy approval_token field is unsupported');
  if(request.requested===false){
-   assert.equal(request.approval_token,'UNSET','inactive request token must be unset');
    assert.equal(request.approved_parent_sha,'UNSET','inactive request parent must be unset');
    return {requested:false,restoreExecuted:false,stagingInplaceGo:false};
  }
