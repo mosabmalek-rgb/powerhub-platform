@@ -153,21 +153,39 @@ db pr359_export_restored < "$dumpdir/data.sql" >/dev/null
 # source and restored target. A successful count-only restore is insufficient.
 db postgres < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-source.jsonl"
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-restored.jsonl"
-node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
- "$work/semantic-source.jsonl" "$work/semantic-restored.jsonl" >/dev/null || {
+# The production checker is intentionally pinned to 2,723 hosted columns, and
+# therefore must NOT be used against this tiny synthetic fixture. Compare the
+# actual production SQL's seven digests here without weakening hosted guards.
+semantic_fixture_equal(){
+ node --input-type=module - "$1" "$2" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const parse=path=>{
+ const rows=readFileSync(path,'utf8').trim().split(/\\r?\\n/).map(JSON.parse);
+ assert.equal(rows.length,7,'all seven schema categories must be present');
+ const categories=rows.map(r=>r.category).sort();
+ assert.deepEqual(categories,['columns','constraints','functions','indexes','policies','relations','triggers']);
+ for(const r of rows){
+  assert.match(r.sha256,/^[0-9a-f]{64}$/);
+  assert.ok(Number.isInteger(r.objects)&&r.objects>0);
+ }
+ return rows.sort((a,b)=>a.category.localeCompare(b.category));
+};
+assert.deepEqual(parse(process.argv[2]),parse(process.argv[3]),'fixture semantic parity differs');
+JS
+}
+semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-restored.jsonl" || {
  echo PR359_EXPORT_RESTORED_SEMANTIC_ACL_DRIFT >&2; exit 1;
 }
 # Negative controls must catch EXECUTE and SELECT privilege widening.
 printf 'GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO anon;\n' | db pr359_export_restored >/dev/null
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-escalated.jsonl"
-if node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
- "$work/semantic-source.jsonl" "$work/semantic-escalated.jsonl" >/dev/null 2>&1; then
+if semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-escalated.jsonl" >/dev/null 2>&1; then
  echo PR359_EXPORT_UNAUTHORIZED_FUNCTION_EXECUTE_ACCEPTED >&2; exit 1;
 fi
 printf 'REVOKE EXECUTE ON FUNCTION public.pr359_acl_probe() FROM anon;\nGRANT SELECT ON TABLE public.pr359_export_probe TO anon;\n' | db pr359_export_restored >/dev/null
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-escalated.jsonl"
-if node scripts/pr359-r4/check-staging-schema-fingerprint.mjs --compare \
- "$work/semantic-source.jsonl" "$work/semantic-escalated.jsonl" >/dev/null 2>&1; then
+if semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-escalated.jsonl" >/dev/null 2>&1; then
  echo PR359_EXPORT_UNAUTHORIZED_TABLE_READ_ACCEPTED >&2; exit 1;
 fi
 printf 'REVOKE SELECT ON TABLE public.pr359_export_probe FROM anon;\n' | db pr359_export_restored >/dev/null
