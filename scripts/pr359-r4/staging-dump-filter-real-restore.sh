@@ -207,6 +207,19 @@ db pr359_export_restored < "$dumpdir/schema.sql" >/dev/null
 db pr359_export_restored < "$dumpdir/data.sql" >/dev/null
 # Check the exact production seven-category semantic catalog on the local
 # source and restored target. A successful count-only restore is insufficient.
+# Negative source control: unknown grantee must fail closed, never generate
+# a partial permission replay for a drifted source.
+cat <<'SQL' | db postgres >/dev/null
+CREATE ROLE pr359_unexpected_acl_role NOLOGIN;
+GRANT SELECT ON TABLE public.pr359_acl_public_table TO pr359_unexpected_acl_role;
+SQL
+if db postgres < scripts/pr359-r4/staging-source-object-acl-replay.sql > "$work/invalid-acl-replay.sql" 2>/dev/null; then
+ echo PR359_ACL_REPLAY_UNKNOWN_GRANTEE_ACCEPTED >&2; exit 1
+fi
+cat <<'SQL' | db postgres >/dev/null
+REVOKE SELECT ON TABLE public.pr359_acl_public_table FROM pr359_unexpected_acl_role;
+DROP ROLE pr359_unexpected_acl_role;
+SQL
 # Capture exact ACL replay using the production read-only PostgreSQL catalog
 # query; this fixture never connects to hosted projects.
 db postgres < scripts/pr359-r4/staging-source-object-acl-replay.sql > "$work/source-object-acl-replay.sql"
