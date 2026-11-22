@@ -3,7 +3,15 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const categories=['column_acl','default_acl','schema'];
-const counts={column_acl:0,default_acl:4,schema:3};
+// Immutable OBSERVED source catalog evidence captured from read-only Staging
+// iyuryuhaylhisjfcrwkz on 2026-11-22 using staging-privilege-boundary.sql.
+// The source SHA must match BOTH the reviewed object counts and content hashes.
+// It is NOT approval for APP_OWNED, rebaseline, in-place cutover, or PR merge.
+export const observedStagingBoundary=Object.freeze({
+ column_acl:Object.freeze({objects:0,sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}),
+ default_acl:Object.freeze({objects:4,sha256:'798d82d1e21dcbe5bc080f9433efc22d50307122c495fe4f2522304aef75d41b'}),
+ schema:Object.freeze({objects:3,sha256:'79fe12e8da35c07850612559c5edd288844e0611b6f120c1a7f5bbf6ebc5d504'})
+});
 export function parseBoundary(raw){
  assert.equal(typeof raw,'string');
  const lines=raw.trim().split(String.fromCharCode(10)).map(x=>x.trim()).filter(Boolean);
@@ -23,9 +31,12 @@ export function parseBoundary(raw){
 }
 export function verifySource(raw){
  const records=parseBoundary(raw);
- for(const category of categories)
-  assert.equal(records.get(category).objects,counts[category],
+ for(const category of categories){
+  assert.equal(records.get(category).objects,observedStagingBoundary[category].objects,
     'unreviewed source privilege inventory '+category);
+  assert.equal(records.get(category).sha256,observedStagingBoundary[category].sha256,
+    'unreviewed source privilege fingerprint '+category);
+ }
  return {pass:true};
 }
 export function compareBoundary(source,target){

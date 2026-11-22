@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
-import {parseBoundary,verifySource,compareBoundary} from './check-staging-privilege-boundary.mjs';
+import {parseBoundary,verifySource,compareBoundary,observedStagingBoundary} from './check-staging-privilege-boundary.mjs';
 const sha=c=>c.repeat(64);
-const rows=(count={column_acl:0,default_acl:4,schema:3},override={})=>
+const baselineCounts=Object.fromEntries(Object.entries(observedStagingBoundary).map(([name,v])=>[name,v.objects]));
+const rows=(count=baselineCounts,override={})=>
  Object.entries(count).map(([category,objects])=>
- JSON.stringify({category,objects,sha256:override[category]||sha('a')})).join(String.fromCharCode(10))+String.fromCharCode(10);
+ JSON.stringify({category,objects,sha256:override[category]||observedStagingBoundary[category]?.sha256||sha('a')}))
+ .join(String.fromCharCode(10))+String.fromCharCode(10);
 test('reviewed inventory includes three categories with fixed source counts',()=>{
  assert.equal(verifySource(rows()).pass,true);
+ // An attacker can keep catalog counts identical while widening grants.
+ // Source must reject a changed SHA before the first data export.
+ for(const cat of ['schema','default_acl','column_acl']){
+  assert.throws(()=>verifySource(rows(undefined,{[cat]:sha('b')})),
+   /unreviewed source privilege fingerprint/);
+ }
  for(const cat of ['schema','default_acl','column_acl']){
   const changed={column_acl:0,default_acl:4,schema:3};
   changed[cat]++;
