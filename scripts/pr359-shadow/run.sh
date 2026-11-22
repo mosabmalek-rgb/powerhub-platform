@@ -172,7 +172,7 @@ if [[ "${mode:-}" == smoke ]]; then
   # not only a plain postgres:17 fixture. The checked-in SHA is a read-only
   # source observation; no Staging credentials are loaded into this test.
   SHADOW_STAGE=smoke-supabase-creation-default-acl
-  printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;\\n' | sql postgres >/dev/null
+  printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;\n' | sql postgres >/dev/null
   sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/supabase-acl-negative.jsonl"
   if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \\
     "$work/supabase-acl-negative.jsonl" >/dev/null 2>&1; then
