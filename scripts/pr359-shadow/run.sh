@@ -527,6 +527,16 @@ check_staging_restored_schema(){
     "$restore_work/staging-schema-objects-$stage.jsonl" \
     "$restore_work/staging-schema-attribute-source.jsonl" \
     "$restore_work/staging-schema-attributes-$stage.jsonl"; then
+    # Diagnostic only: role-safe aggregate grant deltas; never accept drift.
+    SHADOW_STAGE="staging-acl-grant-diagnostic-$stage"
+    if sql postgres < scripts/pr359-r4/staging-acl-grant-census.sql \
+      > "$restore_work/staging-acl-grant-census-$stage.jsonl"; then
+      node scripts/pr359-r4/diagnose-staging-acl-grant-census.mjs --compare \
+        "$restore_work/staging-acl-grant-census-source.jsonl" \
+        "$restore_work/staging-acl-grant-census-$stage.jsonl" || :
+    else
+      echo 'PR359_R4_ACL_GRANT_CENSUS_DIAGNOSTIC_FAILED' >&2
+    fi
     echo 'PR359_R4_UNREVIEWED_RESTORED_SCHEMA_DRIFT_BLOCKED' >&2
     return 2
   fi

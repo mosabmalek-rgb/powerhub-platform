@@ -74,6 +74,8 @@ source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-sche
 source_psql "$workdir/staging-schema-semantic-source.jsonl" scripts/pr359-r4/staging-schema-semantic-fingerprint.sql
 # Same exported source snapshot, per-field hashes only, no secret-bearing values.
 source_psql "$workdir/staging-schema-semantic-attributes-source.jsonl" scripts/pr359-r4/staging-schema-semantic-attribute-digests.sql
+# Diagnostic counts never replace the strict semantic definition+ACL digest.
+source_psql "$workdir/staging-acl-grant-census-source.jsonl" scripts/pr359-r4/staging-acl-grant-census.sql
 # Existing-object parity omits namespace, default and per-column grants.
 source_psql "$workdir/staging-privilege-boundary-source.jsonl" scripts/pr359-r4/staging-privilege-boundary.sql
 node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-source "$workdir/staging-privilege-boundary-source.jsonl"

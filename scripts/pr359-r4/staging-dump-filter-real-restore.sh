@@ -211,6 +211,19 @@ printf 'REVOKE SELECT ON TABLE public.pr359_export_probe FROM anon;\n' | db pr35
 [[ "$(printf "SELECT has_function_privilege('service_role','public.pr359_acl_probe()','EXECUTE');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('authenticated','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('anon','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == f ]] || exit 1
+# Capture counts from the exact source/restore grant catalog.
+db postgres < scripts/pr359-r4/staging-acl-grant-census.sql > "$work/acl-census-source.jsonl"
+db pr359_export_restored < scripts/pr359-r4/staging-acl-grant-census.sql > "$work/acl-census-restored.jsonl"
+node scripts/pr359-r4/diagnose-staging-acl-grant-census.mjs --compare \
+ "$work/acl-census-source.jsonl" "$work/acl-census-restored.jsonl" >/dev/null
+printf 'GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO anon;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-acl-grant-census.sql > "$work/acl-census-escalated.jsonl"
+if node scripts/pr359-r4/diagnose-staging-acl-grant-census.mjs --compare \
+ "$work/acl-census-source.jsonl" "$work/acl-census-escalated.jsonl" >/dev/null 2>&1; then
+ echo 'PR359_LOCAL_ACL_GRANT_CENSUS_NEGATIVE_CONTROL_FAILED' >&2; exit 1
+fi
+printf 'REVOKE EXECUTE ON FUNCTION public.pr359_acl_probe() FROM anon;\n' | db pr359_export_restored >/dev/null
+echo 'PR359_LOCAL_ACL_GRANT_CENSUS_NEGATIVE_CONTROL_PASS'
 echo PR359_EXACT_EXPORT_SEMANTIC_ACL_PARITY_AND_NEGATIVE_CONTROLS_PASS
 # Default privileges govern *future* objects and are not represented by
 # the seven existing-object catalogs. Check source/target grant provenance and
