@@ -16,7 +16,7 @@ WITH inventory AS (
  WHERE n.nspname IN ('public','private','powerhub_private')
  UNION ALL
  SELECT 'default_acl',pg_get_userbyid(d.defaclrole)||':'||
- coalesce(n.nspname,'<global>')||':'||d.defaclobjtype,
+ coalesce(n.nspname,'<global>')||':'||d.defaclobjtype::text,
  jsonb_build_object('acl',(SELECT coalesce(jsonb_agg(jsonb_build_array(pg_get_userbyid(g.grantor),
  CASE WHEN g.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(g.grantee) END,
  g.privilege_type,g.is_grantable)
