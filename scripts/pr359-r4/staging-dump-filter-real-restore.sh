@@ -46,6 +46,17 @@ CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE anon NOLOGIN;
 CREATE SCHEMA extensions;
 CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
+-- Reproduce hosted Staging's *creation-time* ACL behavior, not just explicit
+-- GRANT/REVOKE on already-created objects. These defaults are per database;
+-- the disposable restore starts without them, as a fresh target does.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+ REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+ GRANT EXECUTE ON FUNCTIONS TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+ GRANT SELECT ON TABLES TO authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+ GRANT ALL ON TABLES TO service_role;
 CREATE SCHEMA auth;
 CREATE TABLE auth.pr359_provider_probe(
  id integer PRIMARY KEY,payload text NOT NULL);
@@ -190,6 +201,9 @@ if semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-escalate
 fi
 printf 'REVOKE SELECT ON TABLE public.pr359_export_probe FROM anon;\n' | db pr359_export_restored >/dev/null
 [[ "$(printf "SELECT has_function_privilege('anon','public.pr359_acl_probe()','EXECUTE');" | db pr359_export_restored)" == f ]] || exit 1
+[[ "$(printf "SELECT has_function_privilege('anon','public.pr359_acl_trigger()','EXECUTE');" | db pr359_export_restored)" == f ]] || {
+ echo PR359_EXPORT_DEFAULT_FUNCTION_PUBLIC_EXECUTE_LEAK >&2; exit 1;
+}
 [[ "$(printf "SELECT has_function_privilege('service_role','public.pr359_acl_probe()','EXECUTE');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('authenticated','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('anon','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == f ]] || exit 1
