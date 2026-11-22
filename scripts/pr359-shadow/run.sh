@@ -650,6 +650,19 @@ restore(){
   runfile postgres "$restore_work/dump/schema.sql"
   echo 'PR359_SHADOW_STAGE: application schema imported'
   if [[ "$mode" == staging-restore ]]; then
+    # pg_dump recreates objects under the destination's creation-time default
+    # privileges. Existing hosted objects may have narrower explicit grants.
+    # Replay only the source-snapshot-attested per-object ACL on DISPOSABLE
+    # Docker, never on the hosted Staging source, before strict security parity.
+    SHADOW_STAGE=staging-local-source-acl-replay-pre-data
+    [[ -s "$restore_work/staging-source-object-acl-replay.sql" ]] || {
+      echo PR359_STAGING_SOURCE_ACL_REPLAY_MISSING >&2; exit 2
+    }
+    { printf 'BEGIN;\\n'; cat "$restore_work/staging-source-object-acl-replay.sql"; printf '\\nCOMMIT;\\n'; } | sql postgres >/dev/null || {
+      echo PR359_STAGING_SOURCE_ACL_REPLAY_FAILED >&2; exit 2
+    }
+    echo PR359_STAGING_SOURCE_ATTESTED_OBJECT_ACL_REPLAY_PASS
+
     SHADOW_STAGE=staging-schema-before-data
     sql postgres < scripts/pr359-r4/staging-schema-fingerprint.sql > "$restore_work/staging-schema-pre-data.jsonl"
     check_staging_restored_schema pre-data
