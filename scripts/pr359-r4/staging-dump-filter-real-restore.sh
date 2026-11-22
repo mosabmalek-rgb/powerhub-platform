@@ -70,6 +70,22 @@ CREATE UNIQUE INDEX pr359_export_payload_uniq
  ON public.pr359_export_probe(payload);
 CREATE FUNCTION public.pr359_acl_probe() RETURNS integer
  LANGUAGE sql SECURITY DEFINER AS 'SELECT 359';
+-- Mixed hosted-like ACL patterns, including a browser role and sequences:
+-- these must survive exact filtered pg_dump, not merely row and index COPY.
+CREATE FUNCTION public.pr359_acl_authenticated_probe() RETURNS integer
+ LANGUAGE sql AS 'SELECT 360';
+REVOKE ALL ON FUNCTION public.pr359_acl_authenticated_probe() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.pr359_acl_authenticated_probe() TO authenticated;
+CREATE SEQUENCE public.pr359_acl_sequence;
+REVOKE ALL ON SEQUENCE public.pr359_acl_sequence FROM PUBLIC;
+GRANT USAGE ON SEQUENCE public.pr359_acl_sequence TO anon;
+GRANT SELECT ON SEQUENCE public.pr359_acl_sequence TO service_role;
+CREATE TABLE public.pr359_acl_public_table(
+ id integer PRIMARY KEY, caption text NOT NULL);
+ALTER TABLE public.pr359_acl_public_table ENABLE ROW LEVEL SECURITY;
+CREATE POLICY pr359_acl_public_select ON public.pr359_acl_public_table
+ FOR SELECT TO anon USING (true);
+GRANT SELECT ON TABLE public.pr359_acl_public_table TO anon;
 REVOKE ALL ON FUNCTION public.pr359_acl_probe() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO service_role;
 GRANT SELECT ON TABLE public.pr359_export_probe TO authenticated;
@@ -211,6 +227,36 @@ printf 'REVOKE SELECT ON TABLE public.pr359_export_probe FROM anon;\n' | db pr35
 [[ "$(printf "SELECT has_function_privilege('service_role','public.pr359_acl_probe()','EXECUTE');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('authenticated','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('anon','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == f ]] || exit 1
+# Preserve the separate EXECUTE, RLS SELECT, and SEQUENCE USAGE grants.
+[[ "$(printf "SELECT has_function_privilege('authenticated','public.pr359_acl_authenticated_probe()','EXECUTE');" | db pr359_export_restored)" == t ]] || {
+ echo PR359_EXPORT_AUTHENTICATED_EXECUTE_MISSING >&2; exit 1;
+}
+[[ "$(printf "SELECT has_function_privilege('anon','public.pr359_acl_authenticated_probe()','EXECUTE');" | db pr359_export_restored)" == f ]] || {
+ echo PR359_EXPORT_AUTHENTICATED_FUNCTION_PUBLIC_LEAK >&2; exit 1;
+}
+[[ "$(printf "SELECT has_table_privilege('anon','public.pr359_acl_public_table','SELECT');" | db pr359_export_restored)" == t ]] || {
+ echo PR359_EXPORT_ANON_SELECT_MISSING >&2; exit 1;
+}
+[[ "$(printf "SELECT has_sequence_privilege('anon','public.pr359_acl_sequence','USAGE');" | db pr359_export_restored)" == t ]] || {
+ echo PR359_EXPORT_SEQUENCE_ANON_USAGE_MISSING >&2; exit 1;
+}
+[[ "$(printf "SELECT has_sequence_privilege('authenticated','public.pr359_acl_sequence','USAGE');" | db pr359_export_restored)" == f ]] || {
+ echo PR359_EXPORT_SEQUENCE_UNAUTHORIZED_AUTHENTICATED_USAGE >&2; exit 1;
+}
+# Negative control: keep one sequence USAGE grant while swapping its grantee.
+# Object/privilege counts alone cannot establish equal authorization.
+db postgres < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-role-source.jsonl"
+printf 'REVOKE USAGE ON SEQUENCE public.pr359_acl_sequence FROM anon;\nGRANT USAGE ON SEQUENCE public.pr359_acl_sequence TO authenticated;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-role-swapped.jsonl"
+if semantic_fixture_equal "$work/semantic-role-source.jsonl" "$work/semantic-role-swapped.jsonl" >/dev/null 2>&1; then
+ echo PR359_EXPORT_SEQUENCE_GRANTEE_SWAP_ACCEPTED >&2; exit 1;
+fi
+printf 'REVOKE USAGE ON SEQUENCE public.pr359_acl_sequence FROM authenticated;\nGRANT USAGE ON SEQUENCE public.pr359_acl_sequence TO anon;\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-role-restored.jsonl"
+semantic_fixture_equal "$work/semantic-role-source.jsonl" "$work/semantic-role-restored.jsonl" >/dev/null || {
+ echo PR359_EXPORT_SEQUENCE_GRANTEE_ROUNDTRIP_FAILED >&2; exit 1;
+}
+echo PR359_EXPORT_MIXED_ROLE_FUNCTION_TABLE_SEQUENCE_ACL_PASS
 # Capture counts from the exact source/restore grant catalog.
 db postgres < scripts/pr359-r4/staging-acl-grant-census.sql > "$work/acl-census-source.jsonl"
 db pr359_export_restored < scripts/pr359-r4/staging-acl-grant-census.sql > "$work/acl-census-restored.jsonl"
