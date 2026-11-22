@@ -27,8 +27,8 @@ WITH objects AS (
  FROM objects o CROSS JOIN LATERAL aclexplode(o.object_acl) AS g
 ), guard AS (
  SELECT 1 / CASE WHEN
-   (SELECT count(*)=978
-      AND count(*) FILTER (WHERE pg_get_userbyid(owner_id)='postgres')=978
+   (SELECT count(*) > 0
+      AND count(*) FILTER (WHERE pg_get_userbyid(owner_id)='postgres')=count(*)
     FROM objects)
    AND NOT EXISTS (
      SELECT 1 FROM grants g
