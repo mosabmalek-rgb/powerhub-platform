@@ -186,6 +186,11 @@ if [[ "${mode:-}" == smoke ]]; then
     echo PR359_DOCKER_SUPABASE_PINNED_DEFAULT_ACL_BOOTSTRAP_FAILED >&2; exit 1
   }
   echo PR359_DOCKER_SUPABASE_PINNED_DEFAULT_ACL_BOOTSTRAP_PASS
+  runfile postgres scripts/pr359-r4/verify-local-created-object-acl.sql
+  [[ "$(value "SELECT to_regprocedure('public.pr359_local_acl_create_probe()') IS NULL AND to_regclass('public.pr359_local_acl_create_table') IS NULL AND to_regclass('public.pr359_local_acl_create_sequence') IS NULL;")" == t ]] || {
+    echo PR359_LOCAL_ACL_PROBE_TRANSACTION_NOT_ROLLED_BACK >&2; exit 1
+  }
+  echo PR359_DOCKER_SUPABASE_EFFECTIVE_CREATION_ACL_PASS
   echo 'PR359_DOCKER_SUPABASE_RESERVED_ROLE_SMOKE_PASS'
   echo 'PR359_DOCKER_ISOLATED_SMOKE_PASS'
   exit 0
@@ -632,6 +637,13 @@ restore(){
       echo 'PR359_LOCAL_DEFAULT_ACL_PRE_SCHEMA_BLOCKED' >&2; exit 2;
     }
     echo PR359_LOCAL_PRE_SCHEMA_DEFAULT_ACL_PARITY_PASS
+    # Rollback-only real object creation test on isolated target, before any
+    # application DDL; no managed/provider catalog changes may persist.
+    runfile postgres scripts/pr359-r4/verify-local-created-object-acl.sql
+    [[ "$(value "SELECT to_regprocedure('public.pr359_local_acl_create_probe()') IS NULL AND to_regclass('public.pr359_local_acl_create_table') IS NULL AND to_regclass('public.pr359_local_acl_create_sequence') IS NULL;")" == t ]] || {
+      echo PR359_LOCAL_ACL_PROBE_TRANSACTION_NOT_ROLLED_BACK >&2; exit 1
+    }
+    echo PR359_R4_EFFECTIVE_CREATED_OBJECT_ACL_PARITY_PASS
   fi
   SHADOW_STAGE=restore-application-schema
   echo 'PR359_SHADOW_STAGE: starting application schema restore'

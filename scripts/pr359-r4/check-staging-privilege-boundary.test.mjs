@@ -56,6 +56,21 @@ test('future-object privileges cannot drift before application schema restore',(
  assert.ok(runner.indexOf('bootstrap-local-staging-default-acl.sql')<
    runner.indexOf('runfile postgres "$restore_work/dump/schema.sql"'));
 });
+test('disposable Supabase test proves effective grants and automatic rollback',()=>{
+ const sql=readFileSync('scripts/pr359-r4/verify-local-created-object-acl.sql','utf8');
+ const runner=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ assert.match(sql,/CREATE FUNCTION public.pr359_local_acl_create_probe/);
+ assert.match(sql,/CREATE TABLE public.pr359_local_acl_create_table/);
+ assert.match(sql,/CREATE SEQUENCE public.pr359_local_acl_create_sequence/);
+ for(const type of ['function','table','sequence']) assert.match(sql,new RegExp('has_'+type+'_privilege'));
+ assert.match(sql,/ROLLBACK;/);
+ assert.equal(runner.split('runfile postgres scripts/pr359-r4/verify-local-created-object-acl.sql').length-1,2);
+ assert.match(runner,/PR359_DOCKER_SUPABASE_EFFECTIVE_CREATION_ACL_PASS/);
+ assert.match(runner,/PR359_R4_EFFECTIVE_CREATED_OBJECT_ACL_PARITY_PASS/);
+ assert.match(runner,/PR359_LOCAL_ACL_PROBE_TRANSACTION_NOT_ROLLED_BACK/);
+ assert.ok(runner.indexOf('PR359_R4_EFFECTIVE_CREATED_OBJECT_ACL_PARITY_PASS')<
+  runner.indexOf('runfile postgres "$restore_work/dump/schema.sql"'));
+});
 test('reviewer runs source attestation and two fail-closed restored checks',()=>{
  const exporter=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
  const twin=readFileSync('scripts/pr359-r4/check-independent-staging-exports.mjs','utf8');
