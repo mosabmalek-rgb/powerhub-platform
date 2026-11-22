@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
-import {parseBoundary,verifySource,compareBoundary,observedStagingBoundary} from './check-staging-privilege-boundary.mjs';
+import {parseBoundary,verifySource,compareBoundary,verifyLocalStagingDefault,observedStagingBoundary} from './check-staging-privilege-boundary.mjs';
 const sha=c=>c.repeat(64);
 const baselineCounts=Object.fromEntries(Object.entries(observedStagingBoundary).map(([name,v])=>[name,v.objects]));
 const rows=(count=baselineCounts,override={})=>
@@ -31,6 +31,16 @@ test('cross-restore comparison blocks any expanded or removed security grant',()
   assert.deepEqual(outcome.drift,[cat]);
   assert.equal(outcome.stagingInplaceGo,false);
  }
+});
+test('pinned Staging default ACL is checked independently of source files',()=>{
+ assert.equal(verifyLocalStagingDefault(rows()).pass,true);
+ assert.equal(verifyLocalStagingDefault(rows(undefined,{default_acl:sha('b')})).pass,false);
+ const n={...baselineCounts,default_acl:3};
+ assert.equal(verifyLocalStagingDefault(rows(n)).pass,false);
+ assert.equal(verifyLocalStagingDefault(rows()).stagingInplaceGo,false);
+ const runner=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ assert.match(runner,/PR359_DOCKER_SUPABASE_DEFAULT_ACL_NEGATIVE_CONTROL_PASS/);
+ assert.match(runner,/PR359_DOCKER_SUPABASE_PINNED_DEFAULT_ACL_BOOTSTRAP_PASS/);
 });
 test('future-object privileges cannot drift before application schema restore',()=>{
  const source=rows(), mutated=rows(undefined,{default_acl:sha('c')});

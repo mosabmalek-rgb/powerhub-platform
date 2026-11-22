@@ -168,6 +168,24 @@ if [[ "${mode:-}" == smoke ]]; then
   [[ "$(value "SELECT NOT rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname='supabase_realtime_admin';")" == t ]] || {
     echo 'PR359_LOCAL_RESERVED_ROLE_CHECK_FAILED' >&2; exit 1;
   }
+  # Prove the pre-schema bootstrap against the *Supabase* PostgreSQL image,
+  # not only a plain postgres:17 fixture. The checked-in SHA is a read-only
+  # source observation; no Staging credentials are loaded into this test.
+  SHADOW_STAGE=smoke-supabase-creation-default-acl
+  printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;\\n' | sql postgres >/dev/null
+  sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/supabase-acl-negative.jsonl"
+  if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \\
+    "$work/supabase-acl-negative.jsonl" >/dev/null 2>&1; then
+    echo PR359_DOCKER_SUPABASE_DEFAULT_ACL_NEGATIVE_CONTROL_FAILED >&2; exit 1
+  fi
+  echo PR359_DOCKER_SUPABASE_DEFAULT_ACL_NEGATIVE_CONTROL_PASS
+  runfile postgres scripts/pr359-r4/bootstrap-local-staging-default-acl.sql
+  sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/supabase-acl-bootstrapped.jsonl"
+  node scripts/pr359-r4/check-staging-privilege-boundary.mjs --verify-local-default \\
+    "$work/supabase-acl-bootstrapped.jsonl" >/dev/null || {
+    echo PR359_DOCKER_SUPABASE_PINNED_DEFAULT_ACL_BOOTSTRAP_FAILED >&2; exit 1
+  }
+  echo PR359_DOCKER_SUPABASE_PINNED_DEFAULT_ACL_BOOTSTRAP_PASS
   echo 'PR359_DOCKER_SUPABASE_RESERVED_ROLE_SMOKE_PASS'
   echo 'PR359_DOCKER_ISOLATED_SMOKE_PASS'
   exit 0
