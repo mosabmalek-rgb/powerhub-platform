@@ -114,8 +114,8 @@ test('disabled request skips protected restore without permitting stale approval
 });
 test('protected Environment, repo opt-in, TLS, Staging source and read-only restore survive',()=>{
  const wf=readFileSync('.github/workflows/pr359-staging-shadow.yml','utf8');
- assert.match(wf,/request_preflight:/);
- assert.ok(wf.includes("requested: " + '
+ assert.ok(wf.includes('request_preflight:'));
+ assert.ok(wf.includes("requested: "+'$'+"{{ steps.classify.outputs.requested }}"));
  assert.ok(wf.includes('staging-shadow-request-preflight.mjs >> "$GITHUB_OUTPUT"'));
  const restore=wf.slice(wf.indexOf('\n  real-staging-ledger-restore:'));
  for(const fragment of [
@@ -127,23 +127,7 @@ test('protected Environment, repo opt-in, TLS, Staging source and read-only rest
    'staging-shadow-request.mjs',
    'guard.mjs',
    'run.sh staging-restore',
-   "SHADOW_SOURCE_KIND: staging"
+   'SHADOW_SOURCE_KIND: staging'
  ]) assert.ok(restore.includes(fragment),fragment);
- assert.equal(restore.includes('environment:\n      name: pr359-staging-shadow'),true);
-});
- + "{{ steps.classify.outputs.requested }}"));
- assert.match(wf,/staging-shadow-request-preflight\\.mjs >> "\\$GITHUB_OUTPUT"/);
- const restore=wf.slice(wf.indexOf('\n  real-staging-ledger-restore:'));
- for(const fragment of [
-   'needs: request_preflight',
-   "needs.request_preflight.outputs.requested == 'true'",
-   "vars.PR359_ENABLE_STAGING_DOCKER_SHADOW == 'true'",
-   'name: pr359-staging-shadow',
-   'secrets.PR359_STAGING_SHADOW_SOURCE_DB_URL',
-   'staging-shadow-request.mjs',
-   'guard.mjs',
-   'run.sh staging-restore',
-   "SHADOW_SOURCE_KIND: staging"
- ]) assert.ok(restore.includes(fragment),fragment);
- assert.equal(restore.includes('environment:\n      name: pr359-staging-shadow'),true);
+ assert.ok(restore.includes('environment:\n      name: pr359-staging-shadow'));
 });
