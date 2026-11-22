@@ -599,6 +599,22 @@ restore(){
     echo 'PR359_DOCKER_MANAGED_MIGRATIONS_READ_FAILED' >&2; exit 1
   fi
   check_restore_managed_compatibility
+  if [[ "$mode" == staging-restore ]]; then
+    # Local-only bootstrap of the SOURCE-ATTESTED creation-time ACL contract.
+    # pg_dump replays default ACLs after CREATE, which cannot correct earlier
+    # object grants if the preinstalled Supabase image had different defaults.
+    # Pre-schema mismatch must block before any application DDL/data import.
+    SHADOW_STAGE=staging-local-default-acl-pre-schema
+    runfile postgres scripts/pr359-r4/bootstrap-local-staging-default-acl.sql
+    sql postgres < scripts/pr359-r4/staging-privilege-boundary.sql \
+      > "$restore_work/staging-privilege-boundary-pre-schema.jsonl"
+    node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare-default-only \
+      "$restore_work/staging-privilege-boundary-source.jsonl" \
+      "$restore_work/staging-privilege-boundary-pre-schema.jsonl" || {
+      echo 'PR359_LOCAL_DEFAULT_ACL_PRE_SCHEMA_BLOCKED' >&2; exit 2;
+    }
+    echo PR359_LOCAL_PRE_SCHEMA_DEFAULT_ACL_PARITY_PASS
+  fi
   SHADOW_STAGE=restore-application-schema
   echo 'PR359_SHADOW_STAGE: starting application schema restore'
   runfile postgres "$restore_work/dump/schema.sql"

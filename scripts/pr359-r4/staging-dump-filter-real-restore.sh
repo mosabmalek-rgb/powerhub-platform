@@ -57,6 +57,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
  GRANT SELECT ON TABLES TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
  GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+ GRANT ALL ON SEQUENCES TO service_role;
 CREATE SCHEMA private;
 CREATE SCHEMA powerhub_private;
 CREATE SCHEMA auth;
@@ -178,6 +180,29 @@ CREATE SCHEMA auth;
 CREATE TABLE auth.pr359_provider_probe(
  id integer PRIMARY KEY,payload text NOT NULL);
 SQL
+# Reproduce a target whose creation-time privilege defaults differ from
+# Staging, even if the eventual pg_dump contains the intended default ACLs.
+cat <<'SQL' | db pr359_export_restored >/dev/null
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+ GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+ GRANT EXECUTE ON FUNCTIONS TO anon;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+ GRANT SELECT ON TABLES TO authenticated;
+SQL
+db postgres < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-default-source.jsonl"
+db pr359_export_restored < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-default-drift.jsonl"
+if node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare-default-only \
+ "$work/privilege-default-source.jsonl" "$work/privilege-default-drift.jsonl" >/dev/null 2>&1; then
+ echo 'PR359_LOCAL_DEFAULT_ACL_DRIFT_NEGATIVE_CONTROL_FAILED' >&2; exit 1
+fi
+db pr359_export_restored < scripts/pr359-r4/bootstrap-local-staging-default-acl.sql >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-privilege-boundary.sql > "$work/privilege-default-ready.jsonl"
+node scripts/pr359-r4/check-staging-privilege-boundary.mjs --compare-default-only \
+ "$work/privilege-default-source.jsonl" "$work/privilege-default-ready.jsonl" >/dev/null || {
+ echo 'PR359_LOCAL_DEFAULT_ACL_BOOTSTRAP_PARITY_FAILED' >&2; exit 1
+}
+echo PR359_LOCAL_DEFAULT_ACL_PRE_SCHEMA_REPAIR_TEST_PASS
 db pr359_export_restored < "$dumpdir/schema.sql" >/dev/null
 db pr359_export_restored < "$dumpdir/data.sql" >/dev/null
 # Check the exact production seven-category semantic catalog on the local

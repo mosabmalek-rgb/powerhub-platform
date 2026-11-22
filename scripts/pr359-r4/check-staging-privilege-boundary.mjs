@@ -57,7 +57,16 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
   for(const category of outcome.drift)console.error('PR359_PRIVILEGE_DRIFT='+category);
   if(!outcome.pass){console.error('PR359_PRIVILEGE_BOUNDARY_MISMATCH_BLOCKED');process.exitCode=2;}
   else console.log('PR359_PRIVILEGE_BOUNDARY_PARITY_PASS');
- }else throw Error('Usage: --verify-source source | --compare source target');
+ }else if(mode==='--compare-default-only'){
+  assert.ok(first&&second,'source and local target evidence required');
+  const source=parseBoundary(readFileSync(first,'utf8'));
+  const target=parseBoundary(readFileSync(second,'utf8'));
+  const a=source.get('default_acl'),b=target.get('default_acl');
+  assert.ok(a.objects>0,'missing source future-object ACL contract');
+  const match=a.objects===b.objects&&a.sha256===b.sha256;
+  console.log('PR359_LOCAL_PRE_SCHEMA_DEFAULT_ACL_PARITY='+match);
+  if(!match){console.error('PR359_LOCAL_DEFAULT_ACL_DRIFT_BLOCKED');process.exitCode=2;}
+ }else throw Error('Usage: --verify-source source | --compare source target | --compare-default-only source local-target');
  console.log('PR359_STAGING_INPLACE_GO=FALSE');
  console.log('PR359_MERGE_GO=FALSE');
 }

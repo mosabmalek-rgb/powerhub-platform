@@ -32,6 +32,20 @@ test('cross-restore comparison blocks any expanded or removed security grant',()
   assert.equal(outcome.stagingInplaceGo,false);
  }
 });
+test('future-object privileges cannot drift before application schema restore',()=>{
+ const source=rows(), mutated=rows(undefined,{default_acl:sha('c')});
+ const parsed=parseBoundary(source), changed=parseBoundary(mutated);
+ assert.notEqual(parsed.get('default_acl').sha256,changed.get('default_acl').sha256);
+ assert.ok(compareBoundary(source,mutated).drift.includes('default_acl'));
+ const runner=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const bootstrap=readFileSync('scripts/pr359-r4/bootstrap-local-staging-default-acl.sql','utf8');
+ assert.match(bootstrap,/REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC/);
+ assert.match(bootstrap,/GRANT ALL ON SEQUENCES TO service_role/);
+ assert.match(bootstrap,/GRANT ALL ON TABLES TO service_role/);
+ assert.match(runner,/PR359_LOCAL_PRE_SCHEMA_DEFAULT_ACL_PARITY_PASS/);
+ assert.ok(runner.indexOf('bootstrap-local-staging-default-acl.sql')<
+   runner.indexOf('runfile postgres "$restore_work/dump/schema.sql"'));
+});
 test('reviewer runs source attestation and two fail-closed restored checks',()=>{
  const exporter=readFileSync('scripts/pr359-r4/staging-atomic-export.sh','utf8');
  const twin=readFileSync('scripts/pr359-r4/check-independent-staging-exports.mjs','utf8');
