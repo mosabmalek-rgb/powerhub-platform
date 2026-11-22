@@ -66,7 +66,7 @@ ALTER TABLE public.pr359_export_probe ENABLE ROW LEVEL SECURITY;
 CREATE POLICY pr359_fixture_select ON public.pr359_export_probe
  FOR SELECT TO authenticated USING (true);
 CREATE FUNCTION public.pr359_acl_trigger() RETURNS trigger
- LANGUAGE plpgsql AS $ BEGIN RETURN NEW; END; $;
+ LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END;';
 CREATE TRIGGER pr359_acl_probe_trg BEFORE INSERT ON public.pr359_export_probe
  FOR EACH ROW EXECUTE FUNCTION public.pr359_acl_trigger();
 INSERT INTO public.pr359_export_probe VALUES
