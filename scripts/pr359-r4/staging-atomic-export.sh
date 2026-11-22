@@ -68,6 +68,13 @@ source_psql "$workdir/staging-content-source.jsonl" scripts/pr359-r4/staging-tab
 node scripts/pr359-r4/check-staging-table-content.mjs --compare "$workdir/staging-content-source.jsonl" "$workdir/staging-content-source.jsonl"
 source_psql "$workdir/staging-managed-source.jsonl" scripts/pr359-r4/staging-managed-data-content.sql
 node scripts/pr359-r4/check-staging-managed-data.mjs --compare "$workdir/staging-managed-source.jsonl" "$workdir/staging-managed-source.jsonl"
+# Reconstruct exact existing-object privileges from the SAME exported MVCC
+# source snapshot. Never log the generated DDL; it is replayed ONLY in Docker.
+source_psql "$workdir/staging-source-object-acl-replay.sql" \
+  scripts/pr359-r4/staging-source-object-acl-replay.sql
+[[ -s "$workdir/staging-source-object-acl-replay.sql" ]] || {
+  echo PR359_STAGING_SOURCE_ACL_REPLAY_EMPTY >&2; exit 1
+}
 source_psql "$workdir/staging-schema-source.jsonl" scripts/pr359-r4/staging-schema-fingerprint.sql
 # The canonical representation is additional evidence, NEVER a replacement for
 # the fixed raw source fingerprint and its reviewed SHA-256.
@@ -228,6 +235,9 @@ source_psql "$workdir/staging-all-fks-after-export.jsonl" scripts/pr359-r4/stagi
 node scripts/pr359-r4/check-staging-all-fk-integrity.mjs --compare "$workdir/staging-all-fks-source.jsonl" "$workdir/staging-all-fks-after-export.jsonl"
 sha256sum "$dumpdir/roles.sql" "$dumpdir/schema.sql" "$dumpdir/data.sql" \
  "$dumpdir/history-schema.sql" "$dumpdir/history-data.sql" >"$workdir/staging-export-manifest.sha256"
+# Bind private ACL replay evidence to this exact source export. No ACL SQL
+# is published; only its checksum is retained in the runner's private manifest.
+sha256sum "$workdir/staging-source-object-acl-replay.sql" >> "$workdir/staging-export-manifest.sha256"
 sha256sum -c --status "$workdir/staging-export-manifest.sha256"
 r4_progress 'source-export-manifest-complete'
 echo PR359_STAGING_SHARED_PG_SNAPSHOT_EXPORT_PASS
