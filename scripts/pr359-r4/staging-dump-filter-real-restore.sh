@@ -208,6 +208,41 @@ printf 'REVOKE SELECT ON TABLE public.pr359_export_probe FROM anon;\n' | db pr35
 [[ "$(printf "SELECT has_table_privilege('authenticated','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == t ]] || exit 1
 [[ "$(printf "SELECT has_table_privilege('anon','public.pr359_export_probe','SELECT');" | db pr359_export_restored)" == f ]] || exit 1
 echo PR359_EXACT_EXPORT_SEMANTIC_ACL_PARITY_AND_NEGATIVE_CONTROLS_PASS
+# Default privileges govern *future* objects and are not represented by
+# the seven existing-object catalogs. Check source/target grant provenance and
+# default ACLs separately, still using the local-only PostgreSQL instances.
+# Only stable role names, namespace names, object types and ACL entries are
+# compared; no business data or secrets are exported.
+default_acl_sql="SELECT coalesce(jsonb_agg(jsonb_build_object(
+ 'owner',pg_get_userbyid(d.defaclrole),
+ 'schema',coalesce(n.nspname,'<global>'),
+ 'type',d.defaclobjtype,
+ 'grants',(SELECT coalesce(jsonb_agg(jsonb_build_array(
+ pg_get_userbyid(a.grantor),
+ CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+ a.privilege_type,a.is_grantable)
+ ORDER BY pg_get_userbyid(a.grantor),a.grantee,a.privilege_type,a.is_grantable),'[]'::jsonb)
+ FROM aclexplode(d.defaclacl) a))
+ ORDER BY coalesce(n.nspname,'<global>'),d.defaclobjtype),'[]'::jsonb)::text
+ FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
+ WHERE pg_get_userbyid(d.defaclrole)='postgres'
+ AND (d.defaclnamespace=0 OR n.nspname='public');"
+source_defaults="$(printf '%s\n' "$default_acl_sql" | db postgres)"
+target_defaults="$(printf '%s\n' "$default_acl_sql" | db pr359_export_restored)"
+[[ -n "$source_defaults" && "$source_defaults" == "$target_defaults" ]] || {
+ echo PR359_EXPORT_DEFAULT_ACL_PARITY_FAILED >&2; exit 1;
+}
+# Negative control: changing privileges for future RPCs must be detected.
+printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon;\n' | db pr359_export_restored >/dev/null
+escalated_defaults="$(printf '%s\n' "$default_acl_sql" | db pr359_export_restored)"
+[[ "$source_defaults" != "$escalated_defaults" ]] || {
+ echo PR359_EXPORT_UNAUTHORIZED_FUTURE_FUNCTION_EXECUTE_ACCEPTED >&2; exit 1;
+}
+printf 'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon;\n' | db pr359_export_restored >/dev/null
+[[ "$source_defaults" == "$(printf '%s\n' "$default_acl_sql" | db pr359_export_restored)" ]] || {
+ echo PR359_EXPORT_DEFAULT_ACL_ROUNDTRIP_FAILED >&2; exit 1;
+}
+echo PR359_EXACT_EXPORT_DEFAULT_ACL_PARITY_AND_NEGATIVE_CONTROL_PASS
 result="$(printf '%s\n' \
  "SELECT (SELECT count(*) FROM public.pr359_export_probe)::text||':'||" \
  "(SELECT sum(amount) FROM public.pr359_export_probe)::text||':'||" \
