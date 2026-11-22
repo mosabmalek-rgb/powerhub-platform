@@ -75,6 +75,8 @@ test('only a single-parent, exact-SHA, request-only activation commit is accepte
  assert.equal(validateStagingRequest(req,context()).stagingInplaceGo,false);
 });
 test('actual Git commit ancestry and request-only changed-file parser',()=>{
+ // Capture the repository request before entering a temporary Git repository.
+ const request=active();
  const root=mkdtempSync(join(tmpdir(),'pr359-r4-request-git-'));
  const prior=process.cwd();
  try{
@@ -98,7 +100,7 @@ test('actual Git commit ancestry and request-only changed-file parser',()=>{
    assert.equal(ctx.parentSha,parent);
    assert.equal(ctx.parentCount,1);
    assert.deepEqual(ctx.changedFiles,[REQUEST_PATH]);
-   assert.equal(validateStagingRequest({...active(),approved_parent_sha:parent},ctx).requestValid,true);
+   assert.equal(validateStagingRequest({...request,approved_parent_sha:parent},ctx).requestValid,true);
  }finally{
    process.chdir(prior);
    rmSync(root,{recursive:true,force:true});
