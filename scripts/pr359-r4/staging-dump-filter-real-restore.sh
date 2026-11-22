@@ -154,6 +154,8 @@ fi
 
 docker exec "$container" createdb -U postgres pr359_export_restored
 cat <<'SQL' | db pr359_export_restored >/dev/null
+CREATE SCHEMA private;
+CREATE SCHEMA powerhub_private;
 CREATE SCHEMA extensions;
 CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
 CREATE SCHEMA auth;

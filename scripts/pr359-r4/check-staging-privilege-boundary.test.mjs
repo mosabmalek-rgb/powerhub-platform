@@ -37,7 +37,7 @@ test('reviewer runs source attestation and two fail-closed restored checks',()=>
  assert.match(sql,/pg_default_acl/);
  assert.match(sql,/attacl IS NOT NULL/);
  assert.match(sql,/READ ONLY/);
- assert.equal((runner.match(/check_staging_privilege_boundary "\\$stage"/g)||[]).length,2);
+ assert.equal(runner.split('check_staging_privilege_boundary "$stage"').length-1,2);
  assert.ok(runner.indexOf('check_staging_privilege_boundary "$stage"')<runner.indexOf('SHADOW_STAGE=restore-data'));
  assert.ok(runner.includes('PR359_PRIVILEGE_BOUNDARY_MISMATCH_BLOCKED'));
  assert.ok(fixture.includes('PR359_LOCAL_PRIVILEGE_BOUNDARY_NEGATIVE_CONTROLS_PASS'));
