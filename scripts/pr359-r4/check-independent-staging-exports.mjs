@@ -15,6 +15,7 @@ export const INDEPENDENT_SOURCE_EVIDENCE_FILES=Object.freeze([
  'staging-tables-source.jsonl',
  'staging-content-source.jsonl',
  'staging-managed-source.jsonl',
+ 'staging-source-object-acl-replay.sql',
  'staging-schema-source.jsonl',
  'staging-schema-semantic-source.jsonl',
  'staging-schema-semantic-attributes-source.jsonl',
