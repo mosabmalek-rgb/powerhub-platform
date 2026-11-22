@@ -257,7 +257,7 @@ db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.
 if semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-unreconciled.jsonl" >/dev/null 2>&1; then
  echo PR359_ACL_REPLAY_NEGATIVE_CONTROL_MISSED_ESCALATION >&2; exit 1
 fi
-{ printf 'BEGIN;\\n'; cat "$work/source-object-acl-replay.sql"; printf '\\nCOMMIT;\\n'; } | db pr359_export_restored >/dev/null
+{ printf 'BEGIN;\n'; cat "$work/source-object-acl-replay.sql"; printf '\nCOMMIT;\n'; } | db pr359_export_restored >/dev/null
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-replayed.jsonl"
 semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-replayed.jsonl" || {
  echo PR359_SOURCE_ATTESTED_ACL_REPLAY_PARITY_FAILED >&2; exit 1
