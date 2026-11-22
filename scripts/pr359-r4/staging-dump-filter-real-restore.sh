@@ -207,6 +207,10 @@ db pr359_export_restored < "$dumpdir/schema.sql" >/dev/null
 db pr359_export_restored < "$dumpdir/data.sql" >/dev/null
 # Check the exact production seven-category semantic catalog on the local
 # source and restored target. A successful count-only restore is insufficient.
+# Capture exact ACL replay using the production read-only PostgreSQL catalog
+# query; this fixture never connects to hosted projects.
+db postgres < scripts/pr359-r4/staging-source-object-acl-replay.sql > "$work/source-object-acl-replay.sql"
+[[ -s "$work/source-object-acl-replay.sql" ]] || exit 1
 db postgres < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-source.jsonl"
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-restored.jsonl"
 # The production checker is intentionally pinned to 2,723 hosted columns, and
@@ -233,6 +237,19 @@ JS
 semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-restored.jsonl" || {
  echo PR359_EXPORT_RESTORED_SEMANTIC_ACL_DRIFT >&2; exit 1;
 }
+# Regression: force a restore-only privilege escalation and prove that the
+# source MVCC ACL replay removes it, without modifying the source's privileges.
+printf 'GRANT DELETE ON TABLE public.pr359_acl_public_table TO authenticated;\\n' | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-unreconciled.jsonl"
+if semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-unreconciled.jsonl" >/dev/null 2>&1; then
+ echo PR359_ACL_REPLAY_NEGATIVE_CONTROL_MISSED_ESCALATION >&2; exit 1
+fi
+{ printf 'BEGIN;\\n'; cat "$work/source-object-acl-replay.sql"; printf '\\nCOMMIT;\\n'; } | db pr359_export_restored >/dev/null
+db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-replayed.jsonl"
+semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-replayed.jsonl" || {
+ echo PR359_SOURCE_ATTESTED_ACL_REPLAY_PARITY_FAILED >&2; exit 1
+}
+echo PR359_SOURCE_ATTESTED_ACL_REPLAY_NEGATIVE_CONTROL_PASS
 # Negative controls must catch EXECUTE and SELECT privilege widening.
 printf 'GRANT EXECUTE ON FUNCTION public.pr359_acl_probe() TO anon;\n' | db pr359_export_restored >/dev/null
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-escalated.jsonl"
