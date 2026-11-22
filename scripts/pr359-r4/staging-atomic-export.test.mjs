@@ -73,3 +73,25 @@ test('both restore-side managed compatibility gates require this exports snapsho
  assert.match(helper,/else\n    node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/,
    'non-Staging path must stay strict without the lifecycle exception');
 });
+
+test('R4 object ACL replay is snapshot-scoped, integrity-bound, and isolated before strict parity',()=>{
+ const e=script(),r=runner();
+ const acl=readFileSync('scripts/pr359-r4/staging-source-object-acl-replay.sql','utf8');
+ assert.ok(e.includes('source_psql "$workdir/staging-source-object-acl-replay.sql"'));
+ assert.ok(e.includes('scripts/pr359-r4/staging-source-object-acl-replay.sql'));
+ assert.ok(e.includes('sha256sum "$workdir/staging-source-object-acl-replay.sql" >> "$workdir/staging-export-manifest.sha256"'));
+ assert.ok(e.indexOf('staging-source-object-acl-replay.sql')<e.indexOf('dump_schema schema.sql'));
+ assert.ok(r.includes('SHADOW_STAGE=staging-local-source-acl-replay-pre-data'));
+ assert.ok(r.includes('$restore_work/staging-source-object-acl-replay.sql'));
+ const replay=r.indexOf('SHADOW_STAGE=staging-local-source-acl-replay-pre-data');
+ const parity=r.indexOf('check_staging_restored_schema pre-data');
+ const copy=r.indexOf('SHADOW_STAGE=restore-data');
+ assert.ok(replay>=0 && replay<parity && parity<copy,'ACL replay must precede strict parity and data COPY');
+ assert.ok(acl.includes('REVOKE ALL PRIVILEGES'));
+ assert.ok(acl.includes('FROM objects o CROSS JOIN LATERAL aclexplode'));
+ assert.ok(acl.includes("pg_get_userbyid(g.grantor) <> 'postgres'"));
+ assert.ok(acl.includes('pg_get_userbyid(g.grantee) NOT IN'));
+ assert.ok(acl.includes('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;'));
+ assert.ok(acl.includes('SET LOCAL search_path TO pg_catalog, public;'));
+ assert.ok(!acl.includes('CREATE ROLE'));
+});
