@@ -15,7 +15,7 @@ export function parseAclCensus(raw){
  const m=new Map();
  for(const line of lines){
   const r=JSON.parse(line);
-  assert.deepEqual(Object.keys(r).sort(),['category','grantee','grantable','grantor','objects','privilege','schema']);
+  assert.deepEqual(Object.keys(r).sort(),['category','grantable','grantee','grantor','objects','privilege','schema']);
   assert.ok(categories.includes(r.category),'unexpected ACL category');
   assert.ok(schemas.includes(r.schema),'unexpected ACL namespace');
   assert.ok(principals.includes(r.grantor),'unexpected grantor label');
