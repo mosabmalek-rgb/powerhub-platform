@@ -252,7 +252,7 @@ semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-restored.js
 }
 # Regression: force a restore-only privilege escalation and prove that the
 # source MVCC ACL replay removes it, without modifying the source's privileges.
-printf 'GRANT DELETE ON TABLE public.pr359_acl_public_table TO authenticated;\\n' | db pr359_export_restored >/dev/null
+printf 'GRANT DELETE ON TABLE public.pr359_acl_public_table TO authenticated;\n' | db pr359_export_restored >/dev/null
 db pr359_export_restored < scripts/pr359-r4/staging-schema-semantic-fingerprint.sql > "$work/semantic-unreconciled.jsonl"
 if semantic_fixture_equal "$work/semantic-source.jsonl" "$work/semantic-unreconciled.jsonl" >/dev/null 2>&1; then
  echo PR359_ACL_REPLAY_NEGATIVE_CONTROL_MISSED_ESCALATION >&2; exit 1
