@@ -675,6 +675,37 @@ restore(){
     # Source provider-managed policies can reference restored PowerHub tables
     # and functions. A matching source inventory alone cannot prove that those
     # policies survived into the isolated target; attest them before data COPY.
+    # Restore only the seven immutable, source-snapshot-attested provider
+    # policy definitions on the DISPOSABLE local stack. Source Staging stays
+    # READ ONLY; never DROP/ALTER pre-existing local managed policies.
+    SHADOW_STAGE=staging-local-managed-policy-replay-pre-data
+    [[ -s "$restore_work/staging-managed-policy-source.json" &&
+       -s "$restore_work/staging-managed-policy-replay.sql" ]] || {
+      echo PR359_STAGING_MANAGED_POLICY_REPLAY_EVIDENCE_MISSING >&2; exit 2
+    }
+    # Re-derive the exact replay and compare to the checksum-bound artifact.
+    node scripts/pr359-r4/render-staging-managed-policies.mjs \
+      "$restore_work/staging-managed-policy-source.json" \
+      "$restore_work/staging-managed-policy-replay-verify.sql"
+    cmp -s "$restore_work/staging-managed-policy-replay.sql" \
+      "$restore_work/staging-managed-policy-replay-verify.sql" || {
+      echo PR359_STAGING_MANAGED_POLICY_REPLAY_DRIFT >&2; exit 2
+    }
+    local existing_policies
+    existing_policies="$(value "SELECT count(*) FROM pg_policy p
+      JOIN pg_class c ON c.oid=p.polrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE (n.nspname='realtime' AND c.relname='messages'
+        AND p.polname IN ('chat_conversation_receive','chat_conversation_send',
+        'chat_support_receive_conversation','chat_support_send_conversation',
+        'chat_user_notification_receive','powerhub_delta_revision_receive'))
+      OR (n.nspname='storage' AND c.relname='objects'
+        AND p.polname='chat_storage_select_conversation_access');")"
+    [[ "$existing_policies" == 0 ]] || {
+      echo PR359_STAGING_MANAGED_POLICY_PREEXISTING_BLOCKED >&2; exit 2
+    }
+    runfile_local_admin "$restore_work/staging-managed-policy-replay.sql"
+    echo PR359_STAGING_MANAGED_POLICY_REPLAY_LOCAL_ONLY_PASS
     SHADOW_STAGE=staging-reverse-managed-dependencies-before-data
     sql postgres < scripts/pr359-r4/staging-managed-reverse-dependencies.sql > "$restore_work/staging-managed-reverse-restored.json"
     node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$restore_work/staging-managed-reverse-restored.json"
