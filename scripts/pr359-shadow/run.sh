@@ -704,7 +704,11 @@ restore(){
     [[ "$existing_policies" == 0 ]] || {
       echo PR359_STAGING_MANAGED_POLICY_PREEXISTING_BLOCKED >&2; exit 2
     }
-    runfile_local_admin "$restore_work/staging-managed-policy-replay.sql"
+    if ! runfile_local_admin "$restore_work/staging-managed-policy-replay.sql" \
+      2>"$restore_work/staging-managed-policy-replay.err"; then
+      # psql stderr can contain rendered policy expressions. Never disclose.
+      echo PR359_STAGING_MANAGED_POLICY_LOCAL_REPLAY_FAILED >&2; exit 2
+    fi
     echo PR359_STAGING_MANAGED_POLICY_REPLAY_LOCAL_ONLY_PASS
     SHADOW_STAGE=staging-reverse-managed-dependencies-before-data
     sql postgres < scripts/pr359-r4/staging-managed-reverse-dependencies.sql > "$restore_work/staging-managed-reverse-restored.json"
