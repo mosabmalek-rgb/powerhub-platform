@@ -26,3 +26,32 @@ CANONICAL_BASELINE_APPROVED=FALSE
 STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
+
+## 2026-11-23 revision — re-pinned after Android PR #17 was merged
+
+The initial 10-route finding above is **historical evidence only**, from
+Android base `9ab3ad5c`. It must not be used to describe current Android main.
+
+After verified squash merge of Android PR #17, the reviewed Android main commit
+is `a4e8c2d077022146e71e8a47d2fc6377e92d8b9c`.
+Its `FieldReadingApi.kt` Git blob is
+`8a4da94bfabe14839f1cce9aec60cf06879479d6`.
+The updated pinned fixture contains **11 Retrofit routes**, including
+`GET /api/mobile/v1/subscribers/delta`, all of which have matching
+method/path declarations on platform PR #359. The server-only route count is
+now zero. The Android repository merged code also supports safe legacy
+pagination when an older deployed server returns 404 for Delta.
+
+This is only a code-level method/path compatibility finding. It does NOT
+establish a real deployed Delta endpoint, HTTP DTO compatibility, valid
+privileges, successful end-to-end sync or release readiness. Android CI
+passed before squash merge; that does not constitute platform runtime acceptance.
+
+CB_A_ANDROID_ROUTE_PARITY=CODE_GATED_ON_MERGED_PR17_SNAPSHOT
+ANDROID_DELTA_ROUTE_DECLARED=TRUE
+ANDROID_DELTA_END_TO_END_ACCEPTED=FALSE
+COMPLETE_RUNTIME_CALL_GRAPH_APPROVED=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
