@@ -54,7 +54,7 @@ export function buildIndex(register,sources){
   assert.ok(!seenFiles.has(s.path),'duplicate path');seenFiles.add(s.path);
   assert.equal(gitBlob(s.bytes),s.sha,'historical blob differs: '+s.path);
   const sql=s.bytes.toString('utf8');
-  assert.ok(!/\bAUTO_INCREMENT\b|\x60[^\x60]+\x60/.test(sql),'MySQL DDL excluded');
+  assert.ok(!/\bAUTO_INCREMENT\b|\x60[^\x60]+\x60/.test(masked(sql)),'MySQL DDL excluded');
   for(const hit of extractCreates(sql)){
    const items=byName.get(hit.target)||[];
    items.push({source_path:s.path,source_blob_sha:s.sha,statement_kind:hit.type,
