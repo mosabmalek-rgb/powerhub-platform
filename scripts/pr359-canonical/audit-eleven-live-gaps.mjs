@@ -35,7 +35,8 @@ export function auditEleven(fEvidence,tEvidence,historicalFns,historicalRelation
  assert.equal(tEvidence.format,'PR359_CB_A_5_MISSING_TABLES_LIVE_EVIDENCE_V1');
  for(const e of [fEvidence,tEvidence]){
   assert.equal(e.source_project_ref,'iyuryuhaylhisjfcrwkz');
-  assert.equal(e.capture_mode,'read-only catalog select','source capture mode changed');
+  assert.ok(['read-only catalog select','read-only pg_catalog SELECT'].includes(e.capture_mode),
+   'source capture mode changed');
   assert.equal(e.canonical_baseline_approved,false);
   assert.equal(e.staging_inplace_go,false);
   assert.equal(e.production_inplace_go,false);
