@@ -35,7 +35,7 @@ const expected = {
 };
 const gitBlob = data => {
   const b = Buffer.isBuffer(data) ? data : Buffer.from(data,'utf8');
-  return createHash('sha1').update('blob '+b.length+'\\0').update(b).digest('hex');
+  return createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');
 };
 
 export function auditDefinerAttachments(capture,inputs,serverCode) {
@@ -88,11 +88,11 @@ export function auditDefinerAttachments(capture,inputs,serverCode) {
   // A scoped conditional UPDATE exists in this pinned TypeScript source;
   // absence of a direct RPC name in this one file does NOT prove the function
   // is unused from another route, trigger, dynamic SQL or external system.
-  assert.match(serverCode,/\\.from\\("mobile_api_sessions"\\)/);
-  assert.match(serverCode,/\\.eq\\("user_id", userId\\)/);
-  assert.match(serverCode,/\\.eq\\("tenant_id", payload.tenantId\\)/);
-  assert.match(serverCode,/\\.is\\("revoked_at", null\\)/);
-  assert.match(serverCode,/\\.gt\\("expires_at", touchedAt\\)/);
+  assert.match(serverCode,/\.from\("mobile_api_sessions"\)/);
+  assert.match(serverCode,/\.eq\("user_id", userId\)/);
+  assert.match(serverCode,/\.eq\("tenant_id", payload.tenantId\)/);
+  assert.match(serverCode,/\.is\("revoked_at", null\)/);
+  assert.match(serverCode,/\.gt\("expires_at", touchedAt\)/);
   assert.ok(!serverCode.includes('.rpc("powerhub_mobile_touch_session"'),
     'mobile session call changed: review RPC and permissions');
   assert.equal(catalog.references.find(x=>x.function_identity===mobile.function_identity)
@@ -139,7 +139,7 @@ if(process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[
     'Usage: node cb-a-definer-attachments.mjs [--out path]; never --apply');
   const report=auditDefinerAttachments(loadDefinerAttachmentEvidence(),
     loadCbBGapReviewInputs(),readFileSync('server/mobile-api.ts','utf8'));
-  if(args.length)writeFileSync(args[1],JSON.stringify(report,null,2)+'\\n');
+  if(args.length)writeFileSync(args[1],JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({format:report.format,definers:report.exact_security_definers,
     direct_triggers:report.attached_direct_triggers,approval:report.security_definer_signoff_complete}));
 }
