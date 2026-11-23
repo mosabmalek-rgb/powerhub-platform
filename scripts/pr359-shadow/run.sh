@@ -691,6 +691,20 @@ restore(){
       "$restore_work/staging-managed-policy-replay-verify.sql" || {
       echo PR359_STAGING_MANAGED_POLICY_REPLAY_DRIFT >&2; exit 2
     }
+    # Both source provider relations were independently observed RLS-enabled
+    # (without FORCE RLS) and with their original Supabase service owners.
+    # Do not create an apparently valid policy on a target with RLS disabled.
+    local managed_rls_targets
+    managed_rls_targets="$(value "SELECT count(*) FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE c.relrowsecurity AND NOT c.relforcerowsecurity
+      AND ((n.nspname='realtime' AND c.relname='messages'
+        AND c.relkind='p' AND pg_get_userbyid(c.relowner)='supabase_realtime_admin')
+       OR (n.nspname='storage' AND c.relname='objects'
+        AND c.relkind='r' AND pg_get_userbyid(c.relowner)='supabase_storage_admin'));")"
+    [[ "$managed_rls_targets" == 2 ]] || {
+      echo PR359_STAGING_MANAGED_POLICY_RLS_OWNER_GUARD_BLOCKED >&2; exit 2
+    }
     local existing_policies
     existing_policies="$(value "SELECT count(*) FROM pg_policy p
       JOIN pg_class c ON c.oid=p.polrelid
