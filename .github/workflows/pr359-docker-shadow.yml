@@ -37,6 +37,10 @@ jobs:
         run: |
           node --test scripts/pr359-r4/verify-live-ownership-catalog.test.mjs
           node scripts/pr359-r4/verify-live-ownership-catalog.mjs
+      - name: Verify all 978 catalog root dependency digests and reject unauthorized approval
+        run: |
+          node --test scripts/pr359-r4/verify-root-dependency-digests.test.mjs
+          node scripts/pr359-r4/verify-root-dependency-digests.mjs
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
       - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
