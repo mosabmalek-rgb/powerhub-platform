@@ -101,6 +101,17 @@ source_psql "$workdir/staging-ownership-source.json" scripts/pr359-r4/ownership-
 node scripts/pr359-r4/check-staging-ownership-source.mjs "$workdir/staging-ownership-source.json"
 # Provider-owned RLS policies in realtime/storage depend on PowerHub tables and
 # functions. Verify the exact 48 incoming catalog edges before exporting anything.
+# Provider RLS policies that depend on app objects are not dumped with app
+# schema. Capture their exact source definitions in the SAME source MVCC
+# snapshot; the pinned SHA is checked in the source query itself.
+source_psql "$workdir/staging-managed-policy-source.json" \
+  scripts/pr359-r4/staging-managed-policy-source.sql
+[[ -s "$workdir/staging-managed-policy-source.json" ]] || {
+ echo PR359_STAGING_MANAGED_POLICY_SOURCE_MISSING >&2; exit 1
+}
+node scripts/pr359-r4/render-staging-managed-policies.mjs \
+ "$workdir/staging-managed-policy-source.json" \
+ "$workdir/staging-managed-policy-replay.sql"
 source_psql "$workdir/staging-managed-reverse-source.json" scripts/pr359-r4/staging-managed-reverse-dependencies.sql
 node scripts/pr359-r4/check-staging-managed-reverse-dependencies.mjs "$workdir/staging-managed-reverse-source.json"
 source_psql "$workdir/staging-managed-fks-source.jsonl" scripts/pr359-r4/staging-managed-fks.sql
@@ -238,6 +249,8 @@ sha256sum "$dumpdir/roles.sql" "$dumpdir/schema.sql" "$dumpdir/data.sql" \
 # Bind private ACL replay evidence to this exact source export. No ACL SQL
 # is published; only its checksum is retained in the runner's private manifest.
 sha256sum "$workdir/staging-source-object-acl-replay.sql" >> "$workdir/staging-export-manifest.sha256"
+sha256sum "$workdir/staging-managed-policy-source.json" \
+ "$workdir/staging-managed-policy-replay.sql" >> "$workdir/staging-export-manifest.sha256"
 sha256sum -c --status "$workdir/staging-export-manifest.sha256"
 r4_progress 'source-export-manifest-complete'
 echo PR359_STAGING_SHARED_PG_SNAPSHOT_EXPORT_PASS
