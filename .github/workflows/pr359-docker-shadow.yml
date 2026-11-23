@@ -57,6 +57,10 @@ jobs:
         run: |
           node --test scripts/pr359-canonical/verify-sequence-evidence.test.mjs
           node scripts/pr359-canonical/verify-sequence-evidence.mjs --out "$RUNNER_TEMP/pr359-cb-a-sequence-summary.json"
+      - name: CB-A attest all 11 unresolved historical CREATE names against exact live SQL and R0
+        run: |
+          node --test scripts/pr359-canonical/audit-eleven-live-gaps.test.mjs
+          node scripts/pr359-canonical/audit-eleven-live-gaps.mjs
       - name: Retain CB-A candidate inventory (not executable baseline)
         uses: actions/upload-artifact@v4
         with:

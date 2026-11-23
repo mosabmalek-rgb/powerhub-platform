@@ -1,0 +1,104 @@
+{
+  "format": "PR359_CB_A_6_MISSING_FUNCTIONS_LIVE_EVIDENCE_V1",
+  "source_project_ref": "iyuryuhaylhisjfcrwkz",
+  "captured_on": "2026-11-23",
+  "capture_mode": "read-only catalog select",
+  "previous_r0_definition_sha_match": true,
+  "warning": "NOT canonical source or approval; live SQL definition for forensic source reconciliation only.",
+  "app_owned_approved": false,
+  "canonical_baseline_approved": false,
+  "staging_inplace_go": false,
+  "production_inplace_go": false,
+  "functions": [
+    {
+      "name": "p6_assert_subscription_guard",
+      "identity_args": "",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.p6_assert_subscription_guard()\n RETURNS TABLE(check_name text, passed boolean, observed text)\n LANGUAGE sql\n STABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n  select 'active_subscription'::text,\n         public.p6_subscription_access_status((select id from public.tenants where slug='__p6-test-tenant-a__' limit 1), now())='active',\n         public.p6_subscription_access_status((select id from public.tenants where slug='__p6-test-tenant-a__' limit 1), now());\n$function$\n",
+      "sha256": "dc134ac6d53a3a6c098a00f517dc098db4791a97619a02d4f550fcb441264109",
+      "security_definer": false,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "owner": "postgres",
+      "explicit_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "name": "p6_subscription_access_status",
+      "identity_args": "p_tenant_id bigint, p_now timestamp with time zone",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.p6_subscription_access_status(p_tenant_id bigint, p_now timestamp with time zone DEFAULT now())\n RETURNS text\n LANGUAGE sql\n STABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n  select case\n    when not exists (select 1 from public.tenant_subscriptions s where s.tenant_id=p_tenant_id) then 'missing'\n    when exists (select 1 from public.tenant_subscriptions s where s.tenant_id=p_tenant_id and s.status in ('suspended','cancelled','overdue')) then 'blocked'\n    when exists (select 1 from public.tenant_subscriptions s where s.tenant_id=p_tenant_id and s.ends_at > p_now and s.status in ('trial','active')) then 'active'\n    else 'expired'\n  end;\n$function$\n",
+      "sha256": "fb58849e56d09651c5e8d76b48759bd69b31e6b3b219e1cb039cd44d74315251",
+      "security_definer": false,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "owner": "postgres",
+      "explicit_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "name": "powerhub_ensure_owner_main_site",
+      "identity_args": "",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_ensure_owner_main_site()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$ declare v_site_id bigint; v_owner_user_id bigint; begin select id into v_site_id from public.sites where tenant_id = new.tenant_id order by case when name = 'الفرع الرئيسي' then 0 else 1 end, id limit 1; if v_site_id is null then select user_id into v_owner_user_id from public.tenant_members where tenant_id = new.tenant_id and role = 'owner' and is_active = true order by id limit 1; insert into public.sites (tenant_id, name, code, status) values (new.tenant_id, 'الفرع الرئيسي', 'SITE-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)), 'active') returning id into v_site_id; if v_owner_user_id is not null then insert into public.staff_profiles (tenant_id, site_id, user_id, role, is_active) values (new.tenant_id, v_site_id, v_owner_user_id, 'owner', true) on conflict do nothing; end if; else select user_id into v_owner_user_id from public.tenant_members where tenant_id = new.tenant_id and role = 'owner' and is_active = true order by id limit 1; if v_owner_user_id is not null then insert into public.staff_profiles (tenant_id, site_id, user_id, role, is_active) values (new.tenant_id, v_site_id, v_owner_user_id, 'owner', true) on conflict do nothing; end if; end if; return new; end; $function$\n",
+      "sha256": "8d402052eb2871a4f71c257ff882c4725c889152e827be46d9822859f844c2ca",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "owner": "postgres",
+      "explicit_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "name": "powerhub_financial_period_cash_flow_raw",
+      "identity_args": "p_tenant_id bigint, p_site_id bigint, p_period_start timestamp with time zone, p_period_end_exclusive timestamp with time zone",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_financial_period_cash_flow_raw(p_tenant_id bigint, p_site_id bigint, p_period_start timestamp with time zone, p_period_end_exclusive timestamp with time zone)\n RETURNS jsonb\n LANGUAGE sql\n STABLE\n SET search_path TO 'public', 'pg_temp'\nAS $function$\n  SELECT jsonb_build_object(\n    'asOf', now(),\n    'scopeSiteId',p_site_id,\n    'externalCashIn',COALESCE(SUM(t.amount) FILTER (\n      WHERE t.transaction_type IN ('collection','deposit')),0),\n    'externalCashOut',COALESCE(SUM(t.amount) FILTER (\n      WHERE t.transaction_type='withdrawal'),0),\n    'netCashFlow',COALESCE(SUM(CASE\n      WHEN t.transaction_type IN ('collection','deposit') THEN t.amount\n      WHEN t.transaction_type='withdrawal' THEN -t.amount\n      ELSE 0 END),0),\n    'internalTransferVolume',COALESCE(SUM(t.amount) FILTER (\n      WHERE t.transaction_type='transfer_out'),0),\n    'transactionCount',COUNT(*) FILTER (\n      WHERE t.transaction_type IN ('collection','deposit','withdrawal')),\n    'scopeNotice','site_attributed_only'\n  )\n  FROM public.account_transactions t\n  WHERE t.tenant_id=p_tenant_id AND t.site_id=p_site_id\n    AND t.occurred_at>=p_period_start AND t.occurred_at<p_period_end_exclusive\n$function$\n",
+      "sha256": "9fd9906807288ad90c9efaa9fd4a2e669a8c6b1e54e5541639fc6d2819ee0e56",
+      "security_definer": false,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "owner": "postgres",
+      "explicit_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "name": "powerhub_mobile_touch_session",
+      "identity_args": "p_session_id bigint, p_user_id bigint, p_tenant_id bigint, p_now timestamp with time zone",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_mobile_touch_session(p_session_id bigint, p_user_id bigint, p_tenant_id bigint, p_now timestamp with time zone DEFAULT clock_timestamp())\n RETURNS boolean\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO ''\nAS $function$\nbegin\n  if p_session_id is null or p_session_id <= 0\n     or p_user_id is null or p_user_id <= 0\n     or p_tenant_id is null or p_tenant_id <= 0\n     or p_now is null then\n    return false;\n  end if;\n\n  perform pg_advisory_xact_lock(\n    hashtextextended('powerhub-mobile-single-session:' || p_user_id::text, 0)\n  );\n\n  update public.mobile_api_sessions as s\n     set last_used_at = p_now\n   where s.id = p_session_id\n     and s.user_id = p_user_id\n     and s.tenant_id = p_tenant_id\n     and s.revoked_at is null\n     and s.expires_at > p_now;\n\n  return found;\nend;\n$function$\n",
+      "sha256": "f13cb3358702c804b0a88739f4305668e1d8aedcb2b3d03ef9ef935ba4edb28b",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "owner": "postgres",
+      "explicit_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "name": "powerhub_refresh_fuel_maintenance_delta_after_generator_name_up",
+      "identity_args": "",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_refresh_fuel_maintenance_delta_after_generator_name_up()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\ndeclare v_row record;\nbegin\n  if OLD.name is not distinct from NEW.name then return NEW; end if;\n  for v_row in\n    select visible.id from (\n      select e.id,e.generator_id from public.generator_fuel_events e\n      where e.tenant_id=NEW.tenant_id and e.site_id=NEW.site_id\n      order by e.occurred_at desc,e.id desc limit 500\n    ) visible\n    where visible.generator_id=NEW.id order by visible.id\n  loop\n    perform public.powerhub_emit_fuel_maintenance_delta_sync_change(NEW.tenant_id,NEW.site_id,'fuel_events',v_row.id);\n  end loop;\n  for v_row in\n    select visible.id from (\n      select w.id,w.generator_id from public.generator_maintenance_work_orders w\n      where w.tenant_id=NEW.tenant_id and w.site_id=NEW.site_id\n      order by coalesce(w.reported_at,w.created_at) desc,w.id desc limit 200\n    ) visible\n    where visible.generator_id=NEW.id order by visible.id\n  loop\n    perform public.powerhub_emit_fuel_maintenance_delta_sync_change(NEW.tenant_id,NEW.site_id,'maintenance_work_orders',v_row.id);\n  end loop;\n  return NEW;\nend $function$\n",
+      "sha256": "31a052a3bfd92dfcaf5d9d5b19032e07ba215de24bf78135115d64d1138a5f6c",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "owner": "postgres",
+      "explicit_acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    }
+  ]
+}

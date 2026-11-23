@@ -1,0 +1,1216 @@
+{
+  "format": "PR359_CB_A_5_MISSING_TABLES_LIVE_EVIDENCE_V1",
+  "captured_on": "2026-11-23",
+  "source_project_ref": "iyuryuhaylhisjfcrwkz",
+  "capture_mode": "read-only pg_catalog SELECT",
+  "warning": "Table structure from live catalog for SOURCE RECONCILIATION ONLY; not an executable canonical baseline",
+  "approved_app_owned": false,
+  "canonical_baseline_approved": false,
+  "staging_inplace_go": false,
+  "production_inplace_go": false,
+  "tables": [
+    {
+      "schema_name": "public",
+      "table_name": "emergency_requests",
+      "relkind": "r",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "explicit_acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "anon_select": false,
+      "authenticated_select": false,
+      "service_select": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "identity": "d",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "tenant_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "site_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "requested_by_user_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "priority",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "'medium'::text",
+          "default_sha256": "ee56796af4a842047a922564a1595d81c359f10af2c731b0f49a8bc9f0ab3f63"
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "'pending'::text",
+          "default_sha256": "a89df8d14a00b7bd2ead7e86414dcd5232bff306786856171b38584e153bb73f"
+        },
+        {
+          "name": "subject",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "approved_by_user_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "emergency_requests_approved_by_user_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (approved_by_user_id) REFERENCES users(id) ON DELETE SET NULL",
+          "initially_deferred": false
+        },
+        {
+          "name": "emergency_requests_pkey",
+          "type": "p",
+          "validated": true,
+          "deferrable": false,
+          "definition": "PRIMARY KEY (id)",
+          "initially_deferred": false
+        },
+        {
+          "name": "emergency_requests_priority_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'critical'::text]))",
+          "initially_deferred": false
+        },
+        {
+          "name": "emergency_requests_requested_by_user_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (requested_by_user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "emergency_requests_site_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "emergency_requests_status_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'in_progress'::text, 'completed'::text, 'rejected'::text]))",
+          "initially_deferred": false
+        },
+        {
+          "name": "emergency_requests_tenant_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE",
+          "initially_deferred": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "emergency_requests_pkey",
+          "valid": true,
+          "unique": true,
+          "primary": true,
+          "definition": "CREATE UNIQUE INDEX emergency_requests_pkey ON public.emergency_requests USING btree (id)"
+        }
+      ],
+      "triggers": [],
+      "policies": []
+    },
+    {
+      "schema_name": "public",
+      "table_name": "payment_documentation_requests",
+      "relkind": "r",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "explicit_acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "anon_select": false,
+      "authenticated_select": false,
+      "service_select": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "identity": "d",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "tenant_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "site_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "subscriber_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "invoice_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "destination_account_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "invoice_no_snapshot",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "subscriber_name_snapshot",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "subscriber_no_snapshot",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "billing_period_snapshot",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "previous_reading_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "current_reading_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "consumption_kwh_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "price_per_kwh_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "consumption_value_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "invoice_total_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "invoice_balance_snapshot",
+          "type": "numeric",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "payment_amount",
+          "type": "numeric",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "payment_method",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "sender_phone",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "reference_no",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "receipt_image_key",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "receipt_image_hash",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "'pending'::text",
+          "default_sha256": "a89df8d14a00b7bd2ead7e86414dcd5232bff306786856171b38584e153bb73f"
+        },
+        {
+          "name": "rejection_reason",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "submitted_by_user_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "reviewed_by_user_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "reviewed_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "payment_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "submitted_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "receipt_image_retention_until",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "receipt_image_deleted_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        }
+      ],
+      "constraints": [
+        {
+          "name": "payment_documentation_amount_not_over_balance",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (payment_amount <= invoice_balance_snapshot)",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_destination_account_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (destination_account_id) REFERENCES company_accounts(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_invoice_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_payment_amount_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (payment_amount > 0::numeric)",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_payment_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_payment_method_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (payment_method = ANY (ARRAY['cash'::text, 'jawwal_pay'::text, 'palpay'::text, 'bank_of_palestine'::text, 'wallet'::text, 'bank_transfer'::text, 'card'::text]))",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_pkey",
+          "type": "p",
+          "validated": true,
+          "deferrable": false,
+          "definition": "PRIMARY KEY (id)",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_reviewed_by_user_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_site_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_status_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text]))",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_submitted_by_user_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (submitted_by_user_id) REFERENCES users(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_subscriber_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (subscriber_id) REFERENCES subscribers(id) ON DELETE RESTRICT",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_requests_tenant_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE",
+          "initially_deferred": false
+        },
+        {
+          "name": "payment_documentation_site_tenant_unique_scope",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (tenant_id IS NOT NULL AND site_id IS NOT NULL)",
+          "initially_deferred": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "payment_documentation_requests_client_operation_uidx",
+          "valid": true,
+          "unique": true,
+          "primary": false,
+          "definition": "CREATE UNIQUE INDEX payment_documentation_requests_client_operation_uidx ON public.payment_documentation_requests USING btree (client_operation_id) WHERE (client_operation_id IS NOT NULL)"
+        },
+        {
+          "name": "payment_documentation_requests_invoice_idx",
+          "valid": true,
+          "unique": false,
+          "primary": false,
+          "definition": "CREATE INDEX payment_documentation_requests_invoice_idx ON public.payment_documentation_requests USING btree (tenant_id, invoice_id, status)"
+        },
+        {
+          "name": "payment_documentation_requests_payment_uidx",
+          "valid": true,
+          "unique": true,
+          "primary": false,
+          "definition": "CREATE UNIQUE INDEX payment_documentation_requests_payment_uidx ON public.payment_documentation_requests USING btree (payment_id) WHERE (payment_id IS NOT NULL)"
+        },
+        {
+          "name": "payment_documentation_requests_pending_invoice_uidx",
+          "valid": true,
+          "unique": true,
+          "primary": false,
+          "definition": "CREATE UNIQUE INDEX payment_documentation_requests_pending_invoice_uidx ON public.payment_documentation_requests USING btree (tenant_id, invoice_id) WHERE (status = 'pending'::text)"
+        },
+        {
+          "name": "payment_documentation_requests_pkey",
+          "valid": true,
+          "unique": true,
+          "primary": true,
+          "definition": "CREATE UNIQUE INDEX payment_documentation_requests_pkey ON public.payment_documentation_requests USING btree (id)"
+        },
+        {
+          "name": "payment_documentation_requests_receipt_retention_idx",
+          "valid": true,
+          "unique": false,
+          "primary": false,
+          "definition": "CREATE INDEX payment_documentation_requests_receipt_retention_idx ON public.payment_documentation_requests USING btree (receipt_image_retention_until) WHERE ((receipt_image_retention_until IS NOT NULL) AND (receipt_image_key IS NOT NULL))"
+        },
+        {
+          "name": "payment_documentation_requests_subscriber_idx",
+          "valid": true,
+          "unique": false,
+          "primary": false,
+          "definition": "CREATE INDEX payment_documentation_requests_subscriber_idx ON public.payment_documentation_requests USING btree (tenant_id, site_id, subscriber_id, submitted_at DESC)"
+        },
+        {
+          "name": "payment_documentation_requests_tenant_site_status_idx",
+          "valid": true,
+          "unique": false,
+          "primary": false,
+          "definition": "CREATE INDEX payment_documentation_requests_tenant_site_status_idx ON public.payment_documentation_requests USING btree (tenant_id, site_id, status, submitted_at DESC)"
+        }
+      ],
+      "triggers": [
+        {
+          "name": "powerhub_notify_payment_documentation_request_after_insert",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER powerhub_notify_payment_documentation_request_after_insert AFTER INSERT ON payment_documentation_requests FOR EACH ROW EXECUTE FUNCTION powerhub_notify_payment_documentation_request()"
+        },
+        {
+          "name": "powerhub_payment_documentation_revision",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER powerhub_payment_documentation_revision AFTER INSERT OR DELETE OR UPDATE ON payment_documentation_requests FOR EACH ROW EXECUTE FUNCTION private.powerhub_capture_payment_documentation_revision()"
+        }
+      ],
+      "policies": []
+    },
+    {
+      "schema_name": "public",
+      "table_name": "sms_dispatch_queue",
+      "relkind": "r",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "explicit_acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "anon_select": false,
+      "authenticated_select": false,
+      "service_select": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "identity": "d",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "tenant_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "subscriber_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "invoice_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "payment_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "channel",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "'queued'::text",
+          "default_sha256": "920ca217af670763272ef2a643e7baedb0cb3d49984e3c8d1a1bd4c24732bfa0"
+        },
+        {
+          "name": "attempts",
+          "type": "integer",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "0",
+          "default_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        },
+        {
+          "name": "provider_message_id",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "last_error",
+          "type": "text",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "scheduled_for",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "sms_dispatch_queue_channel_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (channel = ANY (ARRAY['sms'::text, 'whatsapp'::text]))",
+          "initially_deferred": false
+        },
+        {
+          "name": "sms_dispatch_queue_invoice_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL",
+          "initially_deferred": false
+        },
+        {
+          "name": "sms_dispatch_queue_payment_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL",
+          "initially_deferred": false
+        },
+        {
+          "name": "sms_dispatch_queue_pkey",
+          "type": "p",
+          "validated": true,
+          "deferrable": false,
+          "definition": "PRIMARY KEY (id)",
+          "initially_deferred": false
+        },
+        {
+          "name": "sms_dispatch_queue_status_check",
+          "type": "c",
+          "validated": true,
+          "deferrable": false,
+          "definition": "CHECK (status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'delivered'::text, 'failed'::text, 'cancelled'::text]))",
+          "initially_deferred": false
+        },
+        {
+          "name": "sms_dispatch_queue_subscriber_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (subscriber_id) REFERENCES subscribers(id) ON DELETE SET NULL",
+          "initially_deferred": false
+        },
+        {
+          "name": "sms_dispatch_queue_tenant_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE",
+          "initially_deferred": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "sms_dispatch_queue_pkey",
+          "valid": true,
+          "unique": true,
+          "primary": true,
+          "definition": "CREATE UNIQUE INDEX sms_dispatch_queue_pkey ON public.sms_dispatch_queue USING btree (id)"
+        }
+      ],
+      "triggers": [],
+      "policies": []
+    },
+    {
+      "schema_name": "public",
+      "table_name": "tenant_feature_entitlements",
+      "relkind": "r",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "explicit_acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "anon_select": false,
+      "authenticated_select": false,
+      "service_select": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "identity": "d",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "tenant_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "feature_key",
+          "type": "text",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "is_enabled",
+          "type": "boolean",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "false",
+          "default_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "name": "activated_by_user_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "activated_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tenant_feature_entitlements_activated_by_user_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (activated_by_user_id) REFERENCES users(id) ON DELETE SET NULL",
+          "initially_deferred": false
+        },
+        {
+          "name": "tenant_feature_entitlements_pkey",
+          "type": "p",
+          "validated": true,
+          "deferrable": false,
+          "definition": "PRIMARY KEY (id)",
+          "initially_deferred": false
+        },
+        {
+          "name": "tenant_feature_entitlements_tenant_id_feature_key_key",
+          "type": "u",
+          "validated": true,
+          "deferrable": false,
+          "definition": "UNIQUE (tenant_id, feature_key)",
+          "initially_deferred": false
+        },
+        {
+          "name": "tenant_feature_entitlements_tenant_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE",
+          "initially_deferred": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tenant_feature_entitlements_pkey",
+          "valid": true,
+          "unique": true,
+          "primary": true,
+          "definition": "CREATE UNIQUE INDEX tenant_feature_entitlements_pkey ON public.tenant_feature_entitlements USING btree (id)"
+        },
+        {
+          "name": "tenant_feature_entitlements_tenant_id_feature_key_key",
+          "valid": true,
+          "unique": true,
+          "primary": false,
+          "definition": "CREATE UNIQUE INDEX tenant_feature_entitlements_tenant_id_feature_key_key ON public.tenant_feature_entitlements USING btree (tenant_id, feature_key)"
+        }
+      ],
+      "triggers": [],
+      "policies": []
+    },
+    {
+      "schema_name": "public",
+      "table_name": "tweet_sms_report_snapshots",
+      "relkind": "r",
+      "rls": true,
+      "force_rls": false,
+      "owner": "postgres",
+      "explicit_acl": "{postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "anon_select": false,
+      "authenticated_select": false,
+      "service_select": true,
+      "columns": [
+        {
+          "name": "id",
+          "type": "bigint",
+          "identity": "d",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "tenant_id",
+          "type": "bigint",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "period_start",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "period_end",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "sent_count",
+          "type": "integer",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "0",
+          "default_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        },
+        {
+          "name": "delivered_count",
+          "type": "integer",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "0",
+          "default_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        },
+        {
+          "name": "failed_count",
+          "type": "integer",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "0",
+          "default_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        },
+        {
+          "name": "total_cost",
+          "type": "numeric(14,4)",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "0",
+          "default_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        },
+        {
+          "name": "raw_data",
+          "type": "jsonb",
+          "identity": "",
+          "nullable": true,
+          "generated": "",
+          "default_sql": null,
+          "default_sha256": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "identity": "",
+          "nullable": false,
+          "generated": "",
+          "default_sql": "now()",
+          "default_sha256": "28a4dae0461e17af56e979c2095abfbe0bfc45fe9ca8abf3144338a518a1bb8f"
+        }
+      ],
+      "constraints": [
+        {
+          "name": "tweet_sms_report_snapshots_pkey",
+          "type": "p",
+          "validated": true,
+          "deferrable": false,
+          "definition": "PRIMARY KEY (id)",
+          "initially_deferred": false
+        },
+        {
+          "name": "tweet_sms_report_snapshots_tenant_id_fkey",
+          "type": "f",
+          "validated": true,
+          "deferrable": false,
+          "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE",
+          "initially_deferred": false
+        }
+      ],
+      "indexes": [
+        {
+          "name": "tweet_sms_report_snapshots_pkey",
+          "valid": true,
+          "unique": true,
+          "primary": true,
+          "definition": "CREATE UNIQUE INDEX tweet_sms_report_snapshots_pkey ON public.tweet_sms_report_snapshots USING btree (id)"
+        }
+      ],
+      "triggers": [],
+      "policies": []
+    }
+  ]
+}
