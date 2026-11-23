@@ -33,6 +33,10 @@ jobs:
         run: |
           node --test scripts/pr359-r4/audit-ownership-candidates.test.mjs
           node scripts/pr359-r4/audit-ownership-candidates.mjs
+      - name: Verify live Staging 978-object hashed catalog against historical R0, no release authorization
+        run: |
+          node --test scripts/pr359-r4/verify-live-ownership-catalog.test.mjs
+          node scripts/pr359-r4/verify-live-ownership-catalog.mjs
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
       - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
