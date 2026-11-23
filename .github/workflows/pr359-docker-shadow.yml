@@ -61,6 +61,10 @@ jobs:
         run: |
           node --test scripts/pr359-canonical/audit-eleven-live-gaps.test.mjs
           node scripts/pr359-canonical/audit-eleven-live-gaps.mjs
+      - name: CB-A scan 11 catalog names in tracked platform source (lexical evidence only)
+        run: |
+          node --test scripts/pr359-canonical/code-reference-index.test.mjs
+          node scripts/pr359-canonical/code-reference-index.mjs --out "$RUNNER_TEMP/pr359-cb-a-code-references.json"
       - name: Retain CB-A candidate inventory (not executable baseline)
         uses: actions/upload-artifact@v4
         with:
@@ -69,6 +73,7 @@ jobs:
             ${{ runner.temp }}/pr359-cb-a-source-index.json
             ${{ runner.temp }}/pr359-cb-a-triage.json
             ${{ runner.temp }}/pr359-cb-a-sequence-summary.json
+            ${{ runner.temp }}/pr359-cb-a-code-references.json
           retention-days: 14
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
