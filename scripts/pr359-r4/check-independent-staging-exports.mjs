@@ -24,6 +24,8 @@ export const INDEPENDENT_SOURCE_EVIDENCE_FILES=Object.freeze([
  'staging-schema-object-source.jsonl',
  'staging-schema-attribute-source.jsonl',
  'staging-ownership-source.json',
+ 'staging-managed-policy-source.json',
+ 'staging-managed-policy-replay.sql',
  'staging-managed-reverse-source.json',
  'staging-managed-fks-source.jsonl',
  'staging-managed-fk-orphans-source.jsonl',
