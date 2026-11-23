@@ -29,6 +29,10 @@ jobs:
           bash -n scripts/pr359-shadow/run.sh
           bash -n scripts/pr359-r4/staging-atomic-export.sh
           bash -n scripts/pr359-r4/staging-atomic-snapshot-disposable.sh
+      - name: Audit all 978 ownership candidates against archived R0 evidence (no approval)
+        run: |
+          node --test scripts/pr359-r4/audit-ownership-candidates.test.mjs
+          node scripts/pr359-r4/audit-ownership-candidates.mjs
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
       - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
