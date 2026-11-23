@@ -25,7 +25,7 @@ test('fail closed on function definition, ACL and effective privilege mutations'
   a=>a[0].objects.find(x=>x.kind==='function').authenticated_execute=
      !a[0].objects.find(x=>x.kind==='function').authenticated_execute,
   a=>a[0].objects.find(x=>x.kind==='function').acl_sha256='a'.repeat(64),
-  a=>a[0].objects.find(x=>x.kind==='function').security_definer=false,
+  a=>{const o=a[0].objects.find(x=>x.kind==='function');o.security_definer=!o.security_definer},
   a=>a[0].objects.find(x=>x.kind==='function').owner='service_role'
  ];
  for(const alter of cases){const a=fixture();alter(a);assert.throws(()=>verifyLiveOwnershipCatalog(...a));}
