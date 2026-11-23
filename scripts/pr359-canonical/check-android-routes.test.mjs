@@ -4,12 +4,12 @@ import {readFileSync} from 'node:fs';
 import {parseRetrofit,parseExpress,compareMobileRoutes,ANDROID_SOURCE_BLOB} from './check-android-routes.mjs';
 const kotlin=readFileSync('scripts/pr359-canonical/fixtures/android-field-reading-api.kt','utf8');
 const server=readFileSync('server/mobile-api.ts','utf8');
-test('pinned 10 Android Retrofit routes match PowerHub; backend-only E51 Delta remains NOT accepted',()=>{
+test('pinned 11 merged Android Retrofit routes match PowerHub; runtime Delta remains NOT accepted',()=>{
  const report=compareMobileRoutes(kotlin,server,ANDROID_SOURCE_BLOB);
- assert.equal(report.matched_android_routes,10);
+ assert.equal(report.matched_android_routes,11);
  assert.equal(report.powerhub_server_methods_and_paths,11);
- assert.deepEqual(report.server_only_routes.map(x=>x.path),['/api/mobile/v1/subscribers/delta']);
- assert.equal(report.android_delta_endpoint_declared,false);
+ assert.deepEqual(report.server_only_routes,[]);
+ assert.equal(report.android_delta_endpoint_declared,true);
  assert.equal(report.android_delta_end_to_end_verified,false);
  assert.equal(report.android_runtime_http_verified,false);
  assert.equal(report.canonical_baseline_approved,false);
@@ -26,7 +26,7 @@ test('negative: changed Android bytes, removed route, swapped HTTP method and du
  const fakeDelta=server.replace('app.get("/api/mobile/v1/subscribers/delta"',
   'app.post("/api/mobile/v1/subscribers/delta"');
  assert.throws(()=>compareMobileRoutes(kotlin,fakeDelta,ANDROID_SOURCE_BLOB),
-  /server-only endpoints changed/);
+  /missing or method-mismatched/);
  const bad=server+'\napp.get("/api/mobile/v1/auth/me", (_req,_res)=>{});';
  assert.throws(()=>compareMobileRoutes(kotlin,bad,ANDROID_SOURCE_BLOB),
   /duplicate server route/);
