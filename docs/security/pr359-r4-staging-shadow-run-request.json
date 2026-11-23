@@ -1,8 +1,8 @@
 {
   "format": "PR359_STAGING_SHADOW_MANUAL_REQUEST_V1",
-  "requested": true,
+  "requested": false,
   "project_ref": "iyuryuhaylhisjfcrwkz",
   "purpose": "two isolated read-only source logical exports and Staging legacy-ledger restorations",
   "warning": "Protected GitHub Environment reviewer approval and repository opt-in remain required. Activation must be a single-purpose commit changing only this file; set approved_parent_sha to the exact reviewed parent HEAD. Keep requested=false until ready. No extra text approval token is used.",
-  "approved_parent_sha": "3b010d3fc5ef8a812c4dcfd7b5930b963fab9b50"
+  "approved_parent_sha": "UNSET"
 }
