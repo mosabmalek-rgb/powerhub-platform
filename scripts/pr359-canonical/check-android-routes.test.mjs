@@ -27,7 +27,7 @@ test('negative: changed Android bytes, removed route, swapped HTTP method and du
   'app.post("/api/mobile/v1/subscribers/delta"');
  assert.throws(()=>compareMobileRoutes(kotlin,fakeDelta,ANDROID_SOURCE_BLOB),
   /server-only endpoints changed/);
- const bad=server+'\\napp.get("/api/mobile/v1/auth/me", (_req,_res)=>{});';
+ const bad=server+'\napp.get("/api/mobile/v1/auth/me", (_req,_res)=>{});';
  assert.throws(()=>compareMobileRoutes(kotlin,bad,ANDROID_SOURCE_BLOB),
   /duplicate server route/);
 });
