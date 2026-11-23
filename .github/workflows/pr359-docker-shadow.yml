@@ -45,6 +45,16 @@ jobs:
         run: |
           node --test scripts/pr359-r4/verify-legacy-migration-provenance.test.mjs
           node scripts/pr359-r4/verify-legacy-migration-provenance.mjs
+      - name: CB-A verify 978-object provisional SQL source index (non-authorizing)
+        run: |
+          node --test scripts/pr359-canonical/source-index.test.mjs
+          node scripts/pr359-canonical/source-index.mjs --out "$RUNNER_TEMP/pr359-cb-a-source-index.json"
+      - name: Retain CB-A candidate inventory (not executable baseline)
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr359-cb-a-candidates
+          path: ${{ runner.temp }}/pr359-cb-a-source-index.json
+          retention-days: 14
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
       - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
