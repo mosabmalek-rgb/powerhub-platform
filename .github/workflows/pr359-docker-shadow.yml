@@ -65,6 +65,10 @@ jobs:
         run: |
           node --test scripts/pr359-canonical/code-reference-index.test.mjs
           node scripts/pr359-canonical/code-reference-index.mjs --out "$RUNNER_TEMP/pr359-cb-a-code-references.json"
+      - name: CB-A pin Android Retrofit routes and flag server-only Delta as unimplemented
+        run: |
+          node --test scripts/pr359-canonical/check-android-routes.test.mjs
+          node scripts/pr359-canonical/check-android-routes.mjs --out "$RUNNER_TEMP/pr359-cb-a-android-routes.json"
       - name: Retain CB-A candidate inventory (not executable baseline)
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +78,7 @@ jobs:
             ${{ runner.temp }}/pr359-cb-a-triage.json
             ${{ runner.temp }}/pr359-cb-a-sequence-summary.json
             ${{ runner.temp }}/pr359-cb-a-code-references.json
+            ${{ runner.temp }}/pr359-cb-a-android-routes.json
           retention-days: 14
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
