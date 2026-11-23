@@ -1,0 +1,1556 @@
+{
+  "format": "PR359_CB_A_STAGING_SEQUENCE_OWNERSHIP_CATALOG_V1",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "captured_on": "2026-11-23",
+  "capture_mode": "read-only pg_catalog SELECT; no hosted mutation",
+  "source_pr_head": "9d2d1a135dadfea24bb1c8827b903f9b6814a1f0",
+  "query_path": "scripts/pr359-canonical/staging-sequence-ownership.sql",
+  "expected_sequences": 154,
+  "identity_owned_count": 147,
+  "non_owned_count": 7,
+  "approved_app_owned": false,
+  "staging_inplace_go": false,
+  "production_inplace_go": false,
+  "rows": [
+    {
+      "sequence_schema": "private",
+      "sequence_name": "chat_ai_runs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "private",
+      "owning_table_name": "chat_ai_runs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "private.chat_ai_runs_id_seq"
+    },
+    {
+      "sequence_schema": "private",
+      "sequence_name": "platform_capability_policies_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "private",
+      "owning_table_name": "platform_capability_policies",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "private.platform_capability_policies_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "access_invitations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "access_invitations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.access_invitations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "access_recovery_requests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "access_recovery_requests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.access_recovery_requests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "account_transactions_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "account_transactions",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.account_transactions_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "audit_logs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "audit_logs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.audit_logs_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "billing_adjustments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "billing_adjustments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.billing_adjustments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_bot_feedback_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_bot_feedback",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_bot_feedback_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_bot_handoffs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_bot_handoffs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_bot_handoffs_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_conversations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_conversations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_conversations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_inbox_notifications_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_inbox_notifications",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_inbox_notifications_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_knowledge_articles_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_knowledge_articles",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_knowledge_articles_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_knowledge_embeddings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_knowledge_embeddings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_knowledge_embeddings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_message_attachments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_message_attachments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_message_attachments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_message_receipts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_message_receipts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_message_receipts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_messages_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_messages",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_messages_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_participants_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_participants",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_participants_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_support_assignments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_support_assignments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_support_assignments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_support_categories_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_support_categories",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_support_categories_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_support_feedback_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_support_feedback",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_support_feedback_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_support_quick_replies_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_support_quick_replies",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_support_quick_replies_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_support_tags_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_support_tags",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_support_tags_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_support_ticket_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "chat_ticket_events_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "chat_ticket_events",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.chat_ticket_events_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "collector_sessions_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "collector_sessions",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.collector_sessions_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "company_account_sites_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "company_account_sites",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.company_account_sites_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "company_accounts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "company_accounts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.company_accounts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "complaints_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "complaints",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.complaints_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "custom_permission_roles_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "custom_permission_roles",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.custom_permission_roles_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "emergency_requests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "emergency_requests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.emergency_requests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "employee_adjustment_repayments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "employee_adjustment_repayments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.employee_adjustment_repayments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "employee_adjustments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "employee_adjustments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.employee_adjustments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "employee_attendance_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "employee_attendance",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.employee_attendance_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "employees_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "employees",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.employees_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "expenses_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "expenses",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.expenses_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "feature_global_control_audit_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "feature_global_control_audit",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.feature_global_control_audit_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_accrual_journals_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_accrual_journals",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_accrual_journals_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_accrual_period_reviews_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_accrual_period_reviews",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_accrual_period_reviews_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_central_allocation_policies_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_central_allocation_policies",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_central_allocation_policies_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_entries_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_entries",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_entries_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_inter_site_eliminations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_inter_site_eliminations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_inter_site_eliminations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_opening_batches_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_opening_batches",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_opening_batches_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_opening_evidence_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_opening_evidence",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_opening_evidence_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_opening_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_opening_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_opening_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_gl_staging_fixture_manifests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_gl_staging_fixture_manifests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_gl_staging_fixture_manifests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_settlements_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_settlements",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.financial_settlements_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "financial_supplier_payment_corrections_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "financial_supplier_payment_corrections",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.financial_supplier_payment_corrections_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_fuel_alert_setting_operations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_fuel_alert_setting_operations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.generator_fuel_alert_setting_operations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_fuel_alert_settings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_fuel_alert_settings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.generator_fuel_alert_settings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_fuel_events_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_fuel_events",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_fuel_events_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_fuel_readings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_fuel_readings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_fuel_readings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_maintenance_alert_events_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_maintenance_alert_events",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_maintenance_alert_events_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_maintenance_audit_events_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_maintenance_audit_events",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_maintenance_audit_events_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_maintenance_preventive_plans_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_maintenance_preventive_plans",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_maintenance_preventive_plans_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_maintenance_work_order_number_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_maintenance_work_order_parts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_maintenance_work_order_parts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_maintenance_work_order_parts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generator_maintenance_work_orders_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generator_maintenance_work_orders",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generator_maintenance_work_orders_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "generators_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "generators",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.generators_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_item_units_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_item_units",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_item_units_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_items_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_items",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_items_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_stock_movements_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_stock_movements",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_stock_movements_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_stock_transfers_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_stock_transfers",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_stock_transfers_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_stocktake_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_stocktake_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_stocktake_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_stocktakes_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_stocktakes",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_stocktakes_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "inventory_warehouses_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "inventory_warehouses",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.inventory_warehouses_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "invoice_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "invoice_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.invoice_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "invoice_share_links_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "invoice_share_links",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.invoice_share_links_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "invoices_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "invoices",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.invoices_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "messaging_schedule_runs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "messaging_schedule_runs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.messaging_schedule_runs_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "meter_readings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "meter_readings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.meter_readings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "meters_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "meters",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.meters_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "mobile_api_sessions_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "mobile_api_sessions",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.mobile_api_sessions_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "mobile_subscriber_change_log_sequence_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "mobile_subscriber_change_log",
+      "owning_column_name": "sequence_id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.mobile_subscriber_change_log_sequence_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "mobile_sync_events_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "mobile_sync_events",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.mobile_sync_events_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "notification_messages_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "notification_messages",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.notification_messages_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "offline_sync_operations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "offline_sync_operations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.offline_sync_operations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "password_reset_intents_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "password_reset_intents",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.password_reset_intents_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "payment_documentation_requests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "payment_documentation_requests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.payment_documentation_requests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "payments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "payments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.payments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "payroll_adjustment_allocations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "payroll_adjustment_allocations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.payroll_adjustment_allocations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "payroll_items_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "payroll_items",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.payroll_items_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "payroll_runs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "payroll_runs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.payroll_runs_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_access_invitations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_access_invitations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_access_invitations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_announcement_reads_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_announcement_reads",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_announcement_reads_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_announcements_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_announcements",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_announcements_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_role_policies_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_role_policies",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_role_policies_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_security_events_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_security_events",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_security_events_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_security_settings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_security_settings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_security_settings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_settings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_settings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_settings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_sms_fallback_providers_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_sms_fallback_providers",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_sms_fallback_providers_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_sms_plans_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_sms_plans",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_sms_plans_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_tariff_policies_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_tariff_policies",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_tariff_policies_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_tweetsms_accounts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_tweetsms_accounts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_tweetsms_accounts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "platform_tweetsms_balance_alerts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "platform_tweetsms_balance_alerts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.platform_tweetsms_balance_alerts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_fuel_alert_dispatches_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_fuel_alert_dispatches",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.powerhub_fuel_alert_dispatches_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_message_automation_runs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_message_automation_runs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.powerhub_message_automation_runs_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_message_automations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_message_automations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.powerhub_message_automations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_message_campaign_recipients_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_message_campaign_recipients",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.powerhub_message_campaign_recipients_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_message_campaigns_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_message_campaigns",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.powerhub_message_campaigns_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_message_templates_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_message_templates",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.powerhub_message_templates_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_quota_alerts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_quota_alerts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.powerhub_quota_alerts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_subscriber_no_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "powerhub_user_notifications_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "powerhub_user_notifications",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "a",
+      "pg_get_serial_sequence_result": "public.powerhub_user_notifications_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "site_portal_settings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "site_portal_settings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.site_portal_settings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "sites_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "sites",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.sites_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "sms_dispatch_queue_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "sms_dispatch_queue",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.sms_dispatch_queue_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "sms_package_requests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "sms_package_requests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.sms_package_requests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "staff_password_reset_intents_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "staff_password_reset_intents",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.staff_password_reset_intents_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "staff_profile_capability_overrides_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "staff_profile_capability_overrides",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.staff_profile_capability_overrides_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "staff_profile_permission_audit_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "staff_profile_permission_audit",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.staff_profile_permission_audit_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "staff_profiles_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "staff_profiles",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.staff_profiles_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "subscriber_balance_ledger_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "subscriber_balance_ledger",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.subscriber_balance_ledger_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "subscriber_global_number_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "subscriber_portal_attempts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "subscriber_portal_attempts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.subscriber_portal_attempts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "subscribers_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "subscribers",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.subscribers_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "subscription_renewal_operations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "subscription_renewal_operations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.subscription_renewal_operations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "subscription_upgrade_requests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "subscription_upgrade_requests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.subscription_upgrade_requests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_ledger_entries_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_ledger_entries",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_ledger_entries_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_payment_allocations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_payment_allocations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_payment_allocations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_payments_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_payments",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_payments_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_purchase_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_purchase_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_number_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_receipt_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_purchase_receipt_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_purchase_receipt_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_receipt_number_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_receipts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_purchase_receipts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_purchase_receipts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_return_lines_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_purchase_return_lines",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_purchase_return_lines_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_return_number_seq",
+      "ownership_dependency_type": null,
+      "owning_table_schema": null,
+      "owning_table_name": null,
+      "owning_column_name": null,
+      "owning_column_identity_kind": null,
+      "pg_get_serial_sequence_result": null
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchase_returns_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_purchase_returns",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_purchase_returns_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "supplier_purchases_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "supplier_purchases",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.supplier_purchases_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "suppliers_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "suppliers",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.suppliers_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tariff_price_history_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tariff_price_history",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tariff_price_history_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tariffs_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tariffs",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tariffs_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_addon_renewal_decisions_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_addon_renewal_decisions",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_addon_renewal_decisions_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_addon_requests_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_addon_requests",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_addon_requests_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_branch_settings_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_branch_settings",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_branch_settings_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_feature_control_audit_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_feature_control_audit",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_feature_control_audit_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_feature_controls_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_feature_controls",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_feature_controls_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_feature_entitlements_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_feature_entitlements",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_feature_entitlements_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_invoice_message_templates_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_invoice_message_templates",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_invoice_message_templates_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_member_capability_overrides_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_member_capability_overrides",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_member_capability_overrides_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_member_permission_audit_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_member_permission_audit",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_member_permission_audit_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_members_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_members",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_members_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_messaging_configurations_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_messaging_configurations",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_messaging_configurations_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_owner_alerts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_owner_alerts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_owner_alerts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_owner_profiles_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_owner_profiles",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_owner_profiles_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_payment_receipt_message_templates_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_payment_receipt_message_templates",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_payment_receipt_message_templates_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_sms_recharge_ledger_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_sms_recharge_ledger",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_sms_recharge_ledger_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_subscriptions_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_subscriptions",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_subscriptions_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenant_tweetsms_accounts_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenant_tweetsms_accounts",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenant_tweetsms_accounts_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tenants_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tenants",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tenants_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "tweet_sms_report_snapshots_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "tweet_sms_report_snapshots",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.tweet_sms_report_snapshots_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "user_quick_action_preferences_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "user_quick_action_preferences",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.user_quick_action_preferences_id_seq"
+    },
+    {
+      "sequence_schema": "public",
+      "sequence_name": "users_id_seq",
+      "ownership_dependency_type": "i",
+      "owning_table_schema": "public",
+      "owning_table_name": "users",
+      "owning_column_name": "id",
+      "owning_column_identity_kind": "d",
+      "pg_get_serial_sequence_result": "public.users_id_seq"
+    }
+  ]
+}
