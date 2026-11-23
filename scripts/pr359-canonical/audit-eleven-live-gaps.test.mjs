@@ -28,7 +28,7 @@ test('Security and drift regressions fail closed',()=>{
   a=>{a[1].tables[0].policies.push({name:'unreviewed'})},
   a=>{a[1].tables[0].indexes[0].valid=false},
   a=>{a[1].tables[1].triggers.pop()},
-  a=>{a[4].objects[0].reviewed=true},
+  a=>{a[4].objects.find(x=>x.id==='p6_assert_subscription_guard()').reviewed=true},
   a=>{a[0].canonical_baseline_approved=true}
  ];
  for(const change of changes){const fixture=factory();change(fixture);

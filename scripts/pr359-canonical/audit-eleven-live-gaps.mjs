@@ -35,7 +35,7 @@ export function auditEleven(fEvidence,tEvidence,historicalFns,historicalRelation
  assert.equal(tEvidence.format,'PR359_CB_A_5_MISSING_TABLES_LIVE_EVIDENCE_V1');
  for(const e of [fEvidence,tEvidence]){
   assert.equal(e.source_project_ref,'iyuryuhaylhisjfcrwkz');
-  assert.equal(e.capture_mode,'read-only catalog select'.includes(e.capture_mode)?e.capture_mode:e.capture_mode);
+  assert.equal(e.capture_mode,'read-only catalog select','source capture mode changed');
   assert.equal(e.canonical_baseline_approved,false);
   assert.equal(e.staging_inplace_go,false);
   assert.equal(e.production_inplace_go,false);
@@ -60,6 +60,8 @@ export function auditEleven(fEvidence,tEvidence,historicalFns,historicalRelation
   const row=f.get(name);
   assert.ok(row,'missing live function '+name);
   assert.match(row.sha256,HEX);
+  assert.equal(createHash('sha256').update(row.executable_ddl,'utf8').digest('hex'),row.sha256,
+   'stored function body does not match captured SHA256: '+name);
   assert.equal(typeof row.executable_ddl,'string');
   assert.ok(row.executable_ddl.startsWith('CREATE OR REPLACE FUNCTION public.'+name+'('));
   assert.ok(!row.anon_execute&&!row.authenticated_execute&&row.service_execute,
