@@ -7,8 +7,8 @@ import path from 'node:path';
 // Pinned, reviewed source snapshot of the Android Retrofit declarations.
 // This is path/method-only verification, NOT HTTP payload, auth or behavior.
 const ANDROID_SOURCE='scripts/pr359-canonical/fixtures/android-field-reading-api.kt';
-export const ANDROID_SOURCE_BLOB='cda3e4b234b6faec160cf23d8b99745f0a5962f6';
-export const ANDROID_HEAD='9ab3ad5c256920338f8f277c51036e7df8a347bb';
+export const ANDROID_SOURCE_BLOB='8a4da94bfabe14839f1cce9aec60cf06879479d6';
+export const ANDROID_HEAD='a4e8c2d077022146e71e8a47d2fc6377e92d8b9c';
 export const SERVER_DELTA='/api/mobile/v1/subscribers/delta';
 const hashGitBlob=b=>createHash('sha1').update('blob '+b.length+'\0').update(b).digest('hex');
 function uniqueRoutes(matches,kind){
@@ -43,18 +43,17 @@ export function compareMobileRoutes(androidSource,serverSource,expectedAndroidBl
   'unreviewed Android Retrofit source drift');
  const android=parseRetrofit(androidSource);
  const server=parseExpress(serverSource);
- assert.equal(android.length,10,'Android API route count changed; review snapshot');
+ assert.equal(android.length,11,'Android API route count changed; review snapshot');
  assert.equal(server.length,11,'server API route count changed; review full contract');
  const serverMap=new Map(server.map(x=>[x.method+' '+x.path,x]));
  const androidMap=new Map(android.map(x=>[x.method+' '+x.path,x]));
  const missing=android.filter(x=>!serverMap.has(x.method+' '+x.path));
  assert.deepEqual(missing,[],'Android routes missing or method-mismatched on PowerHub server');
  const serverOnly=server.filter(x=>!androidMap.has(x.method+' '+x.path));
- assert.deepEqual(serverOnly.map(x=>x.method+' '+x.path),
-  ['GET '+SERVER_DELTA],'server-only endpoints changed; review contract');
+ assert.deepEqual(serverOnly,[],'unexpected server-only endpoints; review contract');
  assert.ok(serverMap.has('GET '+SERVER_DELTA));
  assert.ok(androidMap.has('GET /api/mobile/v1/subscribers'));
- assert.ok(!androidMap.has('GET '+SERVER_DELTA),'unexpected Android Delta implementation requires review');
+ assert.ok(androidMap.has('GET '+SERVER_DELTA),'merged Android must declare the E51 Delta route');
  const paths=android.map(x=>x.path);
  assert.ok(paths.every(x=>x.startsWith('/api/mobile/v1/')));
  return {
@@ -65,13 +64,13 @@ export function compareMobileRoutes(androidSource,serverSource,expectedAndroidBl
   powerhub_server_methods_and_paths:server.length,
   matched_android_routes:android.length,
   server_only_routes:serverOnly.map(({method,path,line})=>({method,path,server_line:line})),
-  android_subscriber_client_uses_legacy_offset_endpoint:true,
+  android_legacy_subscriber_fallback_declared:true,
   server_delta_endpoint_exists:true,
-  android_delta_endpoint_declared:false,
+  android_delta_endpoint_declared:true,
   android_delta_end_to_end_verified:false,
   android_payload_and_error_contracts_verified:false,
   android_runtime_http_verified:false,
-  android_app_build_verified:false,
+  android_app_code_ci_verified_on_merged_source:true,
   runtime_call_graph_complete:false,
   app_owned_approved:false,canonical_baseline_approved:false,
   staging_inplace_go:false,production_inplace_go:false,pr359_merge_go:false,
