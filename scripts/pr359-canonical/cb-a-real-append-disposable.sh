@@ -70,6 +70,33 @@ printf '%s\n' \
  | run_sql > "$tmp/final-check.txt"
 grep -Fxq PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS "$tmp/final-check.txt" || { echo PR359_REAL_APPEND_SCOPE_CURSOR_INCONSISTENT >&2; exit 1; }
 grep -Fxq ok "$tmp/final-check.txt" || { echo PR359_REAL_APPEND_PULL_FAILED >&2; exit 1; }
+# The archived AFTER triggers, emit and append functions execute together in
+# a SECOND synthetic database, with projector and refresh STUBS explicitly
+# scoped to the test. The real platform schemas and grants are not tested.
+node --test scripts/pr359-canonical/generate-real-capture-disposable.test.mjs
+node scripts/pr359-canonical/generate-real-capture-disposable.mjs --out "$tmp/real-capture.sql" >/dev/null
+docker exec -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" \
+ createdb -U postgres pr359_real_capture
+docker exec -i -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d pr359_real_capture \
+ < "$tmp/real-capture.sql" > "$tmp/real-capture-results.txt"
+for marker in \
+ PR359_REAL_CAPTURE_FUEL_LIFECYCLE_PASS \
+ PR359_REAL_CAPTURE_SCOPE_MOVE_PASS \
+ PR359_REAL_CAPTURE_PARTS_SCOPE_PASS \
+ PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS \
+ PR359_REAL_CAPTURE_INVALID_SCOPE_ROLLBACK_PASS \
+ PR359_REAL_TRIGGER_FULL_PROJECTION_AND_RLS_VERIFIED=FALSE \
+ PR359_REAL_TRIGGER_DEPLOYMENT_APPROVED=FALSE \
+ PR359_CANONICAL_BASELINE_APPROVED=FALSE
+do
+ grep -Fxq "$marker" "$tmp/real-capture-results.txt" || {
+  echo "PR359_REAL_CAPTURE_ASSERTION_MISSING=$marker" >&2
+  exit 1
+ }
+done
+echo PR359_REAL_CAPTURE_THREE_OPERATIONAL_TRIGGERS_PASS
+echo PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS
 echo PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS
 echo PR359_REAL_APPEND_PULL_ISOLATED_PASS
 echo PR359_REAL_PRODUCER_FULL_CALLER_CLOSURE_APPROVED=FALSE
