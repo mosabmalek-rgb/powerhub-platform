@@ -258,6 +258,49 @@ do
   echo "PR359_JOURNAL_RECOVERY_MISSING=$marker" >&2; exit 1;
  }
 done
+# NEGATIVE CONTROL: IDENTITY/sequence allocation order is not commit order.
+# A allocates a lower journal sequence and holds an uncommitted insert.
+# B allocates and commits a higher one; the consumer can advance past A.
+# All sessions remain in this --network none disposable database.
+printf '%s\n' "INSERT INTO public.pr359_synthetic_change_checkpoint(tenant_id,site_id,generator_id,kind,cursor_seq,snapshot_upper_seq) VALUES(77,70,7,'fuel_events',0,0);" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres >/dev/null
+coproc JOURNAL_EARLY_WRITER {
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres
+}
+owner_pid="$JOURNAL_EARLY_WRITER_PID"
+owner_in="${JOURNAL_EARLY_WRITER[1]}"
+owner_out="${JOURNAL_EARLY_WRITER[0]}"
+printf '%s\n' \
+ 'BEGIN;' \
+ "INSERT INTO public.pr359_synthetic_change_journal(tenant_id,site_id,generator_id,kind,event_id,change_kind,revision) VALUES(77,70,7,'fuel_events',701,'upsert',1);" \
+ "SELECT 'PR359_LOWER_SEQUENCE_UNCOMMITTED';" >&"$owner_in"
+marker=''
+if ! IFS= read -r -t 25 marker <&"$owner_out" || [[ "$marker" != PR359_LOWER_SEQUENCE_UNCOMMITTED ]]; then
+ echo PR359_JOURNAL_COMMIT_ORDER_SETUP_FAILED >&2; exit 1
+fi
+printf '%s\n' \
+ "INSERT INTO public.pr359_synthetic_change_journal(tenant_id,site_id,generator_id,kind,event_id,change_kind,revision) VALUES(77,70,7,'fuel_events',702,'upsert',1);" \
+ "UPDATE public.pr359_synthetic_change_checkpoint SET snapshot_upper_seq=(SELECT max(change_seq) FROM public.pr359_synthetic_change_journal WHERE tenant_id=77 AND site_id=70 AND generator_id=7 AND kind='fuel_events') WHERE tenant_id=77 AND site_id=70 AND generator_id=7 AND kind='fuel_events';" \
+ "SELECT public.pr359_synthetic_apply_change_page(77,70,7,'fuel_events',128,false);" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres > "$tmp/journal-order-visible.txt"
+grep -Fxq 1 "$tmp/journal-order-visible.txt" || {
+ echo PR359_EXPECTED_ONLY_HIGHER_SEQUENCE_VISIBLE >&2; exit 1
+}
+printf 'COMMIT;\n\\q\n' >&"$owner_in"
+wait "$owner_pid"
+owner_pid=''
+printf '%s\n' \
+ "SELECT CASE WHEN (SELECT count(*) FROM public.pr359_synthetic_change_journal WHERE tenant_id=77 AND site_id=70 AND generator_id=7)=2 AND (SELECT count(*) FROM public.pr359_synthetic_change_sink WHERE tenant_id=77 AND site_id=70 AND generator_id=7)=1 AND EXISTS(SELECT 1 FROM public.pr359_synthetic_change_journal j WHERE j.tenant_id=77 AND j.event_id=701 AND j.change_seq<(SELECT cursor_seq FROM public.pr359_synthetic_change_checkpoint WHERE tenant_id=77 AND site_id=70 AND generator_id=7)) AND NOT EXISTS(SELECT 1 FROM public.pr359_synthetic_change_sink WHERE tenant_id=77 AND event_id=701) THEN 'PR359_SEQUENCE_COMMIT_ORDER_GAP_REPRODUCED' ELSE 'FAILED' END;" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres > "$tmp/journal-order-result.txt"
+grep -Fxq PR359_SEQUENCE_COMMIT_ORDER_GAP_REPRODUCED "$tmp/journal-order-result.txt" || {
+ echo PR359_COMMIT_ORDER_NEGATIVE_CONTROL_FAILED >&2; exit 1
+}
+echo PR359_SEQUENCE_COMMIT_ORDER_GAP_REPRODUCED
+echo PR359_PRODUCTION_SEQUENCE_ORDERING_APPROVED=FALSE
 echo PR359_CB_A_CHANGE_JOURNAL_TOMBSTONE_RECOVERY_PASS
 echo PR359_CB_A_CROSS_CONNECTION_KEYSET_RECOVERY_PASS
 echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
