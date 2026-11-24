@@ -26,6 +26,14 @@ test('failed write, distinct connection recovery, and later tombstone are explic
  assert.match(fail,/EXCEPTION WHEN SQLSTATE 'P3592' THEN caught:=true/);
  assert.match(first,/event_id=201 AND change_kind='delete'/);
  assert.match(first,/PR359_ISOLATED_CHANGE_JOURNAL_FIRST_PAGE_COMMITTED_PASS/);
+ assert.match(first,/n:=public\.pr359_synthetic_apply_change_page\(1,10,1,'fuel_events',2,false\);/);
+ assert.match(first,/SELECT cursor_seq INTO cursor_after/);
+ assert.ok(first.indexOf('n:=public.pr359_synthetic_apply_change_page') <
+           first.indexOf('SELECT cursor_seq INTO cursor_after'));
+ assert.ok(!/IF\s+public\.pr359_synthetic_apply_change_page/.test(first));
+ assert.ok(!/IF\s+public\.pr359_synthetic_apply_change_page/.test(resumed));
+ assert.match(resumed,/exhausted:=public\.pr359_synthetic_apply_change_page/);
+
  assert.match(resumed,/snapshot_upper_seq/);
  assert.match(resumed,/event_id=202 AND change_kind='delete' AND revision=3/);
  assert.match(resumed,/PR359_ISOLATED_CHANGE_JOURNAL_CROSS_CONNECTION_RECOVERY_PASS/);
