@@ -1,0 +1,47 @@
+{
+  "format": "PR359_CB_A_REAL_DELTA_PROJECTORS_CATALOG_V1",
+  "source_environment": "Staging",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "capture_date": "2026-11-24",
+  "source": "READ_ONLY_PG_CATALOG_SELECT",
+  "scope": "Three scoped fuel/maintenance projector function definitions and effective EXECUTE flags only",
+  "functions": [
+    {
+      "identity": "powerhub_project_fuel_event_delta_row(bigint,bigint,bigint)",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_project_fuel_event_delta_row(p_tenant_id bigint, p_site_id bigint, p_event_id bigint)\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\n  select jsonb_build_object(\n    'id',e.id,'event_id',e.id,'tenant_id',e.tenant_id,'site_id',e.site_id,\n    'generator_id',e.generator_id,'generator_name',g.name,\n    'fuel_item_id',e.fuel_item_id,'fuel_item_name',i.name,\n    'source_warehouse_id',e.source_warehouse_id,'source_warehouse_name',sw.name,\n    'destination_warehouse_id',e.destination_warehouse_id,'destination_warehouse_name',dw.name,\n    'litres',e.litres,'occurred_at',e.occurred_at,\n    'level_before_liters',e.level_before_liters,'level_after_liters',e.level_after_liters,\n    'operating_hours',e.operating_hours,'reference_no',e.reference_no,'notes',null,\n    'stock_transfer_id',e.stock_transfer_id,'created_by_user_id',null,'created_at',e.created_at\n  )\n  from public.generator_fuel_events e\n  join public.generators g on g.tenant_id=e.tenant_id and g.site_id=e.site_id and g.id=e.generator_id\n  join public.inventory_items i on i.tenant_id=e.tenant_id and i.id=e.fuel_item_id\n  join public.inventory_warehouses sw on sw.tenant_id=e.tenant_id and sw.site_id=e.site_id and sw.id=e.source_warehouse_id\n  join public.inventory_warehouses dw on dw.tenant_id=e.tenant_id and dw.site_id=e.site_id and dw.id=e.destination_warehouse_id\n  where e.tenant_id=p_tenant_id and e.site_id=p_site_id and e.id=p_event_id\n$function$\n",
+      "security_definer": true,
+      "configured_search_path": "search_path=pg_catalog, public, pg_temp",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "identity": "powerhub_project_maintenance_work_order_delta_row(bigint,bigint,bigint)",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_project_maintenance_work_order_delta_row(p_tenant_id bigint, p_site_id bigint, p_work_order_id bigint)\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\n  select jsonb_build_object(\n    'id',w.id,'work_order_id',w.id,'tenant_id',w.tenant_id,'site_id',w.site_id,\n    'work_order_number',w.work_order_number,'generator_id',w.generator_id,'generator_name',g.name,\n    'preventive_plan_id',w.preventive_plan_id,'order_type',w.order_type,'priority',w.priority,'status',w.status,\n    'title',w.title,'description',w.description,'work_summary',w.work_summary,\n    'reported_at',w.reported_at,'scheduled_for',w.scheduled_for,'started_at',w.started_at,'completed_at',w.completed_at,\n    'assigned_to_user_id',w.assigned_to_user_id,'assigned_supplier_id',w.assigned_supplier_id,\n    'assigned_supplier_name',s.name,'assigned_supplier_code',s.supplier_code,\n    'operating_hours_at_open',w.operating_hours_at_open,'operating_hours_at_close',w.operating_hours_at_close,\n    'downtime_minutes',w.downtime_minutes,\n    'created_by_user_id',null\n  )\n  from public.generator_maintenance_work_orders w\n  join public.generators g on g.tenant_id=w.tenant_id and g.site_id=w.site_id and g.id=w.generator_id\n  left join public.suppliers s on s.tenant_id=w.tenant_id and s.id=w.assigned_supplier_id\n  where w.tenant_id=p_tenant_id and w.site_id=p_site_id and w.id=p_work_order_id\n$function$\n",
+      "security_definer": true,
+      "configured_search_path": "search_path=pg_catalog, public, pg_temp",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    },
+    {
+      "identity": "powerhub_project_maintenance_work_order_part_delta_row(bigint,bigint,bigint,bigint)",
+      "executable_ddl": "CREATE OR REPLACE FUNCTION public.powerhub_project_maintenance_work_order_part_delta_row(p_tenant_id bigint, p_site_id bigint, p_work_order_id bigint, p_part_id bigint)\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public', 'pg_temp'\nAS $function$\n  select jsonb_build_object(\n    'id',p.id,'part_id',p.id,'tenant_id',p.tenant_id,'site_id',p.site_id,\n    'work_order_id',p.work_order_id,'generator_id',p.generator_id,\n    'item_id',p.item_id,'item_name',i.name,'category',i.category,\n    'warehouse_id',p.warehouse_id,'warehouse_name',w.name,\n    'quantity',p.quantity,\n    'stock_movement_id',p.stock_movement_id,'issued_at',p.issued_at,'notes',null\n  )\n  from public.generator_maintenance_work_order_parts p\n  join public.generator_maintenance_work_orders o\n    on o.tenant_id=p.tenant_id and o.site_id=p.site_id and o.id=p.work_order_id\n  join public.inventory_items i on i.tenant_id=p.tenant_id and i.id=p.item_id\n  join public.inventory_warehouses w on w.tenant_id=p.tenant_id and w.site_id=p.site_id and w.id=p.warehouse_id\n  where p.tenant_id=p_tenant_id and p.site_id=p_site_id\n    and p.work_order_id=p_work_order_id and p.id=p_part_id\n$function$\n",
+      "security_definer": true,
+      "configured_search_path": "search_path=pg_catalog, public, pg_temp",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true
+    }
+  ],
+  "limitations": "No runtime projections or authentication tested. No live data inspection and no caller closure approval.",
+  "real_projector_runtime_verified": false,
+  "complete_caller_closure_verified": false,
+  "android_reset_contract_verified": false,
+  "canonical_baseline_approved": false,
+  "executable_sql_approved": false,
+  "staging_inplace_go": false,
+  "production_inplace_go": false,
+  "pr359_merge_go": false,
+  "destructive_allowlist": []
+}
