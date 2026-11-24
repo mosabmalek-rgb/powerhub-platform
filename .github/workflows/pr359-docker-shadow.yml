@@ -73,6 +73,10 @@ jobs:
         run: |
           node --test scripts/pr359-canonical/cb-a-definer-attachments.test.mjs
           node scripts/pr359-canonical/cb-a-definer-attachments.mjs --out "$RUNNER_TEMP/pr359-cb-a-definer-triggers.json"
+      - name: CB-A attest real Delta cursor allocation, privileges, and three source triggers (read-only)
+        run: |
+          node --test scripts/pr359-canonical/cb-a-real-delta-producer-audit.test.mjs
+          node scripts/pr359-canonical/cb-a-real-delta-producer-audit.mjs --out "$RUNNER_TEMP/pr359-cb-a-real-delta-producer.json"
       - name: CB-A crosscheck SECURITY DEFINER side effects and site index uniqueness (non-authorizing)
         run: |
           node --test scripts/pr359-canonical/cb-a-definer-side-effects.test.mjs
@@ -99,6 +103,7 @@ jobs:
             ${{ runner.temp }}/pr359-cb-a-function-refs.json
             ${{ runner.temp }}/pr359-cb-a-definer-triggers.json
             ${{ runner.temp }}/pr359-cb-a-definer-side-effects.json
+            ${{ runner.temp }}/pr359-cb-a-real-delta-producer.json
           retention-days: 14
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
