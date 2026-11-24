@@ -1,0 +1,175 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { openOfflineWorkspaceDatabase } from "./offline-workspace-db";
+import { clearDeltaSyncDataForUser, pullDeltaPages, replaceDeltaSnapshot, type DeltaCursorScope, type DeltaPage } from "./offline-delta-sync";
+
+vi.mock("./offline-workspace-db", () => ({
+  openOfflineWorkspaceDatabase: vi.fn(),
+  openLegacyOfflineDatabaseIfPresent: vi.fn(async () => null),
+}));
+
+const scope: DeltaCursorScope = { userId: 1, tenantId: 2, siteId: 3, entityType: "subscribers" };
+const other = { ...scope, userId: 9 };
+type Row = Record<string, unknown>;
+const scopeKey = (s: DeltaCursorScope) => [s.userId, s.tenantId, s.siteId, s.entityType].join(":");
+const cursorKey = (s: DeltaCursorScope) => [s.userId, s.tenantId, s.siteId, s.entityType];
+const entity = (s: DeltaCursorScope, id: number) => ({
+  ...s, scopeKey: scopeKey(s), entityId: String(id),
+  rowData: { id, tenantId: s.tenantId, siteId: s.siteId }, updatedAt: 1,
+});
+const protectedStores = ["operations", "syncMetadata", "claims", "grants", "conflicts", "fieldReadings", "orphanedFieldReadings", "bootstrapState"];
+
+// Deliberately small transactional model: executes the real Delta IndexedDB
+// callbacks, enforces object-store scope, and only publishes writes on commit.
+// This is not a browser IndexedDB implementation or end-to-end replay test.
+function workspace() {
+  const data = new Map<string, Map<string, Row>>();
+  const seed = (name: string, key: unknown, row: Row) => {
+    if (!data.has(name)) data.set(name, new Map());
+    data.get(name)!.set(JSON.stringify(key), row);
+  };
+  for (const s of [scope, other]) {
+    seed("cursors", cursorKey(s), { ...s, cursor: "3", updatedAt: 1 });
+    seed("entities", [scopeKey(s), "5"], entity(s, 5));
+    seed("syncState", cursorKey(s), { ...s, cursor: "3", outcome: "success" });
+    for (const [kind, outcome] of [["reading_create", "pending"], ["payment_create", "retryable"], ["expense_create", "conflict"]]) {
+      const id = s.userId + ":" + kind;
+      seed("operations", id, { ...s, id, clientOperationId: id, kind, status: outcome === "pending" ? "pending" : "failed", payload: { amount: 25, readingValue: 12.5 } });
+      seed("syncMetadata", id, { ...s, operationId: id, outcome, attempts: outcome === "pending" ? 0 : 2, dependsOn: ["parent"], nextAttemptAt: 100 });
+      seed("claims", id, { ...s, id, clientOperationId: id, numberValue: 17 });
+      seed("conflicts", id, { ...s, operationId: id, localPayload: { amount: 25 } });
+    }
+    for (const name of ["grants", "fieldReadings", "orphanedFieldReadings", "bootstrapState"]) {
+      seed(name, s.userId, { ...s, id: s.userId, marker: name });
+    }
+  }
+  let abortOnCommit = false;
+  const transactions: string[][] = [];
+  const db = {
+    close: vi.fn(),
+    transaction(names: string | string[], mode: string) {
+      const stores = typeof names === "string" ? [names] : [...names];
+      transactions.push(stores);
+      const staged = new Map(stores.map(name => [name, new Map(data.get(name))]));
+      let pending = 0;
+      let aborted = false;
+      let completed = false;
+      const tx: { oncomplete?: () => void; onabort?: () => void; error?: Error; abort: () => void; objectStore: (name: string) => unknown } = {
+        abort() {
+          if (aborted || completed) return;
+          aborted = true;
+          queueMicrotask(() => tx.onabort?.());
+        },
+        objectStore(name) {
+          if (!staged.has(name)) throw new Error("store outside transaction: " + name);
+          const rows = staged.get(name)!;
+          const keyOf = (row: Row) => name === "entities"
+            ? [row.scopeKey, row.entityId]
+            : [row.userId, row.tenantId, row.siteId, row.entityType];
+          return {
+            get: (key: unknown) => request(() => rows.get(JSON.stringify(key))),
+            getAll: () => request(() => [...rows.values()]),
+            put: (row: Row) => request(() => { rows.set(JSON.stringify(keyOf(row)), row); }),
+            delete: (key: unknown) => request(() => { rows.delete(JSON.stringify(key)); }),
+            index: (index: string) => ({
+              getAllKeys: (key: unknown) => request(() => [...rows.entries()]
+                .filter(([, row]) => row[index === "byScope" ? "scopeKey" : "userId"] === key)
+                .map(([stored]) => JSON.parse(stored))),
+            }),
+          };
+        },
+      };
+      function request<T>(run: () => T) {
+        const req: { result?: T; onsuccess?: () => void } = {};
+        pending++;
+        queueMicrotask(() => {
+          if (aborted) return;
+          req.result = run();
+          req.onsuccess?.();
+          pending--;
+          finish();
+        });
+        return req;
+      }
+      function finish() {
+        if (pending || aborted || completed) return;
+        if (abortOnCommit) {
+          abortOnCommit = false;
+          tx.abort();
+          return;
+        }
+        completed = true;
+        if (mode === "readwrite") for (const [name, rows] of staged) data.set(name, rows);
+        tx.oncomplete?.();
+      }
+      return tx;
+    },
+  };
+  vi.mocked(openOfflineWorkspaceDatabase).mockResolvedValue(db as unknown as IDBDatabase);
+  return {
+    transactions,
+    abortNext: () => { abortOnCommit = true; },
+    protectedState: () => structuredClone(protectedStores.map(name => [name, [...data.get(name)!]])),
+    cursor: (s: DeltaCursorScope) => data.get("cursors")!.get(JSON.stringify(cursorKey(s)))?.cursor,
+    ids: (s: DeltaCursorScope) => [...data.get("entities")!.values()].filter(row => row.scopeKey === scopeKey(s)).map(row => row.entityId),
+  };
+}
+
+const snapshot = [{ id: 6, tenantId: 2, siteId: 3 }];
+const reset: DeltaPage = {
+  status: "reset_required", entity_type: "subscribers", current_cursor: "20",
+  retained_from_cursor: "10", snapshot_cursor: "20", through_cursor: "20",
+  next_cursor: null, has_more: false, changes: [],
+};
+const terminal: DeltaPage = { ...reset, status: "ok", snapshot_cursor: null, next_cursor: "20" };
+
+describe("Delta recovery preserves canonical Outbox stores", () => {
+  beforeEach(() => vi.stubGlobal("IDBKeyRange", { only: (key: unknown) => key }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("replaces the scoped snapshot through the real storage adapter without touching pending, retry or conflict records", async () => {
+    const db = workspace();
+    const before = db.protectedState();
+    const pull = vi.fn().mockResolvedValueOnce(reset).mockResolvedValueOnce(terminal);
+    await expect(pullDeltaPages({ scope, afterCursor: "3", pull, rebuildSnapshot: async () => ({ cursor: "20", rows: snapshot }) }))
+      .resolves.toEqual({ cursor: "20", appliedChanges: 0, resetRequired: true });
+    expect(db.cursor(scope)).toBe("20");
+    expect(db.ids(scope)).toEqual(["6"]);
+    expect(db.cursor(other)).toBe("3");
+    expect(db.ids(other)).toEqual(["5"]);
+    expect(db.protectedState()).toEqual(before);
+    expect(db.transactions.every(names => names.every(name => !protectedStores.includes(name)))).toBe(true);
+  });
+
+  it("rolls back an interrupted snapshot transaction and retries without changing Outbox identity or metadata", async () => {
+    const db = workspace();
+    const before = db.protectedState();
+    db.abortNext();
+    await expect(replaceDeltaSnapshot(scope, snapshot, "20")).rejects.toThrow();
+    expect(db.cursor(scope)).toBe("3");
+    expect(db.ids(scope)).toEqual(["5"]);
+    expect(db.protectedState()).toEqual(before);
+    await replaceDeltaSnapshot(scope, snapshot, "20");
+    expect(db.cursor(scope)).toBe("20");
+    expect(db.ids(scope)).toEqual(["6"]);
+    expect(db.protectedState()).toEqual(before);
+  });
+
+  it("rejects a late reset after identity changes and preserves operations during old-user Delta cleanup", async () => {
+    const db = workspace();
+    const before = db.protectedState();
+    let active = true;
+    await expect(pullDeltaPages({
+      scope, afterCursor: "3", pull: async () => reset, isCurrent: () => active,
+      rebuildSnapshot: async () => { active = false; return { cursor: "20", rows: snapshot }; },
+    })).rejects.toMatchObject({ name: "PowerHubDeltaSyncRunSupersededError" });
+    expect(db.cursor(scope)).toBe("3");
+    expect(db.ids(scope)).toEqual(["5"]);
+    await clearDeltaSyncDataForUser(scope.userId);
+    expect(db.cursor(scope)).toBeUndefined();
+    expect(db.ids(scope)).toEqual([]);
+    expect(db.cursor(other)).toBe("3");
+    expect(db.ids(other)).toEqual(["5"]);
+    expect(db.protectedState()).toEqual(before);
+    expect(db.transactions.every(names => names.every(name => !protectedStores.includes(name)))).toBe(true);
+  });
+});
