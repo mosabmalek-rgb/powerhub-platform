@@ -87,6 +87,20 @@ do
  }
 done
 echo PR359_REAL_APPEND_RETENTION_AND_PULL_RESET_PASS
+# Characterize archived privileged input boundary; do not approve it.
+run_sql < scripts/pr359-canonical/fixtures/real-append-payload-boundary-disposable.sql > "$tmp/payload-boundary-results.txt"
+for expected in \
+ PR359_ARCHIVED_PRIVILEGED_APPEND_PAYLOAD_GAP_REPRODUCED \
+ PR359_ARCHIVED_PAYLOAD_TEST_ROLLBACK_PASS \
+ PR359_REAL_PRODUCER_FULL_CALLER_CLOSURE_APPROVED=FALSE \
+ PR359_CANONICAL_BASELINE_APPROVED=FALSE
+do
+ grep -Fxq "$expected" "$tmp/payload-boundary-results.txt" || {
+  echo "PR359_ARCHIVED_PAYLOAD_BOUNDARY_MARKER_MISSING=$expected" >&2; exit 1;
+ }
+done
+echo PR359_ARCHIVED_PRIVILEGED_APPEND_PAYLOAD_GAP_REPRODUCED
+echo PR359_ARCHIVED_PAYLOAD_TEST_ROLLBACK_PASS
 # The archived AFTER triggers, emit and append functions execute together in
 # a SECOND synthetic database, with projector and refresh STUBS explicitly
 # scoped to the test. The real platform schemas and grants are not tested.
