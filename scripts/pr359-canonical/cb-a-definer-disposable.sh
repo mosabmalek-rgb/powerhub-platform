@@ -185,6 +185,25 @@ do
   echo "PR359_HISTORICAL_BOUNDARY_ASSERTION_MISSING=$expected" >&2; exit 1;
  }
 done
+# A separate synthetic full-history keyset contrast (not a deployed
+# trigger) proves the capped Delta window is distinct from explicit backfill.
+node --test scripts/pr359-canonical/generator-full-history-keyset-contrast.test.mjs
+docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+ < scripts/pr359-canonical/fixtures/generator-full-history-keyset-contrast.sql \
+ > "$tmp/keyset-results.txt"
+for expected in \
+ PR359_LOCAL_KEYSET_GENERATOR_501_FUEL_201_MAINTENANCE_PASS \
+ PR359_LOCAL_KEYSET_PRODUCER_REAL_RUNTIME_PROOF=FALSE \
+ PR359_KEYSET_CROSS_TRANSACTION_REPLAY_PROVEN=FALSE \
+ PR359_KEYSET_DEPLOYMENT_APPROVED=FALSE \
+ PR359_CANONICAL_BASELINE_APPROVED=FALSE
+do
+ grep -Fxq "$expected" "$tmp/keyset-results.txt" || {
+  echo "PR359_KEYSET_ASSERTION_MISSING=$expected" >&2; exit 1;
+ }
+done
+echo PR359_LOCAL_KEYSET_HISTORY_CONTRAST_PASS
 echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_CROSS_PATH_CONCURRENCY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_PRODUCTION_APPROVED=FALSE
