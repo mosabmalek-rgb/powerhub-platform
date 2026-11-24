@@ -169,3 +169,45 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 24 November 2026 — atomic checkpoint recovery in isolated PostgreSQL
+
+The disposable replay now runs four **independent psql connections** against
+one fresh `--network none` PostgreSQL instance, using the files
+`fixtures/keyset-restart-{setup,failure,first-page,after-crash}.sql`
+and the source guards in `keyset-restart.test.mjs`.
+
+The synthetic `SECURITY INVOKER` function locks a checkpoint per
+`(tenant_id,site_id,generator_id,kind)`, reads a bounded page of up to
+128 event IDs, writes to a sink protected by a composite unique key,
+and advances the cursor within that same PostgreSQL transaction.
+
+The test deliberately raises SQLSTATE `P3591` after writing the first
+64 rows but before checkpoint update. The test checks that **both**
+sink inserts and cursor update roll back. A new connection commits
+the first 64 events; a further new connection resumes with 64+2 fuel
+events and 64+6 maintenance work orders. The resulting 200 events
+must be unique and scoped to the one synthetic tenant/site/generator.
+
+The high-water mark test adds a new event after initial snapshot
+capture and confirms that the earlier run does not silently consume
+that event. It must be considered by a **new** snapshot/run.
+
+The test is not a production backfill implementation. It does not
+verify the actual Delta producer, multi-device idempotency, RLS,
+logical snapshot consistency across concurrent writes, deletion
+tombstones, authenticated RPC callers, or guarantees across
+non-transactional external delivery. The synthetic checkpoint/sink
+tables are created only in the temporary Docker instance and are not
+added to migrations or Canonical Baseline DDL.
+
+```text
+CB_A_KEYSET_CROSS_CONNECTION_RECOVERY=CI_PENDING
+CB_A_REAL_DELTA_OUTBOX_ATOMICITY=FALSE
+CB_A_CROSS_DEVICE_IDEMPOTENCY=FALSE
+CB_B_CANONICAL_SQL_AUTHORED=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
