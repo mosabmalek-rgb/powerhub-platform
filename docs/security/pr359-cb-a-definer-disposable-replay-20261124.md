@@ -61,3 +61,39 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 2026-11-24: two-session positive-control candidate (Docker-only)
+
+`scripts/pr359-canonical/generate-owner-site-candidate.mjs` derives
+one temporary variant from the SHA-pinned live owner-site function.
+On the synthetic database only, it creates a partial unique index
+`(tenant_id,name) WHERE name='الفرع الرئيسي'` and pairs that constraint
+with `INSERT ... ON CONFLICT (...) WHERE ... DO NOTHING RETURNING id`,
+followed by a scoped query for the committed site ID. Neither half
+may be treated independently as an approved production fix.
+
+The updated networkless test creates tenant 4 and starts an uncommitted
+manual site insert in session A. Session B inserts its subscription;
+the resulting trigger attempts to insert the same main site. The test
+requires PostgreSQL to report a lock wait, commits A, and then checks
+that the subscription succeeds and tenant 4 has precisely one main
+site plus exactly one owner staff binding.
+
+This demonstrates only the **synthetic cross-path race scenario**
+using the captured function body and locally modified candidate.
+It does NOT verify existing Staging duplicates, other site creation
+paths, traffic-level behavior, effective RLS, the business decision
+whether one site per name is universally correct, or safe rollout of
+an index on historical rows. A real deployable migration, index
+backfill/conflict resolution, controlled advisory locking strategy,
+tenant isolation and independent security review remain open.
+
+```text
+CB_A_LOCAL_OWNER_SITE_CANDIDATE_TEST=CI_PENDING
+CB_A_OWNER_SITE_PRODUCTION_FIX_APPROVED=FALSE
+CB_A_GENERATOR_DELTA_PRODUCTION_FIX_APPROVED=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
