@@ -847,6 +847,10 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   let through: string | null = null;
   let appliedChanges = 0;
   let resetRequired = false;
+  // A misconfigured or rapidly pruning server must not trigger an unbounded
+  // loop of full snapshot fetches while the user is working offline-first.
+  let resetRebuilds = 0;
+  const maxResetRebuilds = 3;
   let pages = 0;
   while (pages++ < 10000) {
     assertDeltaSyncRunActive(input.isCurrent);
@@ -854,8 +858,22 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     assertDeltaSyncRunActive(input.isCurrent);
     if (page.entity_type !== input.scope.entityType) throw new Error("استجابة المزامنة لا تطابق نوع البيانات المطلوب.");
     if (page.status === "reset_required") {
+      // Validate reset control data BEFORE fetching or replacing a local snapshot.
+      // A Reset is not an ordinary page, and must not contain changes or a
+      // continuation cursor. Outbox stores are intentionally untouched.
+      const currentCursor = assertCursor(page.current_cursor);
+      const retainedCursor = assertCursor(page.retained_from_cursor);
+      const requestedSnapshotCursor = assertCursor(page.snapshot_cursor ?? currentCursor);
+      if (compareDeltaCursors(retainedCursor, currentCursor) > 0 ||
+          compareDeltaCursors(requestedSnapshotCursor, currentCursor) > 0 ||
+          page.has_more || page.next_cursor !== null || page.changes.length !== 0) {
+        throw new Error("استجابة إعادة تهيئة Delta غير صالحة؛ لم تتغير البيانات المحلية.");
+      }
+      if (++resetRebuilds > maxResetRebuilds) {
+        throw new Error("تكررت مطالبة الخادم بإعادة التهيئة؛ أوقفت المزامنة لحماية البيانات المحلية.");
+      }
       assertDeltaSyncRunActive(input.isCurrent);
-      const snapshot = await input.rebuildSnapshot(assertCursor(page.snapshot_cursor ?? page.current_cursor));
+      const snapshot = await input.rebuildSnapshot(requestedSnapshotCursor);
       assertDeltaSyncRunActive(input.isCurrent);
       const snapshotCursor = assertCursor(snapshot.cursor);
       await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
