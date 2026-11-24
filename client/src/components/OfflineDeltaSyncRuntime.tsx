@@ -6,6 +6,10 @@ import { getSupabaseSession } from "@/lib/supabase";
 import { persistOfflineQueryForDeltaSync } from "@/lib/offline-query-cache";
 import {
   clearDeltaSyncDataForUser,
+  assertDeltaSnapshotWatermark,
+  assertDeltaSnapshotRows,
+  assertDeltaRowWithinScope,
+  compareDeltaCursors,
   isDeltaSyncRunCurrent,
   applyDeltaChanges,
   compareMaintenanceWorkOrderNewestFirst,
@@ -536,7 +540,7 @@ export function OfflineDeltaSyncRuntime() {
         assertDeltaRuntimeCurrent(isRunCurrent);
         return normalizeDeltaPage(candidate.entityType, response as unknown as DeltaPage<AnyRow>);
       };
-      const rebuildSnapshot = async () => {
+      const rebuildSnapshot = async (requestedCursor: string) => {
         assertDeltaRuntimeCurrent(isRunCurrent);
         // Rows and cursor are read by one STABLE PostgreSQL RPC, so changes committed
         // during snapshot creation cannot fall between the snapshot and its cursor.
@@ -545,8 +549,18 @@ export function OfflineDeltaSyncRuntime() {
           entityType: candidate.entityType,
         });
         assertDeltaRuntimeCurrent(isRunCurrent);
-        if (!Array.isArray(snapshot.rows) || typeof snapshot.snapshot_cursor !== "string") {
+        if (snapshot.status !== "ok" || snapshot.entity_type !== candidate.entityType ||
+            !Array.isArray(snapshot.rows) || typeof snapshot.snapshot_cursor !== "string") {
           throw new Error("استجابة لقطة المزامنة غير صالحة.");
+        }
+        assertDeltaSnapshotWatermark(snapshot.snapshot_cursor, requestedCursor);
+        if (compareDeltaCursors(snapshot.retained_from_cursor, snapshot.snapshot_cursor) > 0) {
+          throw new Error("حد الاحتفاظ بلقطة المزامنة غير صالح.");
+        }
+        for (const row of snapshot.rows) {
+          if (!row || typeof row !== "object" || Array.isArray(row)) throw new Error("سجل لقطة المزامنة غير صالح.");
+          if ((candidate.entityType === "inventory_items" || candidate.entityType === "inventory_item_units" || candidate.entityType === "suppliers") &&
+              (row.siteId !== undefined || row.site_id !== undefined)) throw new Error("نطاق كتالوج Delta غير صالح.");
         }
         const queryRows = candidate.entityType === "readings"
           ? snapshot.rows.flatMap((entry: any) => {
@@ -557,17 +571,11 @@ export function OfflineDeltaSyncRuntime() {
               }];
             })
           : snapshot.rows.map((row: any) => normalizeDeltaEntityRow(candidate.entityType, row));
-        for (const row of queryRows) {
-          const scoped = (candidate.entityType === "readings" ? row.subscriber : row) as Record<string, unknown> | undefined;
-          const sharedInventoryEntity = candidate.entityType === "inventory_items" || candidate.entityType === "inventory_item_units" || candidate.entityType === "suppliers";
-          const sharedEmployee = candidate.entityType === "hr_employee_directory" && scoped?.siteId === null;
-          const sharedPayroll = candidate.entityType === "hr_payroll_runs" && scoped?.siteId === null;
-          const matchesScope = candidate.entityType === "sites"
-            ? Number(scoped?.id) === candidate.siteId && Number(scoped?.tenantId) === candidate.tenantId
-            : Number(scoped?.tenantId) === candidate.tenantId &&
-              (sharedInventoryEntity || sharedEmployee || sharedPayroll || Number(scoped?.siteId) === candidate.siteId);
-          if (!matchesScope) {
-            throw new Error("لقطة المزامنة تحتوي بيانات خارج نطاق الفرع.");
+        const snapshotRows = snapshotRowsFromQuery(candidate.entityType, queryRows);
+        assertDeltaSnapshotRows(scope, snapshotRows);
+        if (candidate.entityType === "readings") {
+          for (const row of queryRows) {
+            assertDeltaRowWithinScope("readings", row, scope);
           }
         }
         const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
@@ -704,7 +712,7 @@ export function OfflineDeltaSyncRuntime() {
         }
         return {
           cursor: snapshot.snapshot_cursor,
-          rows: snapshotRowsFromQuery(candidate.entityType, queryRows),
+          rows: snapshotRows,
         };
       };
       try {

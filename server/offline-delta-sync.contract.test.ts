@@ -340,3 +340,17 @@ describe("fuel event, maintenance work-order and per-order parts Delta extension
     expect(client).toContain('`maintenance_work_order_parts:${number}`');
   });
 });
+
+
+describe("web snapshot recovery preflight", () => {
+  it("checks the recovery watermark and complete normalized snapshot before cache writes", () => {
+    const runtime = readFileSync(resolve(process.cwd(), "client/src/components/OfflineDeltaSyncRuntime.tsx"), "utf8");
+    const body = runtime.slice(runtime.indexOf("const rebuildSnapshot = async"), runtime.indexOf("await pullDeltaPages({"));
+    const watermark = body.indexOf("assertDeltaSnapshotWatermark(snapshot.snapshot_cursor, requestedCursor)");
+    const rows = body.indexOf("assertDeltaSnapshotRows(scope, snapshotRows)");
+    const write = body.indexOf("queryClient.setQueryData");
+    expect(watermark).toBeGreaterThan(-1);
+    expect(rows).toBeGreaterThan(watermark);
+    expect(write).toBeGreaterThan(rows);
+  });
+});

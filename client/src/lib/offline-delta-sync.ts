@@ -269,7 +269,7 @@ export function limitDeltaEntityRows<T extends Record<string, unknown>>(
 }
 
 function assertCursor(cursor: string) {
-  if (!/^(0|[1-9][0-9]*)$/.test(cursor)) throw new Error("مؤشر المزامنة غير صالح.");
+  if (typeof cursor !== "string" || !/^(0|[1-9][0-9]*)$/.test(cursor)) throw new Error("مؤشر المزامنة غير صالح.");
   return cursor;
 }
 
@@ -355,10 +355,16 @@ export function assertDeltaRowWithinScope(
     record[camel] ?? record[snake];
   const primary = entityType === "readings" && isRecord(row.reading) ? row.reading : row;
   const tenantId = Number(valueOf(primary, "tenantId", "tenant_id"));
-  const siteId = Number(valueOf(primary, "siteId", "site_id"));
+  const rawSite = primary.siteId !== undefined ? primary.siteId : primary.site_id;
+  const siteId = Number(rawSite);
+  // SQL catalog projections intentionally omit site_id; only the two HR
+  // summary feeds also authorize explicit null site IDs.
+  const tenantCatalog = entityType === "inventory_items" || entityType === "inventory_item_units" || entityType === "suppliers";
+  const sharedHr = (entityType === "hr_employee_directory" || entityType === "hr_payroll_runs") && rawSite === null;
+  const sharedCatalog = tenantCatalog && rawSite === undefined;
   const identityMatches = entityType === "sites"
     ? Number(primary.id) === scope.siteId && tenantId === scope.tenantId
-    : tenantId === scope.tenantId && siteId === scope.siteId;
+    : tenantId === scope.tenantId && (siteId === scope.siteId || sharedHr || sharedCatalog);
   if (!identityMatches) {
     throw new Error("سجل المزامنة خارج نطاق المستأجر أو الفرع المطلوب.");
   }
@@ -715,6 +721,27 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
   });
 }
 
+/** Check the recovery watermark before any query-cache or sidecar write. */
+export function assertDeltaSnapshotWatermark(cursor: string, requestedCursor: string): void {
+  if (compareDeltaCursors(cursor, requestedCursor) < 0) {
+    throw new Error("لقطة إعادة التهيئة أقدم من الحد المطلوب؛ لم تتغير البيانات المحلية.");
+  }
+}
+
+/** Validate the complete normalized snapshot before projecting any rows. */
+export function assertDeltaSnapshotRows(scope: DeltaCursorScope, rows: readonly Record<string, unknown>[]): void {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = row.id;
+    if (id === undefined || id === null || String(id).trim().length === 0 || id === 0 || id === "0") {
+      throw new Error("لقطة المزامنة تحتوي سجلًا دون معرّف.");
+    }
+    if (ids.has(String(id))) throw new Error("لقطة المزامنة تحتوي معرّفًا مكررًا.");
+    ids.add(String(id));
+    assertDeltaRowWithinScope(scope.entityType, row, scope);
+  }
+}
+
 /** Replaces a full snapshot and commits its checkpoint atomically. */
 export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   scope: DeltaCursorScope,
@@ -726,13 +753,8 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   assertDeltaSyncRunActive(isCurrent);
   const key = scopeKey(scope);
   assertCursor(cursor);
-  const normalized = new Map<string, Row>();
-  for (const row of rows) {
-    const id = row.id;
-    if (id === undefined || id === null || String(id).length === 0) throw new Error("لقطة المزامنة تحتوي سجلًا دون معرّف.");
-    assertDeltaRowWithinScope(scope.entityType, row, scope);
-    normalized.set(String(id), row);
-  }
+  assertDeltaSnapshotRows(scope, rows);
+  const normalized = new Map<string, Row>(rows.map(row => [String(row.id), row]));
   const boundedRows = limitDeltaEntityRows(scope.entityType, [...normalized.values()]);
   const boundedNormalized = new Map<string, Row>(
     boundedRows.map((row) => [String(row.id), row]),
@@ -890,9 +912,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       const snapshotCursor = assertCursor(snapshot.cursor);
       // The snapshot service may return a NEWER coherent watermark, but
       // must never silently roll back before the reset-required boundary.
-      if (compareDeltaCursors(snapshotCursor, requestedSnapshotCursor) < 0) {
-        throw new Error("لقطة إعادة التهيئة أقدم من الحد المطلوب؛ لم تتغير البيانات المحلية.");
-      }
+      assertDeltaSnapshotWatermark(snapshotCursor, requestedSnapshotCursor);
       await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
       assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;

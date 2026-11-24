@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyDeltaChanges,
   assertDeltaRowWithinScope,
+  assertDeltaSnapshotRows,
+  assertDeltaSnapshotWatermark,
   compareDeltaCursors,
   compareMaintenanceWorkOrderNewestFirst,
   limitDeltaEntityRows,
@@ -152,6 +154,39 @@ describe("Delta run identity guard", () => {
     expect(applyPage).not.toHaveBeenCalled();
     expect(await storage.getCursor(scope)).toBe("3");
     expect(await storage.listEntities(scope)).toEqual([]);
+  });
+});
+
+describe("Delta snapshot preflight", () => {
+  it("rejects malformed or stale watermarks and accepts a newer coherent cursor", () => {
+    expect(() => assertDeltaSnapshotWatermark("19", "20")).toThrow(/أقدم/);
+    expect(() => assertDeltaSnapshotWatermark("bad", "20")).toThrow();
+    expect(() => assertDeltaSnapshotWatermark(20 as never, "20")).toThrow();
+    expect(() => assertDeltaSnapshotWatermark("21", "20")).not.toThrow();
+  });
+
+  it("validates the entire snapshot, including duplicated IDs and foreign rows", () => {
+    const row = { id: 1, tenantId: 1, siteId: 7 };
+    expect(() => assertDeltaSnapshotRows(scope, [row])).not.toThrow();
+    expect(() => assertDeltaSnapshotRows(scope, [row, row])).toThrow();
+    expect(() => assertDeltaSnapshotRows(scope, [row, { ...row, id: 2, tenantId: 2 }])).toThrow();
+    expect(() => assertDeltaSnapshotRows(scope, [{ ...row, id: 0 }])).toThrow();
+  });
+
+  it("accepts only the SQL-defined shared catalog and HR scopes", () => {
+    for (const entityType of ["inventory_items", "inventory_item_units", "suppliers"] as const) {
+      const shared = { id: 1, tenantId: 1 };
+      expect(() => assertDeltaSnapshotRows({ ...scope, entityType }, [shared])).not.toThrow();
+      expect(() => assertDeltaSnapshotRows({ ...scope, entityType }, [{ ...shared, tenantId: 2 }])).toThrow();
+      expect(() => assertDeltaSnapshotRows({ ...scope, entityType }, [{ ...shared, siteId: 8 }])).toThrow();
+    }
+    for (const entityType of ["hr_employee_directory", "hr_payroll_runs"] as const) {
+      const shared = { id: 1, tenantId: 1, siteId: null };
+      expect(() => assertDeltaSnapshotRows({ ...scope, entityType }, [shared])).not.toThrow();
+      expect(() => assertDeltaSnapshotRows({ ...scope, entityType }, [{ ...shared, tenantId: 2 }])).toThrow();
+      expect(() => assertDeltaSnapshotRows({ ...scope, entityType }, [{ ...shared, siteId: 8 }])).toThrow();
+    }
+    expect(() => assertDeltaSnapshotRows(scope, [{ id: 1, tenantId: 1, siteId: null }])).toThrow();
   });
 });
 

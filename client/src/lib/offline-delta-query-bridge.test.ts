@@ -241,6 +241,17 @@ describe("delta-query bridge", () => {
     expect(() => normalizeDeltaPage("tariffs", page)).toThrow(/لا تطابق/);
   });
 
+  it("rejects malformed wire tombstones and operations instead of normalizing them to null", () => {
+    const base = { cursor: "4", entity_type: "subscribers", entity_id: "4", changed_at: "2026-10-24T00:00:00Z" };
+    for (const invalid of [
+      { ...base, operation: "delete", row_data: { id: 4 } },
+      { ...base, operation: "upsert", row_data: null },
+      { ...base, operation: "unknown", row_data: null },
+    ]) expect(() => normalizeDeltaPage("subscribers", basePage([invalid]))).toThrow();
+    expect(normalizeDeltaPage("subscribers", basePage([{ ...base, operation: "delete", row_data: null }])).changes[0].row_data).toBeNull();
+    expect(() => normalizeDeltaPage("inventory_items", basePage([{ ...base, entity_type: "inventory_items", operation: "upsert", row_data: { id: 4, tenant_id: 2, site_id: 99 } }], "inventory_items"))).toThrow();
+  });
+
   it("flattens the current paired readings snapshot without changing its public query shape", () => {
     const readings = snapshotRowsFromQuery("readings", [{ reading: { id: 3, tenantId: 2, subscriberId: 4, readingValue: "12.5" }, subscriber: { id: 4 } }]);
     expect(readings).toEqual([{ id: 3, tenantId: 2, subscriberId: 4, readingValue: "12.5", previousReadingValue: null, consumptionKwh: null, clientOperationId: null, readingAt: new Date(0), captureMethod: "manual", imageKey: null, imageHash: null, status: "pending", enteredByUserId: null, reviewedByUserId: null, reviewedAt: null, notes: null, versionNo: 0, createdAt: new Date(0), updatedAt: new Date(0) }]);

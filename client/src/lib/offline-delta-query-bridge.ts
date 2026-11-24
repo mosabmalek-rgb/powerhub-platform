@@ -618,12 +618,18 @@ export function normalizeDeltaPage(
   if (page.entity_type !== entityType) throw new Error("استجابة المزامنة لا تطابق نوع البيانات المطلوب.");
   return {
     ...page,
-    changes: page.changes.map((change): DeltaChange<Row> => ({
-      ...change,
-      row_data: change.operation === "upsert" && isRow(change.row_data)
-        ? normalizeDeltaEntityRow(entityType, change.row_data)
-        : null,
-    })),
+    changes: page.changes.map((change): DeltaChange<Row> => {
+      // Do not normalize away malformed wire payloads before preflight.
+      if (change.operation === "delete" && change.row_data === null) return change;
+      if (change.operation !== "upsert" || !isRow(change.row_data)) {
+        throw new Error("محتوى تغيير Delta غير صالح.");
+      }
+      if ((entityType === "inventory_items" || entityType === "inventory_item_units" || entityType === "suppliers") &&
+          (change.row_data.siteId !== undefined || change.row_data.site_id !== undefined)) {
+        throw new Error("نطاق كتالوج Delta غير صالح.");
+      }
+      return { ...change, row_data: normalizeDeltaEntityRow(entityType, change.row_data) };
+    }),
   };
 }
 
