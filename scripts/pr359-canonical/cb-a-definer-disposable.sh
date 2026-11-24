@@ -408,6 +408,11 @@ grep -Fxq PR359_PARTIAL_WRITER_LOCK_BYPASS_GAP_REPRODUCED "$tmp/journal-partial-
 }
 echo PR359_PARTIAL_WRITER_LOCK_BYPASS_GAP_REPRODUCED
 echo PR359_ALL_REAL_DELTA_WRITERS_SERIALIZED=FALSE
+# Run exact captured append/pull SQL in a separate database in the existing
+# --network none Docker container. Staging remains untouched.
+bash -n scripts/pr359-canonical/cb-a-real-append-disposable.sh
+PR359_TEST_CONTAINER="$container" PR359_TEST_PASSWORD="$password" \
+ bash scripts/pr359-canonical/cb-a-real-append-disposable.sh
 echo PR359_CB_A_CHANGE_JOURNAL_TOMBSTONE_RECOVERY_PASS
 echo PR359_CB_A_CROSS_CONNECTION_KEYSET_RECOVERY_PASS
 echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
