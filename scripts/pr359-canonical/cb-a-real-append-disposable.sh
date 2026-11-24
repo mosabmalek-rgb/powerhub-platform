@@ -70,6 +70,23 @@ printf '%s\n' \
  | run_sql > "$tmp/final-check.txt"
 grep -Fxq PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS "$tmp/final-check.txt" || { echo PR359_REAL_APPEND_SCOPE_CURSOR_INCONSISTENT >&2; exit 1; }
 grep -Fxq ok "$tmp/final-check.txt" || { echo PR359_REAL_APPEND_PULL_FAILED >&2; exit 1; }
+# Exercise retention with the exact captured Append and Pull definitions.
+# Insert 10,499 artificial rows on a separate tenant/site scope, then use
+# the real Append for cursor 10,500 to trigger its retention threshold.
+node --test scripts/pr359-canonical/real-delta-retention-disposable.test.mjs
+run_sql < scripts/pr359-canonical/fixtures/real-delta-retention-disposable.sql > "$tmp/retention-results.txt"
+for expected in \
+ PR359_REAL_RETENTION_10500_RESET_REQUIRED_PASS \
+ PR359_REAL_RETENTION_PAGE_200_AND_SCOPE_PASS \
+ PR359_ANDROID_REBOOTSTRAP_RUNTIME_VERIFIED=FALSE \
+ PR359_REAL_RETENTION_PRODUCTION_APPROVED=FALSE \
+ PR359_CANONICAL_BASELINE_APPROVED=FALSE
+do
+ grep -Fxq "$expected" "$tmp/retention-results.txt" || {
+  echo "PR359_REAL_RETENTION_MARKER_MISSING=$expected" >&2; exit 1;
+ }
+done
+echo PR359_REAL_APPEND_RETENTION_AND_PULL_RESET_PASS
 # The archived AFTER triggers, emit and append functions execute together in
 # a SECOND synthetic database, with projector and refresh STUBS explicitly
 # scoped to the test. The real platform schemas and grants are not tested.
