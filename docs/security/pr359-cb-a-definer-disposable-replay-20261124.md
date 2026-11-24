@@ -23,9 +23,18 @@ The replay checks:
   tenant and site filters; both target rows then produce local events
 - No event when the generator name is unchanged
 
-No concurrent owner-site transactions are executed in this first
-behavioral replay. The absence of a tenant/name unique index is a risk
-candidate; it is not a proven race. Effective RLS, real emitter
+A second isolated test now runs **two independent PostgreSQL sessions**:
+session A holds a manually inserted main-site row uncommitted while
+session B inserts the same tenant's subscription and triggers the
+captured owner-site function. The trigger cannot see session A's
+uncommitted site and creates its own; after A commits, the synthetic
+schema contains **two main sites for one tenant**. This is a
+reproduced cross-path race in the isolated fixture, not proof that
+a real deployed customer encountered duplicates. It does not imply
+two concurrent `tenant_subscriptions` inserts can bypass that
+table's separate unique tenant constraint. A tenant-level advisory
+lock and/or an explicitly designed uniqueness/idempotent workflow
+needs security and business review before any executable patch. Effective RLS, real emitter
 projection/append behavior, full trigger/caller paths, and load testing
 remain unverified. The candidate is never written to a migration or
 canonical SQL file and is never applied to Staging or Production.
@@ -41,7 +50,8 @@ bash scripts/pr359-canonical/cb-a-definer-disposable.sh
 
 ```text
 CB_A_PINNED_DEFINER_BEHAVIOR_REPLAY=CI_PENDING
-CB_A_OWNER_SITE_CONCURRENT_TRANSACTION_PROOF=FALSE
+CB_A_OWNER_SITE_CROSS_PATH_RACE_REPRODUCTION=CI_PENDING
+CB_A_OWNER_SITE_CONCURRENT_SAFETY_APPROVED=FALSE
 CB_A_GENERATOR_DELTA_REAL_EMITTER_PROOF=FALSE
 CB_A_LOCAL_CANDIDATE_PRODUCTION_APPROVED=FALSE
 CB_A_FUNCTION_SECURITY_SIGNOFF=FALSE
