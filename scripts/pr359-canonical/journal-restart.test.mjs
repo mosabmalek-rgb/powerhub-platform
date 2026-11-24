@@ -24,7 +24,7 @@ test('failed write, distinct connection recovery, and later tombstone are explic
  const fail=load('failure'),first=load('first-page'),resumed=load('resume');
  assert.match(fail,/EXCEPTION WHEN SQLSTATE 'P3592'/);
  assert.match(fail,/EXCEPTION WHEN SQLSTATE 'P3592' THEN caught:=true/);
- assert.match(first,/event_id=201 AND change_kind='delete'/);
+ assert.match(first,/event_id=201[\s\S]*?change_kind='delete'[\s\S]*?revision=2[\s\S]*?change_seq=2/);
  assert.match(first,/PR359_ISOLATED_CHANGE_JOURNAL_FIRST_PAGE_COMMITTED_PASS/);
  assert.match(first,/n:=public\.pr359_synthetic_apply_change_page\(1,10,1,'fuel_events',2,false\);/);
  assert.match(first,/SELECT cursor_seq INTO cursor_after/);
