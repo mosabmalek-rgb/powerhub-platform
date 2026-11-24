@@ -160,6 +160,31 @@ candidate_staff="$(printf '%s\n' \
 [[ "$candidate_sites" == 1 && "$candidate_staff" == 1 ]] || {
  echo "PR359_CANDIDATE_CONCURRENT_DUPLICATE_OR_OWNER_BINDING sites=$candidate_sites staff=$candidate_staff" >&2; exit 1
 }
+# The historical fixture runs in the SAME disposable PostgreSQL database.
+# It must not touch hosted data, resolve duplicates, or turn capped Delta
+# refresh into a claim of complete historical event coverage.
+[[ -s scripts/pr359-canonical/fixtures/historical-site-and-generator-boundaries.sql ]] || {
+ echo PR359_HISTORICAL_BOUNDARY_FIXTURE_MISSING >&2; exit 1;
+}
+docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+ < scripts/pr359-canonical/fixtures/historical-site-and-generator-boundaries.sql \
+ > "$tmp/historical-results.txt"
+for expected in \
+ PR359_HISTORICAL_DUPLICATES_REJECT_INDEX_WITHOUT_DATA_LOSS \
+ PR359_HISTORICAL_CLEAN_INDEX_PREDICATE_PASS \
+ PR359_GENERATOR_FIRST_REMAINS_BOUNDED_ABOVE_TARGET_500_200 \
+ PR359_FULL_GENERATOR_HISTORY_DELTA_PROVEN=FALSE \
+ PR359_HISTORICAL_DATA_RECONCILIATION_APPROVED=FALSE \
+ PR359_CANONICAL_BASELINE_APPROVED=FALSE \
+ PR359_STAGING_INPLACE_GO=FALSE \
+ PR359_PRODUCTION_INPLACE_GO=FALSE
+do
+ grep -Fxq "$expected" "$tmp/historical-results.txt" || {
+  echo "PR359_HISTORICAL_BOUNDARY_ASSERTION_MISSING=$expected" >&2; exit 1;
+ }
+done
+echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_CROSS_PATH_CONCURRENCY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_PRODUCTION_APPROVED=FALSE
 echo PR359_CB_A_DISPOSABLE_DEFINER_REPLAY_PASS
