@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Archived Staging append/pull definitions run in disposable networkless PG only.
+set -euo pipefail
+: "${PR359_TEST_CONTAINER:?Missing disposable container}"
+: "${PR359_TEST_PASSWORD:?Missing test password}"
+[[ "$PR359_TEST_CONTAINER" =~ ^pr359-definer-[0-9a-f]{12}$ ]] || exit 2
+[[ "$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$PR359_TEST_CONTAINER")" == none ]] || exit 2
+[[ -z "$(docker port "$PR359_TEST_CONTAINER")" ]] || exit 2
+cd "$(dirname "$0")/../.."
+tmp="$(mktemp -d)"
+writer_pid=''; writer_in=''; second_pid=''
+cleanup(){
+ if [[ -n "$writer_pid" ]]; then
+  printf 'ROLLBACK;\n\\q\n' >&"$writer_in" 2>/dev/null || :
+  kill "$writer_pid" 2>/dev/null || :
+  wait "$writer_pid" 2>/dev/null || :
+ fi
+ if [[ -n "$second_pid" ]]; then
+  kill "$second_pid" 2>/dev/null || :
+  wait "$second_pid" 2>/dev/null || :
+ fi
+ rm -rf "$tmp"
+}
+trap cleanup EXIT
+run_sql(){
+ docker exec -i -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d pr359_real_append
+}
+node --test scripts/pr359-canonical/generate-real-delta-disposable.test.mjs
+node scripts/pr359-canonical/generate-real-delta-disposable.mjs --out "$tmp/real-append.sql" >/dev/null
+docker exec -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" createdb -U postgres pr359_real_append
+run_sql < "$tmp/real-append.sql" > "$tmp/setup-results.txt"
+for marker in PR359_REAL_APPEND_ROLLBACK_ATOMICITY_PASS PR359_REAL_APPEND_DISTINCT_SCOPES_PASS PR359_CANONICAL_BASELINE_APPROVED=FALSE; do
+ grep -Fxq "$marker" "$tmp/setup-results.txt" || { echo "PR359_REAL_APPEND_SETUP_MISSING=$marker" >&2; exit 1; }
+done
+coproc REAL_DELTA_WRITER { run_sql; }
+writer_pid="$REAL_DELTA_WRITER_PID"
+writer_in="${REAL_DELTA_WRITER[1]}"
+writer_out="${REAL_DELTA_WRITER[0]}"
+printf '%s\n' \
+ 'BEGIN;' \
+ "SELECT public.powerhub_append_fuel_maintenance_delta_sync_change(1,101,'fuel_events','61','upsert','{\"id\":\"61\"}'::jsonb);" \
+ "SELECT 'PR359_REAL_APPEND_WRITER_A_UNCOMMITTED';" >&"$writer_in"
+marker=''
+IFS= read -r -t 25 marker <&"$writer_out" || exit 1
+[[ "$marker" == 2 ]] || { echo "PR359_REAL_APPEND_A_CURSOR=$marker" >&2; exit 1; }
+IFS= read -r -t 25 marker <&"$writer_out" || exit 1
+[[ "$marker" == PR359_REAL_APPEND_WRITER_A_UNCOMMITTED ]] || exit 1
+{
+ printf '%s\n' "SET statement_timeout='25s';"
+ printf '%s\n' "SELECT public.powerhub_append_fuel_maintenance_delta_sync_change(1,101,'fuel_events','62','upsert','{\"id\":\"62\"}'::jsonb);"
+} | run_sql >"$tmp/writer-b.txt" 2>"$tmp/writer-b.err" &
+second_pid="$!"
+blocked=0
+for i in $(seq 1 80); do
+ n="$(printf '%s\n' "SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%powerhub_append_fuel_maintenance_delta_sync_change(1,101%';" | run_sql)"
+ if [[ "$n" =~ ^[0-9]+$ ]] && ((n>=1)); then blocked=1; break; fi
+ sleep 0.25
+done
+[[ "$blocked" -eq 1 ]] || { echo PR359_REAL_APPEND_EXPECTED_ROW_LOCK_MISSING >&2; exit 1; }
+printf 'COMMIT;\n\\q\n' >&"$writer_in"
+wait "$writer_pid"
+writer_pid=''
+wait "$second_pid" || { cat "$tmp/writer-b.err" >&2; exit 1; }
+second_pid=''
+grep -Fxq 3 "$tmp/writer-b.txt" || { echo PR359_REAL_APPEND_SECOND_CURSOR_NOT_THREE >&2; exit 1; }
+printf '%s\n' \
+ "SELECT CASE WHEN (SELECT last_cursor FROM public.powerhub_sync_scope_state WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events')=3 AND (SELECT count(*) FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events')=3 AND (SELECT count(DISTINCT cursor) FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events')=3 AND EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_id='61' AND cursor=2) AND EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_id='62' AND cursor=3) AND (SELECT last_cursor FROM public.powerhub_sync_scope_state WHERE tenant_id=2 AND site_id=201 AND entity_type='fuel_events')=1 THEN 'PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS' ELSE 'FAILED' END;" \
+ "SELECT public.powerhub_pull_fuel_maintenance_sync_delta(1,101,'fuel_events',1,3,200)->>'status';" \
+ | run_sql > "$tmp/final-check.txt"
+grep -Fxq PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS "$tmp/final-check.txt" || { echo PR359_REAL_APPEND_SCOPE_CURSOR_INCONSISTENT >&2; exit 1; }
+grep -Fxq ok "$tmp/final-check.txt" || { echo PR359_REAL_APPEND_PULL_FAILED >&2; exit 1; }
+echo PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS
+echo PR359_REAL_APPEND_PULL_ISOLATED_PASS
+echo PR359_REAL_PRODUCER_FULL_CALLER_CLOSURE_APPROVED=FALSE
+echo PR359_CANONICAL_BASELINE_APPROVED=FALSE
