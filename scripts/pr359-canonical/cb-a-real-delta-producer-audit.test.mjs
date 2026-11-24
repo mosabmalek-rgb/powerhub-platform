@@ -25,7 +25,7 @@ test('catalog privilege, trigger, cursor and retention drift must fail closed',(
   x=>{x.functions[0].service_execute=false;},
   x=>{x.functions[1].security_definer=false;},
   x=>{x.functions[1].direct_triggers.pop();},
-  x=>{x.functions[1].direct_triggers[0].definition+=' -- drift';},
+  x=>{x.functions[1].direct_triggers[0].definition=x.functions[1].direct_triggers[0].definition.replace('AFTER INSERT OR DELETE OR UPDATE','BEFORE INSERT');},
   x=>{x.functions[0].executable_ddl=x.functions[0].executable_ddl.replace('last_cursor+1','last_cursor+2');},
   x=>{x.functions[0].executable_ddl=x.functions[0].executable_ddl.replace('v_cursor,p_entity_id','0,p_entity_id');},
   x=>{x.functions[0].executable_ddl=x.functions[0].executable_ddl.replace('retained_from_cursor=greatest','retained_from_cursor=least');},
