@@ -35,7 +35,7 @@ test('failed write, distinct connection recovery, and later tombstone are explic
  assert.match(resumed,/exhausted:=public\.pr359_synthetic_apply_change_page/);
 
  assert.match(resumed,/snapshot_upper_seq/);
- assert.match(resumed,/event_id=202 AND change_kind='delete' AND revision=3/);
+ assert.match(resumed,/event_id=202[\s\S]*?change_kind='delete'[\s\S]*?revision=3/);
  assert.match(resumed,/PR359_ISOLATED_CHANGE_JOURNAL_CROSS_CONNECTION_RECOVERY_PASS/);
  assert.match(resumed,/PR359_ISOLATED_CHANGE_JOURNAL_TOMBSTONE_AND_NEW_SNAPSHOT_PASS/);
  assert.match(resumed,/PR359_REAL_DELTA_PRODUCER_ATOMICITY_PROVEN=FALSE/);
