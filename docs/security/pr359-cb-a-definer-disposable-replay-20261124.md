@@ -97,3 +97,42 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## Historical compatibility and same-generator cap boundary — 24 November 2026
+
+The existing networkless PostgreSQL replay now executes
+`fixtures/historical-site-and-generator-boundaries.sql`, guarded by
+`historical-site-and-generator-boundaries.test.mjs`.
+
+The **historical duplicate** fixture inserts two synthetic main sites
+for tenant 91, plus a separate tenant and an unrelated named site. It
+expects PostgreSQL to reject a candidate partial UNIQUE index with
+`unique_violation` while retaining all four original rows and leaving
+no index behind. A distinct, deliberately pre-reconciled fixture can
+create the same index. The test performs **no automatic deduplication**,
+does not establish which site should survive, and does not inspect live
+Staging or Production data.
+
+The **single-generator cap** fixture adds 500 newer fuel events and
+200 newer maintenance orders to the *same* synthetic generator and
+fires the candidate rename trigger. It expects exactly 500 and 200
+scoped Delta probes, no duplicate events, and excludes the older
+target event. This demonstrates that moving the generator filter
+inside the limit removes cross-generator starvation but **does not
+refresh all historical rows** for high-volume generators. The
+application contract (bounded current window versus full historical
+backfill), pagination, idempotent replay and downstream producer
+behavior must be resolved before a deployment candidate is approved.
+
+These gates remain deliberately non-authorizing:
+
+```text
+CB_A_HISTORICAL_DUPLICATE_PRECONDITION=CI_PENDING
+CB_A_GENERATOR_FIRST_WINDOW_BOUNDARY=CI_PENDING
+HISTORICAL_DATA_RECONCILIATION_APPROVED=FALSE
+FULL_GENERATOR_HISTORY_DELTA_PROVEN=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
