@@ -1,0 +1,71 @@
+{
+  "format": "PR359_CB_A_SIDE_EFFECTS_CATALOG_REVIEW_V1",
+  "capture_date": "2026-11-24",
+  "source_environment": "Staging",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "method": "Read-only pg_index and pg_proc catalog inspection; structured summary of observed results",
+  "limitations": "Selected catalog metadata only, not a full schema export, no runtime behavior, no executable migration. Index inventory is for sites and tenant_subscriptions only.",
+  "site_indexes": [
+    {
+      "name": "sites_code_key",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX sites_code_key ON public.sites USING btree (code)"
+    },
+    {
+      "name": "sites_pkey",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX sites_pkey ON public.sites USING btree (id)"
+    },
+    {
+      "name": "sites_tenant_id_id_unique_idx",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX sites_tenant_id_id_unique_idx ON public.sites USING btree (tenant_id, id)"
+    },
+    {
+      "name": "sites_tenant_id_idx",
+      "unique": false,
+      "definition": "CREATE INDEX sites_tenant_id_idx ON public.sites USING btree (tenant_id)"
+    }
+  ],
+  "tenant_subscription_indexes": [
+    {
+      "name": "tenant_subscriptions_pkey",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX tenant_subscriptions_pkey ON public.tenant_subscriptions USING btree (id)"
+    },
+    {
+      "name": "tenant_subscriptions_tenant_id_key",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX tenant_subscriptions_tenant_id_key ON public.tenant_subscriptions USING btree (tenant_id)"
+    }
+  ],
+  "downstream_function": {
+    "identity": "powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bigint,text,bigint)",
+    "security_definer": true,
+    "search_path": "search_path=pg_catalog, public, pg_temp",
+    "anon_execute": false,
+    "authenticated_execute": false,
+    "service_execute": true,
+    "observed_calls": [
+      "public.powerhub_project_fuel_event_delta_row",
+      "public.powerhub_project_maintenance_work_order_delta_row",
+      "public.powerhub_project_maintenance_work_order_part_delta_row",
+      "public.powerhub_append_fuel_maintenance_delta_sync_change"
+    ],
+    "observed_outcome_categories": [
+      "upsert",
+      "delete"
+    ],
+    "body_source_fully_pinned": false,
+    "source_review_required": true
+  },
+  "checks_approved": 0,
+  "source_ownership_approved": false,
+  "security_signoff_complete": false,
+  "canonical_baseline_approved": false,
+  "executable_sql_approved": false,
+  "staging_inplace_go": false,
+  "production_inplace_go": false,
+  "pr359_merge_go": false,
+  "destructive_allowlist": []
+}
