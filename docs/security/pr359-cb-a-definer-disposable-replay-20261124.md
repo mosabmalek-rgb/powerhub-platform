@@ -136,3 +136,36 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 2026-11-24: full-history keyset contrast, not a Delta deployment
+
+The new disposable-only test
+`fixtures/generator-full-history-keyset-contrast.sql` runs **after** the
+500/200 cap-boundary regression. It loops through all 501 synthetic fuel
+events and 201 synthetic maintenance work orders of one generator,
+using monotonic `id > last_id`, tenant/site/generator predicates and
+`ORDER BY id ASC LIMIT 128` in each pass. It verifies 4 fuel pages and
+2 maintenance pages, exactly 702 unique synthetic Delta probes,
+complete coverage of that generator's seeded records and no cross-tenant
+or cross-site probes.
+
+This illustrates the difference between a **bounded recent-change
+window** and **explicit full-history backfill**. The demonstration is a
+single isolated SQL transaction and uses a recording stub instead of
+the real producer; it does **not** prove cursor durability between
+transactions, a stable snapshot during writes, crash recovery,
+cross-device idempotency, real projected payloads, or runtime security.
+No automatic historical refresh should be inferred from a generator
+rename until the required backfill contract and operational limits are
+designed and accepted.
+
+```text
+CB_A_LOCAL_GENERATOR_FULL_HISTORY_KEYSET=CI_PENDING
+CB_A_KEYSET_CROSS_TRANSACTION_RECOVERY=FALSE
+CB_A_REAL_EMITTER_REPLAY_AND_RLS_PROOF=FALSE
+GENERATOR_FULL_HISTORY_DEPLOYMENT_APPROVED=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
