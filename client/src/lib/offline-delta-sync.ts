@@ -876,6 +876,11 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       const snapshot = await input.rebuildSnapshot(requestedSnapshotCursor);
       assertDeltaSyncRunActive(input.isCurrent);
       const snapshotCursor = assertCursor(snapshot.cursor);
+      // The snapshot service may return a NEWER coherent watermark, but
+      // must never silently roll back before the reset-required boundary.
+      if (compareDeltaCursors(snapshotCursor, requestedSnapshotCursor) < 0) {
+        throw new Error("لقطة إعادة التهيئة أقدم من الحد المطلوب؛ لم تتغير البيانات المحلية.");
+      }
       await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
       assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;
