@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { executeReadyOperations } from "./offline-sync-executor";
+import type { SyncMetadata } from "./offline-sync-engine";
+import type { QueuedOfflineWork } from "./offline-work-queue";
 import { openOfflineWorkspaceDatabase } from "./offline-workspace-db";
 import { clearDeltaSyncDataForUser, pullDeltaPages, replaceDeltaSnapshot, type DeltaCursorScope, type DeltaPage } from "./offline-delta-sync";
 
@@ -107,6 +110,11 @@ function workspace() {
   vi.mocked(openOfflineWorkspaceDatabase).mockResolvedValue(db as unknown as IDBDatabase);
   return {
     transactions,
+    replayInputs: (userId: number) => ({
+      items: structuredClone([...data.get("operations")!.values()].filter(row => row.userId === userId)) as unknown as QueuedOfflineWork[],
+      metadataByOperationId: new Map(structuredClone([...data.get("syncMetadata")!.values()].filter(row => row.userId === userId))
+        .map(row => [String(row.operationId), row as unknown as SyncMetadata] as const)),
+    }),
     abortNext: () => { abortOnCommit = true; },
     protectedState: () => structuredClone(protectedStores.map(name => [name, [...data.get(name)!]])),
     cursor: (s: DeltaCursorScope) => data.get("cursors")!.get(JSON.stringify(cursorKey(s)))?.cursor,
@@ -138,6 +146,50 @@ describe("Delta recovery preserves canonical Outbox stores", () => {
     expect(db.ids(other)).toEqual(["5"]);
     expect(db.protectedState()).toEqual(before);
     expect(db.transactions.every(names => names.every(name => !protectedStores.includes(name)))).toBe(true);
+  });
+
+  it("resumes preserved intents after reset with stable operation IDs and without replaying a conflict", async () => {
+    const db = workspace();
+    const before = db.protectedState();
+    const pull = vi.fn().mockResolvedValueOnce(reset).mockResolvedValueOnce(terminal);
+    await pullDeltaPages({ scope, afterCursor: "3", pull, rebuildSnapshot: async () => ({ cursor: "20", rows: snapshot }) });
+    expect(db.protectedState()).toEqual(before);
+    const restored = db.replayInputs(scope.userId);
+    const calls: string[] = [];
+    const committed = new Set<string>();
+    const completedIds = new Set(["parent"]);
+    const first = await executeReadyOperations({
+      ...restored, completedIds, now: 100, random: () => 0.5,
+      transport: async operation => {
+        const key = operation.clientOperationId;
+        calls.push(key);
+        committed.add(key);
+        if (operation.kind === "payment_create") throw new Error("synthetic lost response");
+        return { outcome: "applied" };
+      },
+    });
+    expect(calls.sort()).toEqual(["1:payment_create", "1:reading_create"]);
+    const payment = first.find(result => result.item.kind === "payment_create")!;
+    expect(payment.outcome).toBe("retryable");
+    expect(payment.metadata.attempts).toBe(3);
+    expect(first.find(result => result.item.kind === "expense_create")?.outcome).toBe("conflict");
+    // Model a restart with persisted executor outcomes; the fake transport
+    // simulates server idempotency, not an actual financial RPC.
+    const resumedMetadata = new Map(first.map(result => [result.item.clientOperationId, result.metadata]));
+    const replay = vi.fn(async (operation: QueuedOfflineWork) => {
+      expect(committed.has(operation.clientOperationId)).toBe(true);
+      expect(operation.payload).toEqual(payment.item.payload);
+      return { outcome: "already_applied" as const };
+    });
+    const resumed = await executeReadyOperations({
+      items: restored.items, metadataByOperationId: resumedMetadata,
+      completedIds, transport: replay, now: payment.metadata.nextAttemptAt,
+    });
+    expect(replay).toHaveBeenCalledTimes(1);
+    expect(replay.mock.calls[0][0].clientOperationId).toBe("1:payment_create");
+    expect(resumed.find(result => result.item.kind === "payment_create")?.outcome).toBe("already_applied");
+    expect(db.cursor(scope)).toBe("20");
+    expect(db.protectedState()).toEqual(before);
   });
 
   it("rolls back an interrupted snapshot transaction and retries without changing Outbox identity or metadata", async () => {
