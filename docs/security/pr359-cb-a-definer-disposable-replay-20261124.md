@@ -211,3 +211,42 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 24 November 2026 — synthetic change journal and tombstone replay
+
+The disposable PostgreSQL gate now also tests a sequence-based mutation
+journal, independently of the record-ID keyset history experiment. It uses
+`fixtures/journal-restart-{setup,failure,first-page,resume}.sql` with
+`journal-restart.test.mjs` and **four distinct database connections**.
+
+A scoped journal `change_seq` records `upsert` and `delete` changes.
+Its synthetic consumer locks the scope checkpoint, applies a bounded
+sequence page to an idempotent materialized sink, and advances the checkpoint
+**in one local PostgreSQL transaction**. The injected `P3592` failure
+after writes but before cursor update must roll back both. The first page
+commits a deletion tombstone for event 201; after restarting, event 202
+has the latest revision 2 `upsert`. A later `delete` for event 202,
+inserted after the original high-water mark, must be excluded until a
+fresh snapshot is explicitly opened, then applied without resurrecting
+event 201. Unrelated tenants/sites/generators are excluded.
+
+This test shows why record-ID history alone cannot handle changes to
+older records or deletion tombstones. It is **not** a full production
+change-data-capture system: transaction commit ordering of sequence
+allocation, concurrent journal writes, real producer execution,
+tombstone retention/garbage collection, missing sequence handling, RLS,
+consumer authentication and Android integration remain unverified.
+The synthetic SQL uses `SECURITY INVOKER`, does not create any actual
+application migration, and is never connected to a hosted database.
+
+```text
+CB_A_SYNTHETIC_CHANGE_JOURNAL_REPLAY=CI_PENDING
+CB_A_REAL_DELTA_PRODUCER_ATOMICITY=FALSE
+CB_A_REAL_CHANGE_JOURNAL_CAPTURE=FALSE
+CB_A_TOMBSTONE_RETENTION_POLICY_APPROVED=FALSE
+CB_B_CANONICAL_SQL_AUTHORED=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
