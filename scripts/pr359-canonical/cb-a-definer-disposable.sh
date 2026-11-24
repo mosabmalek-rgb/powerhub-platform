@@ -204,6 +204,34 @@ do
  }
 done
 echo PR359_LOCAL_KEYSET_HISTORY_CONTRAST_PASS
+# Keyset recovery must survive a new connection and persist checkpoint
+# atomically with a synthetic sink, even after an injected SQL exception.
+# All fixture calls use the SAME isolated container with --network none.
+node --test scripts/pr359-canonical/keyset-restart.test.mjs
+for phase in setup failure first-page after-crash; do
+ fixture="scripts/pr359-canonical/fixtures/keyset-restart-$phase.sql"
+ [[ -s "$fixture" ]] || { echo "PR359_KEYSET_FIXTURE_MISSING=$phase" >&2; exit 1; }
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+  psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  < "$fixture" > "$tmp/keyset-$phase-results.txt"
+done
+for assertion in \
+ "setup:PR359_ISOLATED_KEYSET_CHECKPOINT_SETUP_PASS" \
+ "failure:PR359_ISOLATED_KEYSET_INJECTED_FAILURE_ROLLBACK_PASS" \
+ "first-page:PR359_ISOLATED_KEYSET_FIRST_PAGE_COMMITTED_PASS" \
+ "after-crash:PR359_ISOLATED_KEYSET_CROSS_CONNECTION_RECOVERY_PASS" \
+ "after-crash:PR359_ISOLATED_KEYSET_HIGH_WATER_MARK_PASS" \
+ "after-crash:PR359_REAL_DELTA_OUTBOX_ATOMICITY_PROVEN=FALSE" \
+ "after-crash:PR359_CROSS_DEVICE_IDEMPOTENCY_PROVEN=FALSE" \
+ "after-crash:PR359_CANONICAL_BASELINE_APPROVED=FALSE"
+do
+ phase="${assertion%%:*}"
+ marker="${assertion#*:}"
+ grep -Fxq "$marker" "$tmp/keyset-$phase-results.txt" || {
+  echo "PR359_KEYSET_RECOVERY_MISSING=$marker" >&2; exit 1;
+ }
+done
+echo PR359_CB_A_CROSS_CONNECTION_KEYSET_RECOVERY_PASS
 echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_CROSS_PATH_CONCURRENCY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_PRODUCTION_APPROVED=FALSE
