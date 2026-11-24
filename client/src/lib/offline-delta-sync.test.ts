@@ -313,7 +313,7 @@ describe("offline delta sync", () => {
       [{ afterCursor: "3", throughCursor: null, pageSize: 200 }],
       [{ afterCursor: "4", throughCursor: "9", pageSize: 200 }],
     ]);
-    expect((await storage.listEntities(scope)).map(x => x.rowData)).toEqual([{ id: 1, name: "A" }]);
+    expect((await storage.listEntities(scope)).map(x => x.rowData)).toEqual([{ id: 1, name: "A", tenantId: 1, siteId: 7 }]);
     expect(await storage.getCursor(scope)).toBe("9");
     expect(result).toEqual({ cursor: "9", appliedChanges: 2, resetRequired: false });
   });
