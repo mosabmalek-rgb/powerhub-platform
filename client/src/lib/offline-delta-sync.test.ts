@@ -306,7 +306,7 @@ describe("offline delta sync", () => {
   it("holds one through-cursor across pages and commits page changes before reporting success", async () => {
     const storage = memoryStorage();
     const pull = vi.fn()
-      .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "upsert", { id: 1, name: "A" })] }))
+      .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "upsert", { id: 1, name: "A", tenantId: 1, siteId: 7 })] }))
       .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "9", has_more: false, changes: [change("9", "2", "delete", null)] }));
     const result = await pullDeltaPages({ scope, storage, afterCursor: "3", pull, rebuildSnapshot: async cursor => ({ cursor, rows: [] }) });
     expect(pull.mock.calls).toEqual([
@@ -324,7 +324,7 @@ describe("offline delta sync", () => {
     const indexedDb = installCacheWriteAbortMock();
     const expectedPage = page({
       current_cursor: "4", through_cursor: "4", next_cursor: "4",
-      changes: [change("4", "7", "upsert", { id: 7, name: "Recovered" })],
+      changes: [change("4", "7", "upsert", { id: 7, name: "Recovered", tenantId: 1, siteId: 7 })],
     });
     const pull = vi.fn(async () => expectedPage);
     const applyPage = async () => persistOfflineQueryForDeltaSync(deltaCacheQuery, "1", 1_000);
@@ -346,7 +346,7 @@ describe("offline delta sync", () => {
     expect(pull).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ cursor: "4", appliedChanges: 1, resetRequired: false });
     expect(await storage.getCursor(scope)).toBe("4");
-    expect((await storage.listEntities(scope)).map(row => row.rowData)).toEqual([{ id: 7, name: "Recovered" }]);
+    expect((await storage.listEntities(scope)).map(row => row.rowData)).toEqual([{ id: 7, name: "Recovered", tenantId: 1, siteId: 7 }]);
     expect(indexedDb.writeAttempts()).toBe(2);
   });
 
@@ -401,7 +401,7 @@ describe("offline delta sync", () => {
     const storage = memoryStorage();
     const pull = vi.fn()
       .mockResolvedValueOnce(page({ status: "reset_required", snapshot_cursor: "20", current_cursor: "20", through_cursor: "20", next_cursor: null, changes: [] }))
-      .mockResolvedValueOnce(page({ current_cursor: "22", through_cursor: "22", next_cursor: "22", changes: [change("22", "7", "upsert", { id: 7 })] }));
+      .mockResolvedValueOnce(page({ current_cursor: "22", through_cursor: "22", next_cursor: "22", changes: [change("22", "7", "upsert", { id: 7, tenantId: 1, siteId: 7 })] }));
     const result = await pullDeltaPages({
       scope, storage, afterCursor: null, pull,
       rebuildSnapshot: async () => ({ cursor: "21", rows: [{ id: 6, name: "snapshot" }] }),
@@ -489,6 +489,35 @@ describe("offline delta sync", () => {
     })).rejects.toThrow("Synthetic snapshot fetch failure");
     expect(await storage.getCursor(scope)).toBe("3");
     expect((await storage.listEntities(scope)).map(record => record.entityId)).toEqual(["5"]);
+  });
+
+  it("rejects invalid page changes before invoking any cache or storage write", async () => {
+    const valid = change("4", "7", "upsert", { id: 7, tenantId: 1, siteId: 7 });
+    const malformed: Array<Partial<DeltaPage>> = [
+      { changes: [{ ...valid, row_data: { id: 7, tenantId: 2, siteId: 7 } }] },
+      { changes: [{ ...valid, row_data: { id: 8, tenantId: 1, siteId: 7 } }] },
+      { changes: [{ ...valid, entity_type: "invoices" }] },
+      { changes: [{ ...valid, operation: "unknown" as never }] },
+      { changes: [{ ...valid, entity_id: "" }] },
+      { changes: [{ ...valid, cursor: "3" }] },
+      { changes: [{ ...valid, cursor: "5" }] },
+      { changes: [valid, valid] },
+      { changes: [{ ...valid, operation: "delete" }] },
+      { status: "unknown" as never, changes: [valid] },
+    ];
+    for (const overrides of malformed) {
+      const storage = memoryStorage("3");
+      const commit = vi.spyOn(storage, "commitPage");
+      const applyPage = vi.fn(async () => undefined);
+      await expect(pullDeltaPages({
+        scope, storage, afterCursor: "3", applyPage,
+        pull: async () => page({ current_cursor: "4", through_cursor: "4", next_cursor: "4", ...overrides }),
+        rebuildSnapshot: async cursor => ({ cursor, rows: [] }),
+      })).rejects.toThrow();
+      expect(applyPage).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled();
+      expect(await storage.getCursor(scope)).toBe("3");
+    }
   });
 
   it("fails closed if the server changes the page boundary", async () => {

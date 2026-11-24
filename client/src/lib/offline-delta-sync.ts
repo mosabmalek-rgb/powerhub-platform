@@ -592,19 +592,14 @@ export async function listDeltaEntities<Row extends Record<string, unknown> = Re
   });
 }
 
-/** Atomically applies one server page and advances the cursor in the same IndexedDB transaction. */
-export async function commitDeltaPage<Row extends Record<string, unknown>>(
+/** Validate all changes before any cache projection or durable write. */
+function validateDeltaPageChanges(
   scope: DeltaCursorScope,
-  page: DeltaPage<Row>,
+  page: DeltaPage,
   nextCursor: string,
-  now = Date.now(),
-  isCurrent?: () => boolean,
-) {
-  assertDeltaSyncRunActive(isCurrent);
-  const key = scopeKey(scope);
-  assertCursor(nextCursor);
-  if (page.status !== "ok" || page.entity_type !== scope.entityType) throw new Error("صفحة المزامنة لا تطابق نطاقها.");
-  let priorChangeCursor: string | null = null;
+  afterCursor: string | null = null,
+): void {
+  let priorChangeCursor: string | null = afterCursor;
   for (const change of page.changes) {
     assertCursor(change.cursor);
     if (change.entity_type !== scope.entityType) throw new Error("نوع التغيير لا يطابق نطاق المزامنة.");
@@ -612,6 +607,8 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
       throw new Error("ترتيب تغييرات المزامنة غير صالح.");
     }
     priorChangeCursor = change.cursor;
+    if (change.operation !== "upsert" && change.operation !== "delete") throw new Error("عملية Delta غير معروفة.");
+    if (typeof change.entity_id !== "string" || !change.entity_id.trim()) throw new Error("معرّف تغيير Delta غير صالح.");
     if (change.operation === "upsert") {
       if (!change.row_data || String(change.row_data.id ?? "") !== change.entity_id) {
         throw new Error("بيانات التغيير لا تطابق معرّف السجل.");
@@ -624,6 +621,21 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
       throw new Error("تجاوز تغيير حد صفحة المزامنة.");
     }
   }
+}
+ 
+/** Atomically applies one server page and advances the cursor in the same IndexedDB transaction. */
+export async function commitDeltaPage<Row extends Record<string, unknown>>(
+  scope: DeltaCursorScope,
+  page: DeltaPage<Row>,
+  nextCursor: string,
+  now = Date.now(),
+  isCurrent?: () => boolean,
+) {
+  assertDeltaSyncRunActive(isCurrent);
+  const key = scopeKey(scope);
+  assertCursor(nextCursor);
+  if (page.status !== "ok" || page.entity_type !== scope.entityType) throw new Error("صفحة المزامنة لا تطابق نطاقها.");
+  validateDeltaPageChanges(scope, page, nextCursor);
   const db = await openDatabase();
   assertDeltaSyncRunActive(isCurrent);
   return new Promise<void>((resolve, reject) => {
@@ -889,6 +901,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       continue;
     }
 
+    if (page.status !== "ok") throw new Error("حالة استجابة Delta غير معروفة.");
     assertCursor(page.current_cursor);
     assertCursor(page.through_cursor);
     if (through === null) through = page.through_cursor;
@@ -899,6 +912,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     if (!page.has_more && next !== page.through_cursor) throw new Error("الصفحة النهائية لا تنتهي عند حد المزامنة.");
     if (page.has_more && page.changes.length === 0) throw new Error("توقفت المزامنة قبل اكتمال الصفحة.");
     if (cursor !== null && compareDeltaCursors(next, cursor) < 0) throw new Error("تراجع مؤشر المزامنة.");
+    validateDeltaPageChanges(input.scope, page, next, cursor);
     // Update the live query cache and await its durable offline-cache write
     // before advancing the separate delta cursor. If the browser stops here,
     // the old cursor causes a safe idempotent replay instead of a skipped change.
