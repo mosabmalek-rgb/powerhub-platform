@@ -286,3 +286,33 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 24 November 2026 — serialized-writer positive control (local only)
+
+Following the non-monotonic commit negative control, the same networkless
+test opens two **new** writer sessions for synthetic scope
+`(tenant=78,site=70,generator=7)`. Both take the same transaction-level
+advisory lock **before journal insert**. It requires the second session
+to wait for PostgreSQL's lock, then commits the first. Only after
+both commits does the consumer snapshot the upper sequence and replay
+the two events, asserting complete per-scope coverage without gaps.
+
+This is a candidate ordering invariant, not an approved implementation.
+Every producer, including deletes and maintenance events, would need to
+participate in precisely the correct scope lock *before allocating the
+sequence*, atomically with the source mutation. It does not establish
+whether the production change journal uses this order, whether a
+global LSN or per-scope generation should be used, safe lock namespace
+allocation, or behavior under distributed workers, deadlocks, RLS
+and service-role access. A complete audited design must precede any
+DDL, permission grant or release.
+
+```text
+CB_A_SERIALIZED_JOURNAL_LOCAL_ONLY=CI_PENDING
+CB_A_REAL_SEQUENCE_COMMIT_ORDER_APPROVED=FALSE
+CB_A_REAL_JOURNAL_PRODUCER_ATOMICITY=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
