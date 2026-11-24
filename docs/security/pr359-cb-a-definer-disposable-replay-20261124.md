@@ -250,3 +250,39 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 24 November 2026 — sequence allocation is NOT commit order
+
+Added a deterministic negative control to the **same networkless
+disposable PostgreSQL instance**. Session A inserts an event for synthetic
+scope `(tenant=77,site=70,generator=7)` but holds its transaction open.
+A distinct session B inserts and commits another event for that same
+scope, with a higher `change_seq`. The consumer snapshots the highest
+committed sequence and advances the checkpoint through B's event.
+Only afterward does A commit. The test asserts that A's smaller sequence
+is now **below the stored cursor and absent from the materialized sink**.
+
+This demonstrates a serious limitation of the prior synthetic journal:
+PostgreSQL IDENTITY/sequence allocation is not ordered by transaction
+commit time. A high-water mark from visible records, combined with a
+monotonically advancing cursor, can permanently skip an earlier
+uncommitted mutation. Idempotent sink writes cannot recover an event
+that the cursor never visits.
+
+The negative control **does not fix production CDC**. Required design
+review includes serialized journal allocation before insert for each
+relevant scope, atomic source mutation plus journal entry, an appropriate
+commit-order watermark/LSN strategy or other proven no-gap protocol,
+and replay tests with concurrent writers and crash recovery. The
+contract must also cover deletion tombstones, consumer retention and
+stale-device rebootstrap.
+
+```text
+CB_A_SEQUENCE_COMMIT_ORDER_GAP=EXPECTED_NEGATIVE_TEST
+CB_A_PRODUCTION_JOURNAL_ORDERING_APPROVED=FALSE
+CB_A_REAL_DELTA_PRODUCER_ATOMICITY=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
