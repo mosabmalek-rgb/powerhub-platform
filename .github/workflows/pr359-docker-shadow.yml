@@ -102,6 +102,10 @@ jobs:
           retention-days: 14
       - name: Disposable Docker credit replay and rollback
         run: bash scripts/pr359-shadow/run.sh smoke
+      - name: CB-A replay pinned privileged trigger behavior on networkless synthetic PostgreSQL
+        run: |
+          bash -n scripts/pr359-canonical/cb-a-definer-disposable.sh
+          bash scripts/pr359-canonical/cb-a-definer-disposable.sh
       - name: Epoch v2 isolated ledger integrity and replay/rollback protocol
         run: |
           bash -n scripts/pr359-r4/epoch-v2-disposable.sh
