@@ -412,6 +412,67 @@ describe("offline delta sync", () => {
     expect(result).toEqual({ cursor: "22", appliedChanges: 1, resetRequired: true });
   });
 
+  it("rejects malformed reset control data before rebuilding or altering the local snapshot", async () => {
+    for (const malformed of [
+      { status: "reset_required" as const, snapshot_cursor: "n/a" },
+      { status: "reset_required" as const, retained_from_cursor: "21", current_cursor: "20" },
+      { status: "reset_required" as const, snapshot_cursor: "21", current_cursor: "20" },
+      { status: "reset_required" as const, has_more: true },
+      { status: "reset_required" as const, next_cursor: "20" },
+      { status: "reset_required" as const, changes: [change("20", "12", "delete", null)] },
+    ]) {
+      const storage = memoryStorage("3", [{ id: 5, tenantId: 1, siteId: 7, name: "Durable" }]);
+      const rebuildSnapshot = vi.fn(async () => ({ cursor: "20", rows: [] }));
+      await expect(pullDeltaPages({
+        scope, storage, afterCursor: "3",
+        pull: async () => page({
+          status: "reset_required", snapshot_cursor: "20",
+          current_cursor: "20", through_cursor: "20", next_cursor: null,
+          changes: [], has_more: false, ...malformed,
+        }),
+        rebuildSnapshot,
+      })).rejects.toThrow(/إعادة تهيئة Delta|مؤشر المزامنة/);
+      expect(rebuildSnapshot).not.toHaveBeenCalled();
+      expect(await storage.getCursor(scope)).toBe("3");
+      expect((await storage.listEntities(scope)).map(record => record.entityId)).toEqual(["5"]);
+    }
+  });
+
+  it("stops a repeated reset-required loop after a bounded number of snapshots", async () => {
+    const storage = memoryStorage("3", [{ id: 5, tenantId: 1, siteId: 7 }]);
+    const pull = vi.fn(async () => page({
+      status: "reset_required", snapshot_cursor: "20",
+      current_cursor: "20", through_cursor: "20",
+      next_cursor: null, has_more: false, changes: [],
+    }));
+    const rebuildSnapshot = vi.fn(async () => ({
+      cursor: "20", rows: [{ id: 6, tenantId: 1, siteId: 7, name: "Restored" }],
+    }));
+    await expect(pullDeltaPages({ scope, storage, afterCursor: "3", pull, rebuildSnapshot }))
+      .rejects.toThrow(/تكررت مطالبة الخادم بإعادة التهيئة/);
+    expect(rebuildSnapshot).toHaveBeenCalledTimes(3);
+    expect(pull).toHaveBeenCalledTimes(4);
+    expect(await storage.getCursor(scope)).toBe("20");
+    expect((await storage.listEntities(scope)).map(row => row.entityId)).toEqual(["6"]);
+  });
+
+  it("preserves the existing snapshot and cursor if fetching a replacement after reset fails", async () => {
+    const storage = memoryStorage("3", [{ id: 5, tenantId: 1, siteId: 7 }]);
+    const rebuildSnapshot = vi.fn(async () => {
+      throw new Error("Synthetic snapshot fetch failure");
+    });
+    await expect(pullDeltaPages({
+      scope, storage, afterCursor: "3",
+      pull: async () => page({
+        status: "reset_required", snapshot_cursor: "20", current_cursor: "20",
+        through_cursor: "20", next_cursor: null, has_more: false, changes: [],
+      }),
+      rebuildSnapshot,
+    })).rejects.toThrow("Synthetic snapshot fetch failure");
+    expect(await storage.getCursor(scope)).toBe("3");
+    expect((await storage.listEntities(scope)).map(record => record.entityId)).toEqual(["5"]);
+  });
+
   it("fails closed if the server changes the page boundary", async () => {
     const pull = vi.fn()
       .mockResolvedValueOnce(page({ through_cursor: "9", current_cursor: "9", next_cursor: "4", has_more: true, changes: [change("4", "1", "delete", null)] }))
