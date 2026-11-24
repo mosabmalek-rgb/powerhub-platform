@@ -8,7 +8,7 @@ test('networkless runner embeds exact captured real append/pull functions with n
  const ddl=buildRealAppendDisposableSql(evidence);
  assert.equal(ddl,buildRealAppendDisposableSql(evidence));
  for(const f of evidence.functions.filter(x=>/powerhub_(append|pull)_fuel_maintenance/.test(x.identity))){
-  assert.ok(ddl.includes(f.executable_ddl));
+  assert.ok(ddl.includes(f.executable_ddl.trimEnd()));
  }
  assert.match(ddl,/CREATE TABLE public\.powerhub_sync_scope_state/);
  assert.match(ddl,/PRIMARY KEY\(tenant_id,site_id,entity_type\)/);
