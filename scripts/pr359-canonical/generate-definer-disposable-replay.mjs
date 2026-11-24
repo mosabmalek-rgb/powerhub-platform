@@ -45,7 +45,8 @@ export function buildDefinerDisposableReplaySql({
  }
  assert.ok(!/\\connect\b|\\copy\b|dblink|postgres(?:ql)?:\/\//i.test(template),
   'fixture must not contain connection commands');
- const replacements=[owner,original,candidate];
+ const executable=(body)=>body.trimEnd().replace(/;?$/, ';')+'\n';
+ const replacements=[executable(owner),executable(original),executable(candidate)];
  let sql=template;
  for(let i=0;i<MARKERS.length;i++)sql=sql.replace(MARKERS[i],replacements[i]);
  assert.ok(!MARKERS.some(x=>sql.includes(x)));
