@@ -32,7 +32,7 @@ export function buildRealCaptureDisposableSql(evidence=loadPinnedProducerEvidenc
  let sql=template;
  for(let i=0;i<MARKERS.length;i++){
   assert.equal(sql.split(MARKERS[i]).length,2,'missing/duplicate fixture marker');
-  sql=sql.replace(MARKERS[i],definitions[i]);
+  sql=sql.replace(MARKERS[i],()=>definitions[i]);
  }
  assert.ok(MARKERS.every(m=>!sql.includes(m)));
  assert.ok(sql.includes('PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS'));
