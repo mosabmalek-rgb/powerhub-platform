@@ -1,0 +1,158 @@
+-- PR359 local-only trigger replay on a synthetic schema.
+-- Exact SECURITY DEFINER functions and trigger definitions are inserted from
+-- SHA-pinned Staging evidence by generate-real-capture-disposable.mjs.
+\set ON_ERROR_STOP on
+CREATE TABLE public.sites(id bigint PRIMARY KEY, tenant_id bigint NOT NULL);
+INSERT INTO public.sites VALUES (101,1),(102,1),(201,2);
+CREATE TABLE public.powerhub_sync_scope_state(
+ tenant_id bigint NOT NULL,site_id bigint NOT NULL,entity_type text NOT NULL,
+ last_cursor bigint NOT NULL DEFAULT 0,retained_from_cursor bigint NOT NULL DEFAULT 0,
+ updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ PRIMARY KEY(tenant_id,site_id,entity_type));
+CREATE TABLE public.powerhub_sync_changes(
+ tenant_id bigint NOT NULL,site_id bigint NOT NULL,entity_type text NOT NULL,
+ cursor bigint NOT NULL,entity_id text NOT NULL,change_type text NOT NULL,
+ row_data jsonb,changed_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ PRIMARY KEY(tenant_id,site_id,entity_type,cursor));
+CREATE TABLE public.generator_fuel_events(
+ id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,
+ generator_id bigint NOT NULL,occurred_at timestamptz NOT NULL);
+CREATE TABLE public.generator_maintenance_work_orders(
+ id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,
+ generator_id bigint NOT NULL,reported_at timestamptz,created_at timestamptz NOT NULL);
+CREATE TABLE public.generator_maintenance_work_order_parts(
+ id bigint PRIMARY KEY,tenant_id bigint NOT NULL,site_id bigint NOT NULL,
+ work_order_id bigint NOT NULL);
+-- These three projectors and two refreshers are TEST STUBS, not live functions.
+CREATE FUNCTION public.powerhub_project_fuel_event_delta_row(bigint,bigint,bigint)
+RETURNS jsonb LANGUAGE sql STABLE AS $stub$
+ SELECT jsonb_build_object('id',e.id::text,'generator_id',e.generator_id::text)
+ FROM public.generator_fuel_events e WHERE e.tenant_id=$1 AND e.site_id=$2 AND e.id=$3
+$stub$;
+CREATE FUNCTION public.powerhub_project_maintenance_work_order_delta_row(bigint,bigint,bigint)
+RETURNS jsonb LANGUAGE sql STABLE AS $stub$
+ SELECT jsonb_build_object('id',w.id::text,'generator_id',w.generator_id::text)
+ FROM public.generator_maintenance_work_orders w WHERE w.tenant_id=$1 AND w.site_id=$2 AND w.id=$3
+$stub$;
+CREATE FUNCTION public.powerhub_project_maintenance_work_order_part_delta_row(bigint,bigint,bigint,bigint)
+RETURNS jsonb LANGUAGE sql STABLE AS $stub$
+ SELECT jsonb_build_object('id',p.id::text,'work_order_id',p.work_order_id::text)
+ FROM public.generator_maintenance_work_order_parts p
+ WHERE p.tenant_id=$1 AND p.site_id=$2 AND p.work_order_id=$3 AND p.id=$4
+$stub$;
+CREATE FUNCTION public.powerhub_refresh_fuel_event_delta_scope(bigint,bigint)
+RETURNS void LANGUAGE plpgsql AS $stub$ BEGIN NULL; END $stub$;
+CREATE FUNCTION public.powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint)
+RETURNS void LANGUAGE plpgsql AS $stub$ BEGIN NULL; END $stub$;
+
+-- PR359_PINNED_CAPTURE_APPEND
+-- PR359_PINNED_CAPTURE_EMIT
+-- PR359_PINNED_CAPTURE_TRIGGER_FUNCTION
+-- PR359_PINNED_CAPTURE_OPERATIONAL_TRIGGERS
+
+INSERT INTO public.generator_fuel_events VALUES(11,1,101,1001,'2026-01-01');
+UPDATE public.generator_fuel_events SET generator_id=1002 WHERE id=11;
+DELETE FROM public.generator_fuel_events WHERE id=11;
+DO $check$
+BEGIN
+ IF (SELECT last_cursor FROM public.powerhub_sync_scope_state
+     WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events')<>3
+ OR (SELECT count(*) FROM public.powerhub_sync_changes
+     WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events')<>3
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events'
+     AND cursor=1 AND entity_id='11' AND change_type='upsert')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events'
+     AND cursor=2 AND entity_id='11' AND change_type='upsert')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events'
+     AND cursor=3 AND entity_id='11' AND change_type='delete' AND row_data IS NULL)
+ THEN RAISE EXCEPTION 'PR359_REAL_CAPTURE_FUEL_LIFECYCLE_FAILED'; END IF;
+END $check$;
+SELECT 'PR359_REAL_CAPTURE_FUEL_LIFECYCLE_PASS';
+
+INSERT INTO public.generator_maintenance_work_orders VALUES(21,1,101,1001,'2026-01-01','2026-01-01');
+UPDATE public.generator_maintenance_work_orders SET site_id=102 WHERE id=21;
+DELETE FROM public.generator_maintenance_work_orders WHERE id=21;
+DO $check$
+BEGIN
+ IF (SELECT last_cursor FROM public.powerhub_sync_scope_state
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_orders')<>2
+ OR (SELECT last_cursor FROM public.powerhub_sync_scope_state
+   WHERE tenant_id=1 AND site_id=102 AND entity_type='maintenance_work_orders')<>2
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_orders'
+     AND cursor=2 AND entity_id='21' AND change_type='delete')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=102 AND entity_type='maintenance_work_orders'
+     AND cursor=1 AND entity_id='21' AND change_type='upsert')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=102 AND entity_type='maintenance_work_orders'
+     AND cursor=2 AND entity_id='21' AND change_type='delete')
+ THEN RAISE EXCEPTION 'PR359_REAL_CAPTURE_SCOPE_MOVE_FAILED'; END IF;
+END $check$;
+SELECT 'PR359_REAL_CAPTURE_SCOPE_MOVE_PASS';
+
+INSERT INTO public.generator_maintenance_work_order_parts VALUES(31,1,101,21);
+UPDATE public.generator_maintenance_work_order_parts SET work_order_id=22 WHERE id=31;
+DELETE FROM public.generator_maintenance_work_order_parts WHERE id=31;
+DO $check$
+BEGIN
+ IF (SELECT last_cursor FROM public.powerhub_sync_scope_state
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:21')<>2
+ OR (SELECT last_cursor FROM public.powerhub_sync_scope_state
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:22')<>2
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:21'
+    AND cursor=2 AND entity_id='31' AND change_type='delete')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:22'
+    AND cursor=1 AND entity_id='31' AND change_type='upsert')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+   WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:22'
+    AND cursor=2 AND entity_id='31' AND change_type='delete')
+ THEN RAISE EXCEPTION 'PR359_REAL_CAPTURE_PARTS_SCOPE_FAILED'; END IF;
+END $check$;
+SELECT 'PR359_REAL_CAPTURE_PARTS_SCOPE_PASS';
+
+-- Exception after a valid source insert forces the actual AFTER trigger
+-- and both source/Delta writes to roll back together.
+DO $atomic$
+DECLARE caught boolean:=false;
+BEGIN
+ BEGIN
+  INSERT INTO public.generator_fuel_events VALUES(12,1,101,1001,'2026-01-02');
+  RAISE EXCEPTION USING ERRCODE='P3594',MESSAGE='PR359_SYNTHETIC_SOURCE_AFTER_TRIGGER_FAILURE';
+ EXCEPTION WHEN SQLSTATE 'P3594' THEN caught:=true;
+ END;
+ IF NOT caught OR EXISTS(SELECT 1 FROM public.generator_fuel_events WHERE id=12)
+ OR (SELECT last_cursor FROM public.powerhub_sync_scope_state
+     WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events')<>3
+ OR EXISTS(SELECT 1 FROM public.powerhub_sync_changes
+           WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events' AND cursor>3)
+ THEN RAISE EXCEPTION 'PR359_REAL_CAPTURE_SOURCE_LOG_ATOMICITY_FAILED'; END IF;
+END $atomic$;
+SELECT 'PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS';
+
+-- Synthetic source table deliberately lacks an FK on site_id so that
+-- the actual append function (not the fixture schema) rejects bad scope.
+DO $reject$
+DECLARE caught boolean:=false;
+BEGIN
+ BEGIN
+  INSERT INTO public.generator_fuel_events VALUES(13,1,999,1001,'2026-01-03');
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM LIKE '%POWERHUB_FUEL_MAINTENANCE_DELTA_INVALID%'
+   THEN caught:=true;
+  END IF;
+ END;
+ IF NOT caught OR EXISTS(SELECT 1 FROM public.generator_fuel_events WHERE id=13)
+ OR EXISTS(SELECT 1 FROM public.powerhub_sync_scope_state WHERE site_id=999)
+ OR EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE site_id=999)
+ THEN RAISE EXCEPTION 'PR359_REAL_CAPTURE_INVALID_SITE_ATOMICITY_FAILED'; END IF;
+END $reject$;
+SELECT 'PR359_REAL_CAPTURE_INVALID_SCOPE_ROLLBACK_PASS';
+SELECT 'PR359_REAL_TRIGGER_FULL_PROJECTION_AND_RLS_VERIFIED=FALSE';
+SELECT 'PR359_REAL_TRIGGER_DEPLOYMENT_APPROVED=FALSE';
+SELECT 'PR359_CANONICAL_BASELINE_APPROVED=FALSE';
