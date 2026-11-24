@@ -12,7 +12,12 @@ container="pr359-definer-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 owner_pid=''
 owner_in=''
+candidate_pid=''
 cleanup() {
+ if [[ -n "$candidate_pid" ]]; then
+  kill "$candidate_pid" 2>/dev/null || :
+  wait "$candidate_pid" 2>/dev/null || :
+ fi
  if [[ -n "$owner_pid" ]]; then
   printf 'ROLLBACK;\n\\q\n' >&"$owner_in" 2>/dev/null || :
   kill "$owner_pid" 2>/dev/null || :
@@ -90,6 +95,73 @@ count="$(printf '%s\n' "SELECT count(*) FROM public.sites WHERE tenant_id=3 AND 
 }
 echo PR359_OWNER_SITE_CROSS_PATH_CONCURRENT_DUPLICATE_REPRODUCED
 echo PR359_OWNER_SITE_CONCURRENT_SAFETY_APPROVED=FALSE
+
+# The following isolated-only candidate adds a partial unique index PLUS
+# conflict reuse. Run the exact same cross-path overlap as a positive control.
+node --test scripts/pr359-canonical/generate-owner-site-candidate.test.mjs
+node scripts/pr359-canonical/generate-owner-site-candidate.mjs --out "$tmp/candidate.sql" >/dev/null
+docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+ < "$tmp/candidate.sql" > "$tmp/candidate-results.txt"
+grep -Fxq PR359_ISOLATED_OWNER_SITE_CANDIDATE_READY "$tmp/candidate-results.txt" || exit 1
+coproc OWNER_SITE_TX {
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+  psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres
+}
+owner_pid="$OWNER_SITE_TX_PID"
+owner_in="${OWNER_SITE_TX[1]}"
+owner_out="${OWNER_SITE_TX[0]}"
+printf '%s\n' \
+ 'BEGIN;' \
+ "INSERT INTO public.sites(tenant_id,name,code,status) VALUES(4,'الفرع الرئيسي','PR359-CANDIDATE-SITE','active');" \
+ "SELECT 'PR359_CANDIDATE_SITE_UNCOMMITTED';" >&"$owner_in"
+marker=''
+if ! IFS= read -r -t 25 marker <&"$owner_out" || [[ "$marker" != PR359_CANDIDATE_SITE_UNCOMMITTED ]]; then
+ echo PR359_OWNER_SITE_CANDIDATE_SETUP_FAILED >&2; exit 1
+fi
+# A distinct session should block on unique-index arbitration until A commits.
+{
+ printf "SET statement_timeout='25s';\n"
+ printf "INSERT INTO public.tenant_subscriptions(tenant_id) VALUES(4);\n"
+} | docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+ >"$tmp/candidate-b.out" 2>"$tmp/candidate-b.err" &
+candidate_pid="$!"
+blocked=0
+for i in $(seq 1 60); do
+ # Inspect only the disposable container's pg_stat_activity. An observed
+ # Lock wait demonstrates the candidate arbitrates the competing insertion.
+ lock_count="$(printf '%s\n' \
+ "SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND query LIKE '%INSERT INTO public.tenant_subscriptions(tenant_id) VALUES(4)%' AND wait_event_type='Lock';" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres)"
+ if [[ "$lock_count" =~ ^[0-9]+$ ]] && ((lock_count >= 1)); then blocked=1; break; fi
+ sleep 0.25
+done
+[[ "$blocked" -eq 1 ]] || {
+ echo PR359_EXPECTED_CANDIDATE_CONCURRENT_LOCK_WAIT_MISSING >&2; exit 1;
+}
+printf 'COMMIT;\n\\q\n' >&"$owner_in"
+wait "$owner_pid"
+owner_pid=''
+wait "$candidate_pid" || {
+ echo PR359_CANDIDATE_CONCURRENT_SUBSCRIPTION_INSERT_FAILED >&2
+ cat "$tmp/candidate-b.err" >&2; exit 1
+}
+candidate_pid=''
+candidate_sites="$(printf '%s\n' \
+ "SELECT count(*) FROM public.sites WHERE tenant_id=4 AND name='الفرع الرئيسي';" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres)"
+candidate_staff="$(printf '%s\n' \
+ "SELECT count(*) FROM public.staff_profiles st JOIN public.sites si ON si.id=st.site_id WHERE st.tenant_id=4 AND si.tenant_id=4 AND st.user_id=400 AND st.role='owner';" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres)"
+[[ "$candidate_sites" == 1 && "$candidate_staff" == 1 ]] || {
+ echo "PR359_CANDIDATE_CONCURRENT_DUPLICATE_OR_OWNER_BINDING sites=$candidate_sites staff=$candidate_staff" >&2; exit 1
+}
+echo PR359_OWNER_SITE_CANDIDATE_CROSS_PATH_CONCURRENCY_PASS
+echo PR359_OWNER_SITE_CANDIDATE_PRODUCTION_APPROVED=FALSE
 echo PR359_CB_A_DISPOSABLE_DEFINER_REPLAY_PASS
 echo PR359_LOCAL_GENERATOR_CANDIDATE_ONLY=NOT_APPROVED
 echo PR359_CANONICAL_BASELINE_APPROVED=FALSE
