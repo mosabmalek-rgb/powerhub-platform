@@ -301,6 +301,69 @@ grep -Fxq PR359_SEQUENCE_COMMIT_ORDER_GAP_REPRODUCED "$tmp/journal-order-result.
 }
 echo PR359_SEQUENCE_COMMIT_ORDER_GAP_REPRODUCED
 echo PR359_PRODUCTION_SEQUENCE_ORDERING_APPROVED=FALSE
+# POSITIVE SYNTHETIC CONTRAST: both producers take the SAME transaction
+# advisory lock for this scope BEFORE allocating a change sequence.
+# This serializes only compliant writers; it does not validate production.
+printf '%s\n' "INSERT INTO public.pr359_synthetic_change_checkpoint(tenant_id,site_id,generator_id,kind,cursor_seq,snapshot_upper_seq) VALUES(78,70,7,'fuel_events',0,0);" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres >/dev/null
+coproc JOURNAL_SERIAL_WRITER {
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres
+}
+owner_pid="$JOURNAL_SERIAL_WRITER_PID"
+owner_in="${JOURNAL_SERIAL_WRITER[1]}"
+owner_out="${JOURNAL_SERIAL_WRITER[0]}"
+printf '%s\n' \
+ 'BEGIN;' \
+ 'DO $guard$ BEGIN PERFORM pg_advisory_xact_lock(78,7); END $guard$;' \
+ "INSERT INTO public.pr359_synthetic_change_journal(tenant_id,site_id,generator_id,kind,event_id,change_kind,revision) VALUES(78,70,7,'fuel_events',801,'upsert',1);" \
+ "SELECT 'PR359_SERIAL_JOURNAL_WRITER_UNCOMMITTED';" >&"$owner_in"
+marker=''
+if ! IFS= read -r -t 25 marker <&"$owner_out" || [[ "$marker" != PR359_SERIAL_JOURNAL_WRITER_UNCOMMITTED ]]; then
+ echo PR359_SERIAL_JOURNAL_FIRST_SETUP_FAILED >&2; exit 1
+fi
+{
+ printf '%s\n' 'BEGIN;' \
+  'DO $guard$ BEGIN PERFORM pg_advisory_xact_lock(78,7); END $guard$;' \
+  "INSERT INTO public.pr359_synthetic_change_journal(tenant_id,site_id,generator_id,kind,event_id,change_kind,revision) VALUES(78,70,7,'fuel_events',802,'upsert',1);" \
+  'COMMIT;'
+} | docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+ >"$tmp/journal-serial-b.txt" 2>"$tmp/journal-serial-b.err" &
+candidate_pid="$!"
+blocked=0
+for i in $(seq 1 80); do
+ lock_count="$(printf '%s\n' \
+ "SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND wait_event_type='Lock' AND query LIKE '%pg_advisory_xact_lock(78,7)%';" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres)"
+ if [[ "$lock_count" =~ ^[0-9]+$ ]] && ((lock_count>=1)); then blocked=1; break; fi
+ sleep 0.25
+done
+[[ "$blocked" -eq 1 ]] || {
+ echo PR359_SERIAL_JOURNAL_LOCK_WAIT_MISSING >&2; exit 1
+}
+printf 'COMMIT;\n\\q\n' >&"$owner_in"
+wait "$owner_pid"
+owner_pid=''
+wait "$candidate_pid" || {
+ cat "$tmp/journal-serial-b.err" >&2
+ echo PR359_SERIAL_JOURNAL_SECOND_FAILED >&2; exit 1
+}
+candidate_pid=''
+printf '%s\n' \
+ "UPDATE public.pr359_synthetic_change_checkpoint SET snapshot_upper_seq=(SELECT max(change_seq) FROM public.pr359_synthetic_change_journal WHERE tenant_id=78 AND site_id=70 AND generator_id=7 AND kind='fuel_events') WHERE tenant_id=78 AND site_id=70 AND generator_id=7 AND kind='fuel_events';" \
+ "SELECT public.pr359_synthetic_apply_change_page(78,70,7,'fuel_events',128,false);" \
+ "SELECT CASE WHEN (SELECT count(*) FROM public.pr359_synthetic_change_sink WHERE tenant_id=78 AND site_id=70 AND generator_id=7)=2 AND (SELECT count(*) FROM public.pr359_synthetic_change_journal WHERE tenant_id=78 AND site_id=70 AND generator_id=7)=2 AND NOT EXISTS(SELECT 1 FROM public.pr359_synthetic_change_journal j WHERE j.tenant_id=78 AND NOT EXISTS(SELECT 1 FROM public.pr359_synthetic_change_sink s WHERE s.tenant_id=j.tenant_id AND s.site_id=j.site_id AND s.generator_id=j.generator_id AND s.event_id=j.event_id)) THEN 'PR359_SERIAL_JOURNAL_NO_GAP_PASS' ELSE 'FAILED' END;" |
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres >"$tmp/journal-serial-result.txt"
+grep -Fxq 2 "$tmp/journal-serial-result.txt" || exit 1
+grep -Fxq PR359_SERIAL_JOURNAL_NO_GAP_PASS "$tmp/journal-serial-result.txt" || {
+ echo PR359_SERIAL_JOURNAL_SCOPE_MISSING_EVENT >&2; exit 1
+}
+echo PR359_SERIAL_JOURNAL_NO_GAP_PASS
+echo PR359_SERIAL_JOURNAL_PRODUCTION_APPROVED=FALSE
 echo PR359_CB_A_CHANGE_JOURNAL_TOMBSTONE_RECOVERY_PASS
 echo PR359_CB_A_CROSS_CONNECTION_KEYSET_RECOVERY_PASS
 echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
