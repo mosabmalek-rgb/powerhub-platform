@@ -231,6 +231,34 @@ do
   echo "PR359_KEYSET_RECOVERY_MISSING=$marker" >&2; exit 1;
  }
 done
+# Independent sequence-based journal: changes to earlier event IDs and
+# deletion tombstones must be replayed after a crash, and only a new snapshot
+# may consume changes occurring after the original high-water mark.
+node --test scripts/pr359-canonical/journal-restart.test.mjs
+for phase in setup failure first-page resume; do
+ fixture="scripts/pr359-canonical/fixtures/journal-restart-$phase.sql"
+ [[ -s "$fixture" ]] || { echo "PR359_JOURNAL_FIXTURE_MISSING=$phase" >&2; exit 1; }
+ docker exec -i -e "PGPASSWORD=$password" "$container" \
+  psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres \
+  < "$fixture" > "$tmp/journal-$phase-results.txt"
+done
+for assertion in \
+ "setup:PR359_ISOLATED_CHANGE_JOURNAL_SETUP_PASS" \
+ "failure:PR359_ISOLATED_CHANGE_JOURNAL_FAILURE_ROLLBACK_PASS" \
+ "first-page:PR359_ISOLATED_CHANGE_JOURNAL_FIRST_PAGE_COMMITTED_PASS" \
+ "resume:PR359_ISOLATED_CHANGE_JOURNAL_CROSS_CONNECTION_RECOVERY_PASS" \
+ "resume:PR359_ISOLATED_CHANGE_JOURNAL_TOMBSTONE_AND_NEW_SNAPSHOT_PASS" \
+ "resume:PR359_REAL_DELTA_PRODUCER_ATOMICITY_PROVEN=FALSE" \
+ "resume:PR359_REAL_CHANGE_JOURNAL_CAPTURE_PROVEN=FALSE" \
+ "resume:PR359_CANONICAL_BASELINE_APPROVED=FALSE"
+do
+ phase="${assertion%%:*}"
+ marker="${assertion#*:}"
+ grep -Fxq "$marker" "$tmp/journal-$phase-results.txt" || {
+  echo "PR359_JOURNAL_RECOVERY_MISSING=$marker" >&2; exit 1;
+ }
+done
+echo PR359_CB_A_CHANGE_JOURNAL_TOMBSTONE_RECOVERY_PASS
 echo PR359_CB_A_CROSS_CONNECTION_KEYSET_RECOVERY_PASS
 echo PR359_CB_A_HISTORICAL_INDEX_AND_GENERATOR_CAP_BOUNDARY_PASS
 echo PR359_OWNER_SITE_CANDIDATE_CROSS_PATH_CONCURRENCY_PASS
