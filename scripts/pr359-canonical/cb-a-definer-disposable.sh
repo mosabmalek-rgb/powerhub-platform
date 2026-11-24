@@ -163,6 +163,7 @@ candidate_staff="$(printf '%s\n' \
 # The historical fixture runs in the SAME disposable PostgreSQL database.
 # It must not touch hosted data, resolve duplicates, or turn capped Delta
 # refresh into a claim of complete historical event coverage.
+node --test scripts/pr359-canonical/historical-site-and-generator-boundaries.test.mjs
 [[ -s scripts/pr359-canonical/fixtures/historical-site-and-generator-boundaries.sql ]] || {
  echo PR359_HISTORICAL_BOUNDARY_FIXTURE_MISSING >&2; exit 1;
 }
