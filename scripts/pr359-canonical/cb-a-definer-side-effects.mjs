@@ -41,7 +41,10 @@ export function auditDefinerSideEffects(evidence, functionEvidence, inputs, prio
   }
   assert.equal(evidence.checks_approved,0);
   assert.deepEqual(evidence.destructive_allowlist,[]);
-  const all=[...evidence.site_indexes,...evidence.tenant_subscription_indexes];
+  const all=[
+    ...evidence.site_indexes.map(idx=>({...idx,relation:'sites'})),
+    ...evidence.tenant_subscription_indexes.map(idx=>({...idx,relation:'tenant_subscriptions'}))
+  ];
   const present=new Set();
   for(const idx of all) {
     assert.ok(!present.has(idx.name),'duplicate captured index');
