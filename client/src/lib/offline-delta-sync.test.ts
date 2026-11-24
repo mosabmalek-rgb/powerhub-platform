@@ -438,6 +438,24 @@ describe("offline delta sync", () => {
     }
   });
 
+  it("rejects a reset snapshot whose watermark predates the requested recovery point", async () => {
+    const storage = memoryStorage("3", [{ id: 5, tenantId: 1, siteId: 7 }]);
+    await expect(pullDeltaPages({
+      scope, storage, afterCursor: "3",
+      pull: async () => page({
+        status: "reset_required", snapshot_cursor: "20",
+        current_cursor: "20", through_cursor: "20",
+        next_cursor: null, has_more: false, changes: [],
+      }),
+      rebuildSnapshot: async () => ({
+        cursor: "19",
+        rows: [{ id: 6, tenantId: 1, siteId: 7 }],
+      }),
+    })).rejects.toThrow(/لقطة إعادة التهيئة أقدم/);
+    expect(await storage.getCursor(scope)).toBe("3");
+    expect((await storage.listEntities(scope)).map(row => row.entityId)).toEqual(["5"]);
+  });
+
   it("stops a repeated reset-required loop after a bounded number of snapshots", async () => {
     const storage = memoryStorage("3", [{ id: 5, tenantId: 1, siteId: 7 }]);
     const pull = vi.fn(async () => page({
