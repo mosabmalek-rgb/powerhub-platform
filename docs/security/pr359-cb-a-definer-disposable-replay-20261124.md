@@ -316,3 +316,30 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 24 November 2026 — partially compliant writers remain unsafe
+
+The isolated test now includes a negative control for **partial adoption**
+of the per-scope advisory-lock protocol. Writer A acquires a transaction
+lock for synthetic tenant 79, site 70, generator 7, and allocates a
+journal sequence while remaining uncommitted. Writer B deliberately
+bypasses the lock, commits a higher sequence, and the consumer advances
+past A. Once A commits, its event is below the saved cursor and absent
+from the synthetic sink. The test must emit
+`PR359_PARTIAL_WRITER_LOCK_BYPASS_GAP_REPRODUCED`.
+
+Therefore a proof for two compliant writers is insufficient: **every**
+producer of a relevant change, including deletes, direct SQL, triggers,
+service_role paths, retries, and any maintenance backfill, must enforce
+a provable no-gap commit-ordering protocol. This is a synthetic risk
+demonstration, not evidence of actual loss in a hosted environment.
+
+```text
+CB_A_PARTIALLY_COMPLIANT_WRITER_GAP=CI_PENDING
+CB_A_ALL_REAL_DELTA_WRITERS_SERIALIZED=FALSE
+CB_A_REAL_JOURNAL_PRODUCER_ATOMICITY=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
