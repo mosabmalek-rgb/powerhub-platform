@@ -80,3 +80,45 @@ STAGING_INPLACE_GO=FALSE
 PRODUCTION_INPLACE_GO=FALSE
 PR359_MERGE_GO=FALSE
 ```
+
+## 24 November 2026 — archived operational trigger behavior in networkless PostgreSQL
+
+Added `fixtures/real-capture-disposable.sql.in`,
+`generate-real-capture-disposable.mjs`, and its static regression tests.
+The Docker Shadow `cb-a-real-append-disposable.sh` now creates
+`pr359_real_capture` as a **second, disposable database** within the
+existing `--network none` container. It loads the exact archived
+`capture`, `emit`, and `append` SECURITY DEFINER definitions and all
+three archived AFTER INSERT/UPDATE/DELETE triggers.
+
+Only the source tables, record projector functions and bounded
+refresh functions are synthetic. The projector and refresh stubs do
+**not** prove production field projection, data integrity, RLS,
+authorization, retention, or performance.
+
+The database checks:
+- fuel insert, changed-row update, and delete, with three ordered cursors
+- maintenance work-order site move: old-scope tombstone and new-scope
+  upsert, followed by a deletion tombstone
+- maintenance part work-order move: old entity-type tombstone and
+  new entity-type upsert/delete
+- a deliberately raised exception *after* a valid source INSERT and
+  AFTER trigger: the source row, log row, and cursor all roll back
+- invalid site scope: the real append function raises and the whole
+  source INSERT rolls back
+
+The test executes no SQL on hosted projects and creates no migration.
+The dedicated test uses an unmodified source function body and the
+pinned trigger definitions, but is **not** a complete actual-schema
+or end-to-end authorization test.
+
+```text
+CB_A_REAL_CAPTURE_ISOLATED_THREE_TRIGGERS=CI_PENDING
+CB_A_ACTUAL_DB_SCHEMA_AND_PROJECTION=FALSE
+CB_A_ALL_REAL_TRIGGER_CALLERS_APPROVED=FALSE
+CB_A_RLS_AND_SERVICE_ROLE_AUTHORIZATION=FALSE
+CANONICAL_BASELINE_APPROVED=FALSE
+STAGING_INPLACE_GO=FALSE
+PRODUCTION_INPLACE_GO=FALSE
+PR359_MERGE_GO=FALSE
+```
