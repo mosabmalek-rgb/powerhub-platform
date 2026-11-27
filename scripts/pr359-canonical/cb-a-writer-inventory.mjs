@@ -7,6 +7,8 @@ import path from 'node:path';
 // Candidate discovery across the complete tracked commit, not runtime caller closure.
 export const roots = Object.freeze([
  'generator_fuel_events','generator_maintenance_work_orders','generator_maintenance_work_order_parts',
+ // Indirect source relations can refresh projections without naming the journal.
+ 'generators','inventory_warehouses','inventory_items','inventory_suppliers','inventory_stock_movements','generator_fuel_readings',
  'powerhub_sync_changes','powerhub_sync_scope_state',
  'powerhub_append_fuel_maintenance_delta_sync_change',
  'powerhub_emit_fuel_maintenance_delta_sync_change',
@@ -32,6 +34,7 @@ export const roots = Object.freeze([
 ]);
 // PostgreSQL's default identifier limit is 63 bytes; these names are ASCII.
 const aliases = [...new Set(roots.flatMap(n=>[n,n.slice(0,63)]))];
+const rootPatterns = roots.map(n=>[n,[...new Set([n,n.slice(0,63)])].map(a=>new RegExp('(^|[^a-z0-9_$])'+a+'($|[^a-z0-9_$])'))]);
 const bypass = [
  ['trigger_disable','disable[[:space:]]+trigger'],
  ['replication_role','session_replication_role'],
@@ -55,7 +58,7 @@ export function scanFile(file,blob,source){
  const lines=source.split(/\r?\n/);
  for(let i=0;i<lines.length;i++){
   const line=lines[i].toLowerCase();
-  const names=roots.filter(n=>[n,n.slice(0,63)].some(a=>new RegExp('(^|[^a-z0-9_$])'+a+'($|[^a-z0-9_$])').test(line)));
+  const names=rootPatterns.filter(([,patterns])=>patterns.some(re=>re.test(line))).map(([name])=>name);
   const flags=signals.filter(([,re])=>re.test(line)).map(([name])=>name);
   if(!names.length&&!flags.length)continue;
   rows.push({line:i+1,roots:names,signals:flags});

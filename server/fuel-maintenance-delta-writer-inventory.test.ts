@@ -32,3 +32,13 @@ describe("CB-A commit-wide lexical writer inventory (not runtime closure)",()=>{
   }));
  },120000);
 });
+
+it("discovers indirect projection sources without requiring a journal reference", () => {
+  const relations = ["generators", "inventory_warehouses", "inventory_items", "inventory_suppliers", "inventory_stock_movements", "generator_fuel_readings"];
+  for (const relation of relations) {
+    expect(roots).toContain(relation);
+    const data = scanFile("server/indirect-writer.ts", "a".repeat(40),
+      "UPDATE public." + relation + " SET name = 'x';\nUPDATE public." + relation + "_backup SET name = 'x';");
+    expect(data.rows).toEqual([{line:1,roots:[relation],signals:[]}]);
+  }
+});

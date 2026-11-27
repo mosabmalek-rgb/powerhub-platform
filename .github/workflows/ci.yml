@@ -144,3 +144,17 @@ jobs:
 
       - name: Build production artifacts
         run: pnpm build
+
+  native-indexeddb-repair:
+    name: Native Chromium IndexedDB repair and Outbox isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --global pnpm@10.34.5
+      - run: pnpm install --frozen-lockfile
+      - name: Run isolated native browser recovery fixture
+        run: node scripts/pr359-canonical/run-browser-repair.mjs
