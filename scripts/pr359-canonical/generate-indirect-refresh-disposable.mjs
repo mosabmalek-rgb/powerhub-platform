@@ -46,7 +46,7 @@ const checks=readFileSync('scripts/pr359-canonical/fixtures/indirect-refresh-dis
 function replacePartLoop(def,anchor,replacement){
  assert.equal(def.split(anchor).length,2,'candidate part loop anchor drift');
  const start=def.indexOf(anchor);
- const suffix='  return NEW;\nend $;';
+ const suffix='  return NEW;\nend $$;';
  assert.equal(def.split(suffix).length,2,'candidate function tail drift');
  assert.ok(def.indexOf(suffix)>start,'candidate tail before loop');
  return def.slice(0,start)+replacement+def.slice(def.indexOf(suffix));

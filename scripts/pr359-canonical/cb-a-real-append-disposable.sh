@@ -142,6 +142,7 @@ for marker in PR359_CANDIDATE_FULL_PROJECTOR_PAYLOAD_PASS PR359_CANDIDATE_MOVE_S
  echo "$marker"
 done
 # Historical-source indirect trigger characterization, independent rolled-back fixture.
+node --test scripts/pr359-canonical/generate-indirect-refresh-disposable.test.mjs
 node scripts/pr359-canonical/generate-indirect-refresh-disposable.mjs "$tmp/candidate-projectors.sql" --out "$tmp/indirect-refresh.sql"
 docker exec -i -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" \
  psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d pr359_real_capture \
