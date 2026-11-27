@@ -2,6 +2,8 @@
 
 -- Runs after inventory_maintenance_phase_c.sql has created the disposable inventory
 -- and maintenance fixture and applied the Delta migrations listed at that file's end.
+\ir pr359_compound_rpc_rollback_retry.sql
+
 do $fuel_maintenance_delta$
 declare
   v_tank_id bigint;
