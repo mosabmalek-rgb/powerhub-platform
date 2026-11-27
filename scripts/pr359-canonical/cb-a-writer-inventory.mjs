@@ -43,7 +43,7 @@ const grepPattern = [...aliases,...bypass.map(x=>x[1])].join('|');
 const signals = bypass.map(([name,p])=>[name,new RegExp(p.replaceAll('[[:space:]]','\\s'),'i')]);
 export function classify(file){
  if (/^(docs\/|.*\.(md|mdx|txt)$)/i.test(file)) return 'documentation';
- if (/(^|\/)(fixtures?|__tests__|__mocks__)(\/|$)|\.(test|spec|contract)\.[^.]+$/i.test(file)) return 'test_or_fixture';
+ if (/^supabase\/tests\//i.test(file)||/(^|\/)(fixtures?|__tests__|__mocks__)(\/|$)|\.(test|spec|contract)\.[^.]+$/i.test(file)) return 'test_or_fixture';
  if (/^supabase\/migrations\/.*\.sql$/i.test(file)) return 'migration_history';
  if (/^scripts\/pr359-canonical\//.test(file)) return 'audit_tooling';
  if (/^(\.github\/|scripts\/)/.test(file)) return 'automation_or_script';
@@ -65,6 +65,15 @@ export function scanFile(file,blob,source){
 export function inventory(ref='HEAD',cwd=process.cwd()){
  assert.ok(ref==='HEAD'||/^[a-f0-9]{40}$/.test(ref),'use HEAD or an exact commit');
  const git=(args)=>execFileSync('git',args,{cwd,encoding:'utf8',maxBuffer:128*1024*1024});
+ // Fail closed if fixture classification can inflate operational source coverage.
+ for (const [file,expected] of [
+  ['supabase/tests/pr359_compound_rpc_rollback_retry.sql','test_or_fixture'],
+  ['supabase/tests/nested/helper.sql','test_or_fixture'],
+  ['supabase/migrations/20261101083020_powerhub_delta_fuel_events_maintenance_orders_parts.sql','migration_history'],
+  ['server/powerhub-maintenance-router.ts','other_tracked_source'],
+  ['server/rolled-back-rpc-retry.test.ts','test_or_fixture'],
+  ['scripts/pr359-canonical/cb-a-writer-inventory.mjs','audit_tooling']
+ ]) assert.equal(classify(file),expected,'writer inventory classification drift: '+file);
  const sha=git(['rev-parse','--verify',ref+'^{commit}']).trim();
  assert.match(sha,/^[a-f0-9]{40}$/);
  const tree=git(['ls-tree','-r','-z',sha]).split('\0').filter(Boolean);
