@@ -101,6 +101,12 @@ do
 done
 echo PR359_ARCHIVED_PRIVILEGED_APPEND_PAYLOAD_GAP_REPRODUCED
 echo PR359_ARCHIVED_PAYLOAD_TEST_ROLLBACK_PASS
+# Candidate is applied only in a rolled-back transaction against the disposable database.
+run_sql < scripts/pr359-canonical/fixtures/append-payload-candidate-disposable.sql > "$tmp/append-candidate-results.txt"
+for expected in PR359_CANDIDATE_PAYLOAD_17_NEGATIVE_CASES_PASS PR359_CANDIDATE_SYNTHETIC_ACL_PASS PR359_CANDIDATE_VALID_UPSERT_TOMBSTONE_ROLLBACK_PASS PR359_CANDIDATE_RETENTION_RESET_PASS PR359_CANDIDATE_FIXTURE_RESTORE_PASS PR359_CANONICAL_BASELINE_APPROVED=FALSE; do
+ grep -Fxq "$expected" "$tmp/append-candidate-results.txt" || { echo "PR359_CANDIDATE_MARKER_MISSING=$expected" >&2; exit 1; }
+ echo "$expected"
+done
 # The archived AFTER triggers, emit and append functions execute together in
 # a SECOND synthetic database, with projector and refresh STUBS explicitly
 # scoped to the test. The real platform schemas and grants are not tested.
