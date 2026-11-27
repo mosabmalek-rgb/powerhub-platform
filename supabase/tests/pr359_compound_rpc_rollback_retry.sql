@@ -33,7 +33,7 @@ CREATE TRIGGER pr359_retry_fuel_abort BEFORE INSERT ON public.audit_logs
 CREATE FUNCTION pg_temp.pr359_retry_state() RETURNS jsonb LANGUAGE plpgsql AS $state$
 DECLARE tab text; rows_json jsonb; result jsonb:='{}'::jsonb;
 BEGIN
- FOREACH tab IN ARRAY ARRAY['inventory_stock_movements','generator_maintenance_work_orders',
+ FOREACH tab IN ARRAY ARRAY['inventory_items','inventory_warehouses','inventory_stock_movements','generator_maintenance_work_orders',
  'generator_maintenance_work_order_parts','generator_maintenance_audit_events',
  'generator_fuel_events','generator_fuel_readings','generators','audit_logs',
  'account_transactions','supplier_ledger_entries','powerhub_sync_scope_state','powerhub_sync_changes']
@@ -89,6 +89,7 @@ BEGIN
  OR (SELECT parts_cost FROM public.generator_maintenance_work_orders WHERE id=wo.work_order_id) IS DISTINCT FROM 25::numeric
  OR (SELECT count(*) FROM public.powerhub_sync_changes WHERE tenant_id=10 AND site_id=100 AND entity_type=parts_entity AND cursor>part_cursor AND entity_id=part.part_id::text AND change_type='upsert'
  AND row_data=public.powerhub_project_maintenance_work_order_part_delta_row(10,100,wo.work_order_id,part.part_id))<>1
+ OR (SELECT count(*) FROM public.powerhub_sync_changes WHERE tenant_id=10 AND site_id=100 AND entity_type=parts_entity AND cursor>part_cursor AND entity_id=part.part_id::text)<>1
  THEN RAISE EXCEPTION 'PR359_REAL_PART_RPC_RETRY_EFFECT_MISMATCH'; END IF;
  SELECT coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0)
  INTO balance_after FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND warehouse_id=1 AND item_id=part_item;
@@ -98,6 +99,16 @@ BEGIN
  IF part_replay.replayed IS DISTINCT FROM true OR part_replay.part_id IS DISTINCT FROM part.part_id
  OR part_replay.stock_movement_id IS DISTINCT FROM part.stock_movement_id OR after_state IS DISTINCT FROM pg_temp.pr359_retry_state()
  THEN RAISE EXCEPTION 'PR359_REAL_PART_RPC_REPLAY_MISMATCH'; END IF;
+ -- A replay with a changed valid payload must fail closed, without any side effect.
+ caught:=false;
+ BEGIN
+  PERFORM * FROM public.powerhub_maintenance_add_part(10,100,1,wo.work_order_id,part_item,1,2,'Changed retry payload',part_key);
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM<>'MAINTENANCE_IDEMPOTENCY_KEY_REUSED' THEN RAISE; END IF;
+  caught:=true;
+ END;
+ IF NOT caught OR after_state IS DISTINCT FROM pg_temp.pr359_retry_state()
+ THEN RAISE EXCEPTION 'PR359_REAL_PART_RPC_CONFLICT_STATE_MISMATCH'; END IF;
 
  -- Fuel fill uses the loaded 20261104215427 issue-based implementation and
  -- optional level/hour readings. Fail its final audit after the nested work.
@@ -125,6 +136,7 @@ BEGIN
  OR (SELECT count(*) FROM public.audit_logs WHERE tenant_id=10 AND site_id=100 AND entity_type='generator_fuel_event' AND action='create' AND metadata->>'operationKey'=fuel_key)<>1
  OR (SELECT count(*) FROM public.powerhub_sync_changes WHERE tenant_id=10 AND site_id=100 AND entity_type='fuel_events' AND cursor>fuel_cursor AND entity_id=fill.fuel_event_id::text AND change_type='upsert'
  AND row_data=public.powerhub_project_fuel_event_delta_row(10,100,fill.fuel_event_id))<>1
+ OR (SELECT count(*) FROM public.powerhub_sync_changes WHERE tenant_id=10 AND site_id=100 AND entity_type='fuel_events' AND cursor>fuel_cursor AND entity_id=fill.fuel_event_id::text)<>1
  THEN RAISE EXCEPTION 'PR359_REAL_FUEL_RPC_RETRY_EFFECT_MISMATCH'; END IF;
  SELECT coalesce(sum(case when movement_type in ('opening_balance','purchase_receipt','adjustment_in','return_from_issue') then quantity else -quantity end),0)
  INTO balance_after FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND warehouse_id=1 AND item_id=fuel_item;
@@ -134,6 +146,15 @@ BEGIN
  IF fill_replay.replayed IS DISTINCT FROM true OR fill_replay.fuel_event_id IS DISTINCT FROM fill.fuel_event_id
  OR after_state IS DISTINCT FROM pg_temp.pr359_retry_state()
  THEN RAISE EXCEPTION 'PR359_REAL_FUEL_RPC_REPLAY_MISMATCH'; END IF;
+ caught:=false;
+ BEGIN
+  PERFORM * FROM public.powerhub_inventory_record_fuel_fill(10,100,1,10000,fuel_item,1,tank,1,fill_at,0,1,hours,'PR359-RETRY-FILL','Changed retry payload',fuel_key);
+ EXCEPTION WHEN SQLSTATE 'P0001' THEN
+  IF SQLERRM<>'IDEMPOTENCY_KEY_REUSED' THEN RAISE; END IF;
+  caught:=true;
+ END;
+ IF NOT caught OR after_state IS DISTINCT FROM pg_temp.pr359_retry_state()
+ THEN RAISE EXCEPTION 'PR359_REAL_FUEL_RPC_CONFLICT_STATE_MISMATCH'; END IF;
 END $retry$;
 ROLLBACK;
 DO $restore$
@@ -146,4 +167,6 @@ END $restore$;
 SELECT 'PR359_REAL_PART_RPC_INJECTED_ROLLBACK_RETRY_REPLAY_PASS';
 SELECT 'PR359_REAL_FUEL_RPC_INJECTED_ROLLBACK_RETRY_REPLAY_PASS';
 SELECT 'PR359_REAL_RPC_RETRY_FIXTURE_RESTORE_PASS';
+SELECT 'PR359_REAL_RPC_CONFLICT_NO_SIDE_EFFECTS_PASS';
+SELECT 'PR359_REAL_RPC_EXACT_TARGET_JOURNAL_PASS';
 SELECT 'PR359_REAL_RPC_DEADLOCK_FULL_RUNTIME_APPROVED=FALSE';
