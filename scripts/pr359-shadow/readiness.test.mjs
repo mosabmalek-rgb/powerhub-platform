@@ -147,3 +147,41 @@ has_local_stack_config
  assert.equal((sh.match(/if (?:\[\[ "\$\{mode:-\}" != smoke \]\] && )?has_local_stack_config; then/g)||[]).length,2,
    'cleanup and successive isolated starts must use the same predicate');
 });
+
+test('full shadow pins only Auth in the isolated project and fails closed on image drift',()=>{
+ const sh=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const pin=sh.match(/^pin_full_shadow_auth\(\)\{[\s\S]*?^\}/m);
+ const verify=sh.match(/^verify_full_shadow_auth\(\)\{[\s\S]*?^\}/m);
+ assert.ok(pin&&verify,'missing isolated version pin helpers');
+ const mocked=`set -euo pipefail
+root="$(mktemp -d)"
+trap 'rm -rf -- "$root"' EXIT
+${pin[0]}
+${verify[0]}
+stack_dir="$root"
+stack_network=pr359-shadow-stack-test
+mkdir "$root/supabase"
+mode=staging-restore
+pin_full_shadow_auth
+[[ ! -e "$root/supabase/.temp" ]]
+mode=full
+pin_full_shadow_auth
+[[ "$(cat "$root/supabase/.temp/gotrue-version")" == v2.199.0 ]]
+[[ ! -e "$root/supabase/.temp/realtime-version" && ! -e "$root/supabase/.temp/storage-version" ]]
+docker(){ printf '%s\n' "$mock_image"; }
+mock_image=public.ecr.aws/supabase/gotrue:v2.198.0
+if verify_full_shadow_auth; then exit 21; fi
+mock_image=public.ecr.aws/supabase/gotrue:v2.199.0
+verify_full_shadow_auth
+mock_image="$(printf '%s\n' "$mock_image" "$mock_image")"
+if verify_full_shadow_auth; then exit 22; fi
+mode=staging-restore
+verify_full_shadow_auth
+`;
+ const child=spawnSync('bash',['-c',mocked],{encoding:'utf8',timeout:5000});
+ assert.equal(child.status,0,child.stderr||child.stdout||'Auth pin test failed');
+ assert.match(child.stdout,/PR359_LOCAL_AUTH_IMAGE_PIN_PASS=v2\.199\.0/);
+ const start=sh.indexOf('start(){');
+ assert.ok(sh.indexOf('pin_full_shadow_auth',start)<sh.indexOf('supabase start --network-id',start));
+ assert.ok(sh.indexOf('verify_full_shadow_auth',start)<sh.indexOf('SHADOW_STAGE=pre-export-managed-catalog',start));
+});

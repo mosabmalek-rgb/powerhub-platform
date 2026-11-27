@@ -86,6 +86,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     for (const key of result.catalog.missing.slice(0, 25)) console.error('PR359_MISSING_MANAGED_COLUMN: ' + key);
     for (const key of result.migrations.missing.slice(0, 25)) console.error('PR359_MISSING_MANAGED_MIGRATION: ' + key);
     for (const key of result.migrations.unexpected.slice(0, 25)) console.error('PR359_UNEXPECTED_MANAGED_MIGRATION: ' + key);
+    for (const key of result.migrations.checksumDrift.slice(0, 25)) console.error('PR359_MANAGED_MIGRATION_CHECKSUM_DRIFT: ' + key);
+    for (const [service, totals] of Object.entries(result.migrations.totals)) console.error('PR359_MANAGED_MIGRATION_SERVICE: ' + service + ' ' + Object.entries(totals).map(([key,value])=>key+'='+value).join(' '));
     process.exitCode = 2;
   } else {
     console.log('PR359_LOCAL_STACK_MANAGED_COMPATIBILITY_PASS: core managed source columns/types and service ledgers match; empty Staging rolling Realtime lifecycle exceptions explicitly reviewed');

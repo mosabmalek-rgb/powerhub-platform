@@ -163,7 +163,7 @@ jobs:
         run: node scripts/pr359-shadow/guard.mjs
       - uses: supabase/setup-cli@v3
         with:
-          version: 3.4.0
+          version: 3.2.0
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update

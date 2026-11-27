@@ -56,6 +56,25 @@ on_exit(){
 }
 trap on_exit EXIT
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+# Full restore candidate keeps the previously compatible Storage/Realtime defaults
+# and upgrades only Auth. Never link the disposable stack to a hosted project.
+pin_full_shadow_auth(){
+  [[ "$mode" == full ]] || return 0
+  [[ -n "$stack_dir" && "$stack_dir" == /* && -d "$stack_dir/supabase" ]] || return 2
+  mkdir -p -- "$stack_dir/supabase/.temp"
+  printf '%s\n' 'v2.199.0' > "$stack_dir/supabase/.temp/gotrue-version"
+}
+verify_full_shadow_auth(){
+  [[ "$mode" == full ]] || return 0
+  local image
+  image="$(docker ps --filter "network=$stack_network" --filter 'name=supabase_auth' --format '{{.Image}}')"
+  # Require exactly one running Auth image with the reviewed candidate version.
+  case "$image" in
+    public.ecr.aws/supabase/gotrue:v2.199.0|supabase/gotrue:v2.199.0|docker.io/supabase/gotrue:v2.199.0|ghcr.io/supabase/gotrue:v2.199.0)
+      echo 'PR359_LOCAL_AUTH_IMAGE_PIN_PASS=v2.199.0' ;;
+    *) echo 'PR359_LOCAL_AUTH_IMAGE_PIN_MISMATCH' >&2; return 2 ;;
+  esac
+}
 start(){
   if [[ "${mode:-}" != smoke ]]; then
     if has_local_stack_config; then
@@ -66,8 +85,9 @@ start(){
     stack_dir="$(mktemp -d)"
     stack_network="pr359-shadow-stack-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
     docker network create -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 "$stack_network" >/dev/null
-    (cd "$stack_dir" && supabase init --yes >/dev/null 2>&1 &&
-      supabase start --network-id "$stack_network" \
+    (cd "$stack_dir" && supabase init --yes >/dev/null 2>&1)
+    pin_full_shadow_auth
+    (cd "$stack_dir" && supabase start --network-id "$stack_network" \
         --exclude studio,imgproxy,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta >/dev/null 2>&1)
     target_db_url="$(cd "$stack_dir" && supabase status -o env | sed -n 's/^DB_URL=//p' | head -1 | tr -d '"')"
     [[ "$target_db_url" =~ ^postgres(ql)?://[^@]+@127[.]0[.]0[.]1:[0-9]+/postgres$ ]] || {
@@ -78,6 +98,7 @@ start(){
     # Log image names only, never environment variables or connection details.
     printf 'PR359_LOCAL_STACK_CLI_VERSION=%s\n' "$(supabase --version)"
     docker ps --filter "network=$stack_network" --format 'PR359_LOCAL_STACK_IMAGE={{.Image}}' | sort
+    verify_full_shadow_auth
     return 0
   fi
   local image="$1"
