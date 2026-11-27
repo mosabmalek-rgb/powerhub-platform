@@ -42,7 +42,27 @@ test('pinned indirect source and all three candidate definitions retain dollar d
     }
     assert.ok(!/^\s*end \$;$/mi.test(sql));
     assert.ok(sql.indexOf('PR359_SOURCE_WAREHOUSE_DUPLICATION_CHARACTERIZED')<sql.indexOf('PR359_CANDIDATE_WAREHOUSE_TARGETED_PARTS_PASS'));
-    assert.ok(sql.trimEnd().endsWith('ROLLBACK;'));
+    // Roll back the candidate transaction before the immutable restoration checks.
+    // The fixture deliberately performs read-only restoration assertions after ROLLBACK.
+    const characterization=readFileSync(base+'fixtures/indirect-refresh-disposable.sql','utf8');
+    const rollback='\nROLLBACK;\n';
+    assert.equal(characterization.split(rollback).length,2,'source rollback anchor');
+    assert.equal(sql.split(rollback).length,2,'generated transaction rollback');
+    const afterRollback=characterization.split(rollback)[1];
+    assert.equal(sql.split(rollback)[1],afterRollback,'post-rollback checks preserved exactly');
+    assert.ok(afterRollback.startsWith('DO $restore$\n'));
+    assert.ok(afterRollback.includes("SELECT 'PR359_SOURCE_INDIRECT_FIXTURE_RESTORE_PASS';"));
+    assert.ok(afterRollback.trimEnd().endsWith("SELECT 'PR359_CANONICAL_BASELINE_APPROVED=FALSE';"));
+    for(const marker of [
+      'PR359_CANDIDATE_WAREHOUSE_TARGETED_PARTS_PASS',
+      'PR359_CANDIDATE_HISTORICAL_PART_PULL_PASS',
+      'PR359_CANDIDATE_ITEM_TARGETED_PARTS_PASS',
+      'PR359_CANDIDATE_INDIRECT_ROLLBACK_PASS'
+    ]){
+      const statement="SELECT '"+marker+"';";
+      assert.equal(sql.split(statement).length,2,marker);
+      assert.ok(sql.indexOf(statement)<sql.indexOf(rollback),marker+' must precede rollback');
+    }
     const duplicate=run(generator,[integration,'--out',output]);
     assert.notEqual(duplicate.status,0);
     assert.match(duplicate.stderr,/EEXIST/);
