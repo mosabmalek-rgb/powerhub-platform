@@ -122,3 +122,28 @@ test('restore wrapper delegates to real managed checker with strict non-Staging 
  assert.match(helper,/else\n    node scripts\/pr359-shadow\/check-managed-stack-compatibility\.mjs/);
  assert.doesNotMatch(helper,/PR359_SKIP_MANAGED|MANAGED_CATALOG_BYPASS|PR359_ALLOW_MIGRATION_DRIFT/);
 });
+
+test('disposable stack lifecycle recognizes both CLI config formats, not an empty project',()=>{
+ const sh=readFileSync('scripts/pr359-shadow/run.sh','utf8');
+ const fn=sh.match(/^has_local_stack_config\(\)\{[\s\S]*?^\}/m);
+ assert.ok(fn,'missing stack config predicate');
+ const mocked=`set -euo pipefail
+root="$(mktemp -d)"
+trap 'rm -rf -- "$root"' EXIT
+${fn[0]}
+stack_dir=''
+if has_local_stack_config; then exit 21; fi
+stack_dir="$root"
+mkdir "$root/supabase"
+if has_local_stack_config; then exit 22; fi
+touch "$root/supabase/config.toml"
+has_local_stack_config
+rm "$root/supabase/config.toml"
+touch "$root/supabase/config.jsonc"
+has_local_stack_config
+`;
+ const child=spawnSync('bash',['-c',mocked],{encoding:'utf8',timeout:5000});
+ assert.equal(child.status,0,child.stderr||child.stdout||'config predicate failed');
+ assert.equal((sh.match(/if (?:\[\[ "\$\{mode:-\}" != smoke \]\] && )?has_local_stack_config; then/g)||[]).length,2,
+   'cleanup and successive isolated starts must use the same predicate');
+});

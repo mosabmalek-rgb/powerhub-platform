@@ -14,8 +14,13 @@ container=''
 stack_dir=''
 stack_network=''
 target_db_url=''
+# CLI 3.4+ initializes JSONC; existing CLI pins can still initialize TOML.
+# Accept only config files in the disposable directory allocated by start().
+has_local_stack_config(){
+  [[ -n "$stack_dir" && ( -f "$stack_dir/supabase/config.toml" || -f "$stack_dir/supabase/config.jsonc" ) ]]
+}
 cleanup(){
-  if [[ "${mode:-}" != smoke && -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
+  if [[ "${mode:-}" != smoke ]] && has_local_stack_config; then
     (cd "$stack_dir" && supabase stop --no-backup >/dev/null 2>&1) || :
   fi
   if [[ -n "$container" && "$mode" == smoke ]]; then docker rm -f "$container" >/dev/null 2>&1 || :; fi
@@ -53,7 +58,7 @@ trap on_exit EXIT
 password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 start(){
   if [[ "${mode:-}" != smoke ]]; then
-    if [[ -n "$stack_dir" && -f "$stack_dir/supabase/config.toml" ]]; then
+    if has_local_stack_config; then
       (cd "$stack_dir" && supabase stop --no-backup >/dev/null 2>&1) || :
       [[ -n "$stack_network" ]] && docker network rm "$stack_network" >/dev/null 2>&1 || :
       stack_dir=''; stack_network=''; target_db_url=''; container=''
@@ -70,6 +75,9 @@ start(){
     }
     container="$(docker ps --filter "network=$stack_network" --filter 'name=supabase_db' --format '{{.ID}}' | head -1)"
     [[ -n "$container" ]] || { echo 'PR359_LOCAL_STACK_DB_CONTAINER_MISSING' >&2; exit 1; }
+    # Log image names only, never environment variables or connection details.
+    printf 'PR359_LOCAL_STACK_CLI_VERSION=%s\n' "$(supabase --version)"
+    docker ps --filter "network=$stack_network" --format 'PR359_LOCAL_STACK_IMAGE={{.Image}}' | sort
     return 0
   fi
   local image="$1"
