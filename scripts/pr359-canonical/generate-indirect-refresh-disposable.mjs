@@ -42,6 +42,51 @@ assert.ok(setup.includes("current_database()<>'pr359_real_capture'"));
 assert.ok(setup.includes('PR359_CANDIDATE_PAYLOAD_INVALID'));
 assert.ok(setup.includes('CREATE OR REPLACE FUNCTION public.powerhub_project_maintenance_work_order_part_delta_row'));
 const checks=readFileSync('scripts/pr359-canonical/fixtures/indirect-refresh-disposable.sql','utf8');
-const result=[setup,...ddl,checks].join('\n');
+// Candidate modifies only the part-refresh loops of the pinned source.
+function replacePartLoop(def,anchor,replacement){
+ assert.equal(def.split(anchor).length,2,'candidate part loop anchor drift');
+ const start=def.indexOf(anchor);
+ const suffix='  return NEW;\nend $;';
+ assert.equal(def.split(suffix).length,2,'candidate function tail drift');
+ assert.ok(def.indexOf(suffix)>start,'candidate tail before loop');
+ return def.slice(0,start)+replacement+def.slice(def.indexOf(suffix));
+}
+const candidate=[
+ // The fuel warehouse trigger retains its bounded fuel work; the second
+ // warehouse trigger exclusively owns part refresh.
+ replacePartLoop(ddl[1],'  for v_row in\n    select distinct visible.work_order_id',''),
+ replacePartLoop(ddl[3],'  for v_scope in\n    select distinct visible.site_id,p.work_order_id',[
+ '  for v_scope in',
+ '    select p.site_id,p.work_order_id,p.id',
+ '    from public.generator_maintenance_work_order_parts p',
+ '    join public.generator_maintenance_work_orders w',
+ '      on w.tenant_id=p.tenant_id and w.site_id=p.site_id and w.id=p.work_order_id',
+ '    where p.tenant_id=NEW.tenant_id and p.site_id=NEW.site_id and p.warehouse_id=NEW.id',
+ '    order by p.site_id,p.work_order_id,p.id',
+ '  loop',
+ '    perform public.powerhub_emit_fuel_maintenance_delta_sync_change(',
+ "      NEW.tenant_id,v_scope.site_id,'maintenance_work_order_parts:'||v_scope.work_order_id::text,v_scope.id);",
+ '  end loop;',
+ ''
+ ].join('\n')),
+ replacePartLoop(ddl[4],'  for v_scope in\n    select distinct p.site_id,p.work_order_id',[
+ '  for v_scope in',
+ '    select p.site_id,p.work_order_id,p.id',
+ '    from public.generator_maintenance_work_order_parts p',
+ '    join public.generator_maintenance_work_orders w',
+ '      on w.tenant_id=p.tenant_id and w.site_id=p.site_id and w.id=p.work_order_id',
+ '    where p.tenant_id=NEW.tenant_id and p.item_id=NEW.id',
+ '    order by p.site_id,p.work_order_id,p.id',
+ '  loop',
+ '    perform public.powerhub_emit_fuel_maintenance_delta_sync_change(',
+ "      NEW.tenant_id,v_scope.site_id,'maintenance_work_order_parts:'||v_scope.work_order_id::text,v_scope.id);",
+ '  end loop;',
+ ''
+ ].join('\n'))
+];
+const rollback='\nROLLBACK;\n';
+assert.equal(checks.split(rollback).length,2,'characterization rollback anchor drift');
+const candidateChecks=readFileSync('scripts/pr359-canonical/fixtures/indirect-refresh-candidate-disposable.sql','utf8');
+const result=[setup,...ddl,checks.replace(rollback,()=>'\n'+candidate.join('\n')+'\n'+candidateChecks+rollback)].join('\n');
 assert.ok(!/\\connect\b|\\copy\b|dblink|postgres(?:ql)?:\/\//i.test(result));
 writeFileSync(args[2],result,{flag:'wx',mode:0o600});
