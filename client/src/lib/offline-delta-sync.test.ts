@@ -103,6 +103,7 @@ function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>
       cursor = next;
     },
     getRepairVersion: async () => repairVersion,
+    getRepairCheckpoint: async () => ({ cursor, repairVersion }),
     replaceSnapshot: async (targetScope, snapshot, next, _isCurrent, version) => {
       if (BigInt(next) < BigInt(cursor)) throw new Error("stale snapshot");
       rows = new Map(limitDeltaEntityRows(targetScope.entityType, snapshot).map(row => [String(row.id), row]));
@@ -1007,8 +1008,29 @@ describe("Versioned scoped Delta repair", () => {
       await expect(pullDeltaPages({ ...input, repairVersion })).rejects.toThrow(/Invalid Delta repair version/);
     }
     await expect(pullDeltaPages({ ...input, repairVersion: 1, repairSnapshot: false })).rejects.toThrow();
-    await expect(pullDeltaPages({ ...input, repairVersion: 1, storage: { ...storage, getRepairVersion: undefined } })).rejects.toThrow(/durable repair metadata/);
+    await expect(pullDeltaPages({ ...input, repairVersion: 1, storage: { ...storage, getRepairVersion: undefined, getRepairCheckpoint: undefined } })).rejects.toThrow(/durable repair metadata/);
     expect(rebuildSnapshot).not.toHaveBeenCalled();
     expect(pull).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Atomic repair checkpoint read", () => {
+  it("does not independently read cursor and version when resuming a completed repair", async () => {
+    const target: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:42" };
+    const storage = memoryStorage("12", []);
+    const read = vi.fn(async () => ({ cursor: "12", repairVersion: 2 }));
+    storage.getRepairCheckpoint = read;
+    const cursorRead = vi.spyOn(storage, "getCursor");
+    const versionRead = vi.fn(async () => 2);
+    storage.getRepairVersion = versionRead;
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "12", rows: [] }));
+    const pull = vi.fn(async () => page({ entity_type: target.entityType, current_cursor: "12", through_cursor: "12", next_cursor: "12" }));
+    await pullDeltaPages({ scope: target, storage, afterCursor: "10", repairSnapshot: true, repairVersion: 2, rebuildSnapshot, pull });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(cursorRead).not.toHaveBeenCalled();
+    expect(versionRead).not.toHaveBeenCalled();
+    expect(rebuildSnapshot).not.toHaveBeenCalled();
+    expect(pull).toHaveBeenCalledWith({ afterCursor: "12", throughCursor: null, pageSize: 200 });
   });
 });

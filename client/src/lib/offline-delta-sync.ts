@@ -38,6 +38,7 @@ export interface DeltaSyncStorage<Row extends Record<string, unknown> = Record<s
   commitPage(scope: DeltaCursorScope, page: DeltaPage<Row>, nextCursor: string, isCurrent?: () => boolean): Promise<void>;
   replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string, isCurrent?: () => boolean, repairVersion?: number): Promise<void>;
   getRepairVersion?(scope: DeltaCursorScope): Promise<number | undefined>;
+  getRepairCheckpoint?(scope: DeltaCursorScope): Promise<{ cursor: string | null; repairVersion?: number }>;
   clearUser(userId: number): Promise<void>;
 }
 
@@ -528,9 +529,14 @@ export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | 
   return (await getDeltaCursorRecord(scope))?.cursor ?? null;
 }
 
+export async function getDeltaRepairCheckpoint(scope: DeltaCursorScope): Promise<{ cursor: string | null; repairVersion?: number }> {
+  const record = await getDeltaCursorRecord(scope);
+  const version = record?.repairVersion;
+  return { cursor: record?.cursor ?? null, repairVersion: typeof version === "number" && Number.isSafeInteger(version) && version > 0 ? version : undefined };
+}
+
 export async function getDeltaRepairVersion(scope: DeltaCursorScope): Promise<number | undefined> {
-  const version = (await getDeltaCursorRecord(scope))?.repairVersion;
-  return typeof version === "number" && Number.isSafeInteger(version) && version > 0 ? version : undefined;
+  return (await getDeltaRepairCheckpoint(scope)).repairVersion;
 }
 
 export type DeltaSyncStatusRecord = DeltaCursorScope & {
@@ -868,6 +874,7 @@ const indexedDbStorage: DeltaSyncStorage = {
   replaceSnapshot: (scope, rows, cursor, isCurrent, repairVersion) =>
     replaceDeltaSnapshot(scope, rows, cursor, Date.now(), isCurrent, repairVersion),
   getRepairVersion: getDeltaRepairVersion,
+  getRepairCheckpoint: getDeltaRepairCheckpoint,
   clearUser: clearDeltaSyncDataForUser,
 };
 
@@ -925,15 +932,20 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       throw new Error("Delta snapshot repair is not authorized for this entity.");
     }
     assertDeltaSyncRunActive(input.isCurrent);
-    const durableCursor = await storage.getCursor(input.scope);
+    if (input.repairVersion !== undefined && !storage.getRepairCheckpoint) {
+      throw new Error("Versioned Delta repair requires durable repair metadata.");
+    }
+    // Read marker and cursor together from a single record; separate reads can
+    // observe different commits from another tab.
+    const checkpoint = input.repairVersion === undefined
+      ? { cursor: await storage.getCursor(input.scope), repairVersion: undefined }
+      : await storage.getRepairCheckpoint!(input.scope);
     assertDeltaSyncRunActive(input.isCurrent);
+    const durableCursor = checkpoint.cursor;
     const requested = assertCursor(cursor ?? "0");
     const durable = assertCursor(durableCursor ?? "0");
     const minimum = compareDeltaCursors(requested, durable) >= 0 ? requested : durable;
-    if (input.repairVersion !== undefined && !storage.getRepairVersion) {
-      throw new Error("Versioned Delta repair requires durable repair metadata.");
-    }
-    const completed = input.repairVersion === undefined ? undefined : await storage.getRepairVersion!(input.scope);
+    const completed = checkpoint.repairVersion;
     assertDeltaSyncRunActive(input.isCurrent);
     if (input.repairVersion !== undefined && completed !== undefined && completed >= input.repairVersion && durableCursor !== null) {
       // Resume from the actual committed checkpoint, not a stale caller cursor.
