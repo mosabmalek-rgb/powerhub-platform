@@ -154,6 +154,7 @@ done
 grep -E '^PR359_SOURCE_INDIRECT_COUNTS=' "$tmp/indirect-refresh-results.txt"
 grep -E '^PR359_SCALE_(PLAN|METRIC)=' "$tmp/indirect-refresh-results.txt"
 bash scripts/pr359-canonical/cb-a-candidate-concurrency-disposable.sh "$tmp/real-append.sql"
+bash scripts/pr359-canonical/cb-a-indirect-concurrency-disposable.sh "$tmp/real-capture.sql" "$tmp/indirect-refresh.sql"
 echo PR359_REAL_CAPTURE_THREE_OPERATIONAL_TRIGGERS_PASS
 echo PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS
 echo PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS
