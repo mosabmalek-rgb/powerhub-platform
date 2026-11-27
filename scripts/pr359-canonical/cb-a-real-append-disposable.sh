@@ -141,6 +141,7 @@ for marker in PR359_CANDIDATE_FULL_PROJECTOR_PAYLOAD_PASS PR359_CANDIDATE_MOVE_S
  grep -Fxq "$marker" "$tmp/candidate-projector-results.txt" || { echo "PR359_CANDIDATE_PROJECTOR_MARKER_MISSING=$marker" >&2; exit 1; }
  echo "$marker"
 done
+bash scripts/pr359-canonical/cb-a-candidate-concurrency-disposable.sh "$tmp/real-append.sql"
 echo PR359_REAL_CAPTURE_THREE_OPERATIONAL_TRIGGERS_PASS
 echo PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS
 echo PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS
