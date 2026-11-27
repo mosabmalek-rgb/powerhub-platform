@@ -871,6 +871,8 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   applyPage?: (page: DeltaPage<Row>) => Promise<void>;
   rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[] }>;
   storage?: DeltaSyncStorage<Row>;
+  /** Explicit, caller-authorized repair after the producer fix is certified. Never set from an untrusted query parameter. */
+  repairSnapshot?: boolean;
   /** Prevent an obsolete authenticated run from applying or checkpointing late RPC results. */
   isCurrent?: () => boolean;
 }): Promise<{ cursor: string; appliedChanges: number; resetRequired: boolean }> {
@@ -886,6 +888,31 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   let resetRebuilds = 0;
   const maxResetRebuilds = 3;
   let pages = 0;
+  // A correct cursor cannot detect a historically stale projection. An explicit
+  // repair replaces only this scoped snapshot, even at the same watermark.
+  // No caller currently enables this until the producer correction is approved.
+  if (input.repairSnapshot) {
+    const entity = input.scope.entityType;
+    const partId = /^maintenance_work_order_parts:([1-9][0-9]{0,15})$/.exec(entity)?.[1];
+    if (entity !== "fuel_events" && entity !== "maintenance_work_orders" &&
+        !(partId && Number.isSafeInteger(Number(partId)))) {
+      throw new Error("Delta snapshot repair is not authorized for this entity.");
+    }
+    assertDeltaSyncRunActive(input.isCurrent);
+    const durableCursor = await storage.getCursor(input.scope);
+    assertDeltaSyncRunActive(input.isCurrent);
+    const requested = assertCursor(cursor ?? "0");
+    const durable = assertCursor(durableCursor ?? "0");
+    const minimum = compareDeltaCursors(requested, durable) >= 0 ? requested : durable;
+    const snapshot = await input.rebuildSnapshot(minimum);
+    assertDeltaSyncRunActive(input.isCurrent);
+    const snapshotCursor = assertCursor(snapshot.cursor);
+    assertDeltaSnapshotWatermark(snapshotCursor, minimum);
+    assertDeltaSnapshotRows(input.scope, snapshot.rows);
+    await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
+    assertDeltaSyncRunActive(input.isCurrent);
+    cursor = snapshotCursor;
+  }
   while (pages++ < 10000) {
     assertDeltaSyncRunActive(input.isCurrent);
     const page = await input.pull({ afterCursor: cursor, throughCursor: through, pageSize });

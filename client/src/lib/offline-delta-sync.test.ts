@@ -889,3 +889,67 @@ describe("offline delta sync", () => {
     expect((await storage.listEntities(scope))[0].rowData.name).toBe("new");
   });
 });
+
+
+describe("Explicit scoped historical Delta snapshot repair", () => {
+  const partScope: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:42" };
+  const oldRow = { id: 5, tenantId: 1, siteId: 7, workOrderId: 42, itemName: "old" };
+  const freshRow = { ...oldRow, itemName: "corrected" };
+  const emptyPull = (cursor: string) => page({
+    entity_type: partScope.entityType, current_cursor: cursor, through_cursor: cursor, next_cursor: cursor,
+  });
+
+  it("repairs an equal-cursor stale snapshot and catches up without a global reset", async () => {
+    const storage = memoryStorage("10", [oldRow]);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "10", rows: [freshRow] }));
+    const pull = vi.fn(async () => emptyPull("10"));
+    const clearUser = vi.spyOn(storage, "clearUser");
+    const result = await pullDeltaPages({ scope: partScope, storage, afterCursor: "10", repairSnapshot: true, pull, rebuildSnapshot });
+    expect(rebuildSnapshot).toHaveBeenCalledWith("10");
+    expect(pull).toHaveBeenCalledWith({ afterCursor: "10", throughCursor: null, pageSize: 200 });
+    expect((await storage.listEntities(partScope))[0]?.rowData).toEqual(freshRow);
+    expect(result).toEqual({ cursor: "10", appliedChanges: 0, resetRequired: false });
+    expect(clearUser).not.toHaveBeenCalled();
+    await pullDeltaPages({ scope: partScope, storage, afterCursor: "10", repairSnapshot: true, pull, rebuildSnapshot });
+    expect((await storage.listEntities(partScope))[0]?.rowData).toEqual(freshRow);
+  });
+
+  it("uses the durable cursor as a floor and rejects stale and cross-order snapshots", async () => {
+    const storage = memoryStorage("12", [oldRow]);
+    const pull = vi.fn(async () => emptyPull("12"));
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "11", rows: [freshRow] }));
+    const input = { scope: partScope, storage, afterCursor: "10", repairSnapshot: true, pull, rebuildSnapshot };
+    await expect(pullDeltaPages(input)).rejects.toThrow();
+    expect(rebuildSnapshot).toHaveBeenCalledWith("12");
+    await expect(pullDeltaPages({ ...input, rebuildSnapshot: async () => ({ cursor: "12", rows: [{ ...freshRow, workOrderId: 99 }] }) })).rejects.toThrow();
+    expect(pull).not.toHaveBeenCalled();
+    expect(await storage.getCursor(partScope)).toBe("12");
+    expect((await storage.listEntities(partScope))[0]?.rowData).toEqual(oldRow);
+  });
+
+  it("preserves the old checkpoint after a failed snapshot request, then resumes from a newer snapshot", async () => {
+    const storage = memoryStorage("10", [oldRow]);
+    const pull = vi.fn(async () => emptyPull("13"));
+    const rebuildSnapshot = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({ cursor: "13", rows: [freshRow] });
+    const input = { scope: partScope, storage, afterCursor: "10", repairSnapshot: true, pull, rebuildSnapshot };
+    await expect(pullDeltaPages(input)).rejects.toThrow("offline");
+    expect(await storage.getCursor(partScope)).toBe("10");
+    expect((await storage.listEntities(partScope))[0]?.rowData).toEqual(oldRow);
+    expect(pull).not.toHaveBeenCalled();
+    await pullDeltaPages(input);
+    expect(pull).toHaveBeenCalledWith({ afterCursor: "13", throughCursor: null, pageSize: 200 });
+    expect(await storage.getCursor(partScope)).toBe("13");
+  });
+
+  it("rejects unrelated repair scopes and ignores the repair path in normal Delta operation", async () => {
+    const storage = memoryStorage("10", [oldRow]);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "10", rows: [freshRow] }));
+    const pull = vi.fn(async () => emptyPull("10"));
+    await expect(pullDeltaPages({ scope, storage, afterCursor: "10", repairSnapshot: true, pull, rebuildSnapshot })).rejects.toThrow(/not authorized/);
+    await pullDeltaPages({ scope: partScope, storage, afterCursor: "10", pull, rebuildSnapshot });
+    expect(rebuildSnapshot).not.toHaveBeenCalled();
+    expect((await storage.listEntities(partScope))[0]?.rowData).toEqual(oldRow);
+  });
+});
