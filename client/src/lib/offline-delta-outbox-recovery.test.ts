@@ -118,6 +118,7 @@ function workspace() {
     abortNext: () => { abortOnCommit = true; },
     protectedState: () => structuredClone(protectedStores.map(name => [name, [...data.get(name)!]])),
     cursor: (s: DeltaCursorScope) => data.get("cursors")!.get(JSON.stringify(cursorKey(s)))?.cursor,
+    repairVersion: (s: DeltaCursorScope) => data.get("cursors")!.get(JSON.stringify(cursorKey(s)))?.repairVersion,
     ids: (s: DeltaCursorScope) => [...data.get("entities")!.values()].filter(row => row.scopeKey === scopeKey(s)).map(row => row.entityId),
   };
 }
@@ -222,6 +223,65 @@ describe("Delta recovery preserves canonical Outbox stores", () => {
     expect(db.cursor(other)).toBe("3");
     expect(db.ids(other)).toEqual(["5"]);
     expect(db.protectedState()).toEqual(before);
+    expect(db.transactions.every(names => names.every(name => !protectedStores.includes(name)))).toBe(true);
+  });
+});
+
+
+describe("Versioned repair checkpoint preserves Outbox and unrelated scope", () => {
+  beforeEach(() => vi.stubGlobal("IDBKeyRange", { only: (key: unknown) => key }));
+  afterEach(() => vi.unstubAllGlobals());
+  const repairScope: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:42" };
+  const part = { id: 6, tenantId: 2, siteId: 3, workOrderId: 42 };
+  const terminalAt = (cursor: string): DeltaPage => ({
+    ...terminal, entity_type: repairScope.entityType, current_cursor: cursor,
+    retained_from_cursor: "0", through_cursor: cursor, next_cursor: cursor,
+  });
+
+  it("atomically rolls back entities, cursor and repair version on storage abort", async () => {
+    const db = workspace();
+    const before = db.protectedState();
+    await replaceDeltaSnapshot(repairScope, [part], "3", 1, undefined, 1);
+    db.abortNext();
+    await expect(replaceDeltaSnapshot(repairScope, [{ ...part, id: 7 }], "4", 2, undefined, 2)).rejects.toThrow();
+    expect(db.cursor(repairScope)).toBe("3");
+    expect(db.repairVersion(repairScope)).toBe(1);
+    expect(db.ids(repairScope)).toEqual(["6"]);
+    expect(db.protectedState()).toEqual(before);
+    await replaceDeltaSnapshot(repairScope, [{ ...part, id: 7 }], "4", 3, undefined, 2);
+    expect(db.repairVersion(repairScope)).toBe(2);
+    expect(db.ids(repairScope)).toEqual(["7"]);
+    await expect(replaceDeltaSnapshot(repairScope, [part], "4", 4, undefined, 1)).rejects.toThrow(/newer Delta repair/);
+    expect(db.repairVersion(repairScope)).toBe(2);
+    expect(db.ids(repairScope)).toEqual(["7"]);
+    expect(db.cursor(scope)).toBe("3");
+    expect(db.ids(other)).toEqual(["5"]);
+    expect(db.protectedState()).toEqual(before);
+    expect(db.transactions.every(names => names.every(name => !protectedStores.includes(name)))).toBe(true);
+  });
+
+  it("resumes catch-up after snapshot commit and preserves the version across ordinary pages", async () => {
+    const db = workspace();
+    const before = db.protectedState();
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "3", rows: [part] }));
+    const pull = vi.fn()
+      .mockRejectedValueOnce(new Error("network lost"))
+      .mockResolvedValueOnce({ ...terminalAt("4"), changes: [{
+        cursor: "4", entity_type: repairScope.entityType, entity_id: "6", operation: "upsert",
+        row_data: { ...part, itemName: "updated" }, changed_at: "2026-11-27T00:00:00Z",
+      }] });
+    const input = { scope: repairScope, afterCursor: null, repairSnapshot: true, repairVersion: 1, pull, rebuildSnapshot };
+    await expect(pullDeltaPages(input)).rejects.toThrow("network lost");
+    expect(db.cursor(repairScope)).toBe("3");
+    expect(db.repairVersion(repairScope)).toBe(1);
+    await pullDeltaPages(input);
+    expect(rebuildSnapshot).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenLastCalledWith({ afterCursor: "3", throughCursor: null, pageSize: 200 });
+    expect(db.cursor(repairScope)).toBe("4");
+    expect(db.repairVersion(repairScope)).toBe(1);
+    expect(db.protectedState()).toEqual(before);
+    expect(db.cursor(scope)).toBe("3");
+    expect(db.ids(other)).toEqual(["5"]);
     expect(db.transactions.every(names => names.every(name => !protectedStores.includes(name)))).toBe(true);
   });
 });

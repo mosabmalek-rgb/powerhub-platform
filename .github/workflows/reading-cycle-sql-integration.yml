@@ -777,6 +777,11 @@ jobs:
           createdb --host 127.0.0.1 --port 5432 --username postgres maintenance_phase_c_test
           psql --host 127.0.0.1 --port 5432 --username postgres --dbname maintenance_phase_c_test --set ON_ERROR_STOP=1 --file supabase/tests/inventory_maintenance_phase_c.sql
 
+      - name: PR359 real maintenance RPC deadlock, victim rollback and whole-transaction retry
+        env:
+          PGPASSWORD: postgres
+        run: bash supabase/tests/pr359_real_part_rpc_deadlock.sh
+
       - name: Verify minimized HR Delta snapshots, tombstones, bounded membership, role ACLs, and tenant/site isolation
         env:
           PGPASSWORD: postgres
