@@ -185,3 +185,35 @@ describe("PowerHub maintenance router capability denials", () => {
   });
 
 });
+
+describe("maintenance compound RPC rollback retry", () => {
+  const input = { siteId: 7, workOrderId: 8, itemId: 4, warehouseId: 5, quantity: 2, operationKey: "maint:stable-retry" };
+
+  it("retries the complete scoped part issue and preserves cost redaction", async () => {
+    state.capabilityAccess.mockReset().mockResolvedValue({
+      tenantId: 20, allowedCapabilities: ["manageMaintenance", "issueInventory"],
+    });
+    state.rpc.mockReset().mockResolvedValueOnce({ data: null, error: { code: "40P01", message: "deadlock detected" } })
+      .mockResolvedValueOnce({ data: [{ part_id: 90, stock_movement_id: 91, quantity: 2, unit_cost: 3, total_cost_amount: 6, replayed: false }], error: null });
+    const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
+    const route = (powerhubMaintenanceRouter as any)._def.record.addPart;
+    const result = await route._def.resolver({ ctx: { user: { id: 701 } }, input });
+    expect(state.rpc).toHaveBeenCalledTimes(2);
+    const args = { p_tenant_id: 20, p_site_id: 7, p_user_id: 701, p_work_order_id: 8,
+      p_item_id: 4, p_warehouse_id: 5, p_quantity: 2, p_notes: null, p_operation_key: input.operationKey };
+    for (const call of state.rpc.mock.calls) expect(call).toEqual(["powerhub_maintenance_add_part", args]);
+    expect(result).toEqual([{ part_id: 90, stock_movement_id: 91, quantity: 2, unit_cost: null, total_cost_amount: null, replayed: false }]);
+  });
+
+  it("does not retry insufficient stock or change the existing error mapping", async () => {
+    state.capabilityAccess.mockReset().mockResolvedValue({
+      tenantId: 20, allowedCapabilities: ["manageMaintenance", "issueInventory"],
+    });
+    state.rpc.mockReset().mockResolvedValue({ data: null, error: { code: "P0001", message: "INSUFFICIENT_STOCK" } });
+    const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
+    const route = (powerhubMaintenanceRouter as any)._def.record.addPart;
+    await expect(route._def.resolver({ ctx: { user: { id: 701 } }, input }))
+      .rejects.toMatchObject({ code: "BAD_REQUEST", message: "INSUFFICIENT_STOCK" });
+    expect(state.rpc).toHaveBeenCalledTimes(1);
+  });
+});

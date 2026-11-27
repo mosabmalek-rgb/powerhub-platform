@@ -3,6 +3,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "./_core/trpc";
 import { requireSupabaseSiteAnyCapability, requireSupabaseSiteRole, resolveSupabaseSiteCapabilityAccess } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
+import { retryRolledBackRpc } from "./rolled-back-rpc-retry";
 
 const roles = ["owner", "manager", "accountant", "collector", "technician", "viewer"] as const;
 
@@ -2443,7 +2444,7 @@ export const powerhubInventoryRouter = router({
       if (!access.allowedCapabilities.includes("manageFuelAndConsumption")) {
         throw new TRPCError({ code: "FORBIDDEN", message: "لا تملك صلاحية تنفيذ هذه العملية." });
       }
-      const { data, error } = await supabaseAdmin().rpc("powerhub_inventory_record_fuel_fill", {
+      const args = {
         p_tenant_id: access.tenantId, p_site_id: input.siteId, p_user_id: ctx.user.id,
         p_generator_id: input.generatorId, p_fuel_item_id: input.fuelItemId,
         p_source_warehouse_id: input.sourceWarehouseId, p_destination_warehouse_id: input.destinationWarehouseId,
@@ -2451,7 +2452,9 @@ export const powerhubInventoryRouter = router({
         p_level_before_liters: input.levelBeforeLiters ?? null, p_level_after_liters: input.levelAfterLiters ?? null,
         p_operating_hours: input.operatingHours ?? null, p_reference_no: input.referenceNo || null,
         p_notes: input.notes || null, p_operation_key: input.operationKey,
-      });
+      };
+      const { data, error } = await retryRolledBackRpc(args.p_operation_key,
+        () => supabaseAdmin().rpc("powerhub_inventory_record_fuel_fill", args));
       if (error || !data?.[0]) mapFuelDatabaseError(error, "تعذر تسجيل تعبئة الوقود واحتساب تكلفة الصرف للمولد.");
       if (access.allowedCapabilities.includes("viewInventoryReports")) return data[0];
       const { total_cost_amount: _totalCost, ...withoutCost } = data[0];

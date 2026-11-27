@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "./_core/trpc";
 import { requireSupabaseSiteRole, resolveSupabaseSiteCapabilityAccess } from "./powerhub-supabase";
 import { supabaseAdmin } from "./supabase-admin";
+import { retryRolledBackRpc } from "./rolled-back-rpc-retry";
 
 const maintenanceRoles = ["owner", "manager", "technician"] as const;
 const readRoles = ["owner", "manager", "technician", "accountant", "viewer"] as const;
@@ -143,7 +144,11 @@ type MaintenanceTransitionResultRow = {
 };
 
 const rpc = async <T>(name: string, args: Record<string, unknown>): Promise<T> => {
-  const { data, error } = await supabaseAdmin().rpc(name, args);
+  const invoke = () => supabaseAdmin().rpc(name, args);
+  // Only the audited compound part-issue RPC opts in; reads and other writers are unchanged.
+  const { data, error } = name === "powerhub_maintenance_add_part"
+    ? await retryRolledBackRpc(args.p_operation_key, invoke)
+    : await invoke();
   if (error) {
     const message = String(error.message ?? "");
     const code = [

@@ -1542,3 +1542,36 @@ describe("PowerHub inventory mutation capability-denial matrix", () => {
     expect([...coveredProcedures].sort()).toEqual([...mutationProcedures].sort());
   });
 });
+
+describe("fuel-fill compound RPC rollback retry", () => {
+  it("retries only the complete original fuel fill and preserves report-cost denial", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, allowedCapabilities: ["manageFuelAndConsumption"] });
+    state.rpc.mockReset().mockResolvedValueOnce({ data: null, error: { code: "40001", message: "serialization failure" } })
+      .mockResolvedValueOnce({ data: [{ fuel_event_id: 901, stock_transfer_id: null, litres: 100, total_cost_amount: 560, replayed: false }], error: null });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const route = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
+    const input = { siteId: 7, generatorId: 10, fuelItemId: 12, sourceWarehouseId: 4, destinationWarehouseId: 5,
+      litres: 100, occurredAt: "2026-11-04T20:00:00.000Z", levelBeforeLiters: 10, levelAfterLiters: 110,
+      operatingHours: 55, operationKey: "fuel-fill:stable-retry" };
+    const result = await route._def.resolver({ ctx: { user: { id: 55 } }, input });
+    expect(state.rpc).toHaveBeenCalledTimes(2);
+    const args = { p_tenant_id: 44, p_site_id: 7, p_user_id: 55, p_generator_id: 10, p_fuel_item_id: 12,
+      p_source_warehouse_id: 4, p_destination_warehouse_id: 5, p_litres: 100, p_occurred_at: input.occurredAt,
+      p_level_before_liters: 10, p_level_after_liters: 110, p_operating_hours: 55, p_reference_no: null,
+      p_notes: null, p_operation_key: input.operationKey };
+    for (const call of state.rpc.mock.calls) expect(call).toEqual(["powerhub_inventory_record_fuel_fill", args]);
+    expect(result).toEqual({ fuel_event_id: 901, stock_transfer_id: null, litres: 100, replayed: false });
+  });
+
+  it("does not retry a fuel stock business rejection", async () => {
+    state.siteAccess.mockReset().mockResolvedValue({ tenantId: 44, allowedCapabilities: ["manageFuelAndConsumption"] });
+    state.rpc.mockReset().mockResolvedValue({ data: null, error: { code: "P0001", message: "INSUFFICIENT_STOCK" } });
+    const { powerhubInventoryRouter } = await import("./powerhub-inventory-router");
+    const route = (powerhubInventoryRouter as any)._def.record.recordFuelFill;
+    await expect(route._def.resolver({ ctx: { user: { id: 55 } }, input: {
+      siteId: 7, generatorId: 10, fuelItemId: 12, sourceWarehouseId: 4, destinationWarehouseId: 5,
+      litres: 100, occurredAt: "2026-11-04T20:00:00.000Z", operationKey: "fuel-fill:insufficient-retry-test",
+    } })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(state.rpc).toHaveBeenCalledTimes(1);
+  });
+});
