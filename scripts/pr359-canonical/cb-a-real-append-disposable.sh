@@ -141,6 +141,16 @@ for marker in PR359_CANDIDATE_FULL_PROJECTOR_PAYLOAD_PASS PR359_CANDIDATE_MOVE_S
  grep -Fxq "$marker" "$tmp/candidate-projector-results.txt" || { echo "PR359_CANDIDATE_PROJECTOR_MARKER_MISSING=$marker" >&2; exit 1; }
  echo "$marker"
 done
+# Historical-source indirect trigger characterization, independent rolled-back fixture.
+node scripts/pr359-canonical/generate-indirect-refresh-disposable.mjs "$tmp/candidate-projectors.sql" --out "$tmp/indirect-refresh.sql"
+docker exec -i -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d pr359_real_capture \
+ < "$tmp/indirect-refresh.sql" > "$tmp/indirect-refresh-results.txt"
+for marker in PR359_SOURCE_RENAME_BOUNDED_SNAPSHOT_PASS PR359_SOURCE_WAREHOUSE_DUPLICATION_CHARACTERIZED PR359_SOURCE_HISTORICAL_PART_STALENESS_CHARACTERIZED PR359_SOURCE_ITEM_SUPPLIER_REFRESH_PASS PR359_SOURCE_INDIRECT_NOOP_AND_ISOLATION_PASS PR359_SOURCE_INDIRECT_FIXTURE_RESTORE_PASS PR359_CANONICAL_BASELINE_APPROVED=FALSE; do
+ grep -Fxq "$marker" "$tmp/indirect-refresh-results.txt" || { echo "PR359_INDIRECT_MARKER_MISSING=$marker" >&2; exit 1; }
+ echo "$marker"
+done
+grep -E '^PR359_SOURCE_INDIRECT_COUNTS=' "$tmp/indirect-refresh-results.txt"
 bash scripts/pr359-canonical/cb-a-candidate-concurrency-disposable.sh "$tmp/real-append.sql"
 echo PR359_REAL_CAPTURE_THREE_OPERATIONAL_TRIGGERS_PASS
 echo PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS
