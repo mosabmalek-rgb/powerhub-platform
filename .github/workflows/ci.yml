@@ -91,6 +91,18 @@ jobs:
             pr359-finance-live-cash-proof.json
           if-no-files-found: error
 
+      - name: CB-A writer inventory (source candidates only)
+        run: |
+          node --check scripts/pr359-canonical/cb-a-writer-inventory.mjs
+          node scripts/pr359-canonical/cb-a-writer-inventory.mjs --out pr359-cb-a-writer-inventory.json
+
+      - name: Upload CB-A writer candidate inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr359-cb-a-writer-inventory
+          path: pr359-cb-a-writer-inventory.json
+          if-no-files-found: error
+
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
 

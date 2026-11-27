@@ -1,0 +1,112 @@
+-- Run after the historical archived Capture fixture in the networkless test DB.
+-- Source tables and two bounded-membership refreshers remain synthetic.
+\set ON_ERROR_STOP on
+BEGIN;
+DO $guard$
+BEGIN
+ IF current_database()<>'pr359_real_capture' THEN
+  RAISE EXCEPTION 'PR359_DISPOSABLE_DATABASE_REQUIRED';
+ END IF;
+END $guard$;
+CREATE TABLE public.generators(id bigint,tenant_id bigint,site_id bigint,name text,PRIMARY KEY(tenant_id,site_id,id));
+CREATE TABLE public.inventory_items(id bigint,tenant_id bigint,name text,category text,PRIMARY KEY(tenant_id,id));
+CREATE TABLE public.inventory_warehouses(id bigint,tenant_id bigint,site_id bigint,name text,PRIMARY KEY(tenant_id,site_id,id));
+CREATE TABLE public.suppliers(id bigint,tenant_id bigint,name text,supplier_code text,PRIMARY KEY(tenant_id,id));
+INSERT INTO public.generators VALUES(1001,1,101,'GEN-A'),(1001,1,102,'GEN-B'),(1001,2,201,'GEN-OTHER');
+INSERT INTO public.inventory_items VALUES(71,1,'FUEL-A','fuel'),(72,1,'PART-A','spare'),(71,2,'FUEL-OTHER','fuel'),(72,2,'PART-OTHER','spare');
+INSERT INTO public.inventory_warehouses VALUES(81,1,101,'WH-A'),(82,1,101,'WH-B'),(81,1,102,'WH-C'),(82,1,102,'WH-D'),(81,2,201,'WH-OTHER'),(82,2,201,'WH-OTHER-2');
+INSERT INTO public.suppliers VALUES(91,1,'SUP-A','A'),(91,2,'SUP-OTHER','B');
+ALTER TABLE public.generator_fuel_events
+ ADD COLUMN fuel_item_id bigint,ADD COLUMN source_warehouse_id bigint,ADD COLUMN destination_warehouse_id bigint,
+ ADD COLUMN litres numeric,ADD COLUMN level_before_liters numeric,ADD COLUMN level_after_liters numeric,
+ ADD COLUMN operating_hours numeric,ADD COLUMN reference_no text,ADD COLUMN stock_transfer_id bigint,
+ ADD COLUMN created_at timestamptz DEFAULT now(),ADD COLUMN cost_amount numeric;
+ALTER TABLE public.generator_maintenance_work_orders
+ ADD COLUMN work_order_number text,ADD COLUMN preventive_plan_id bigint,ADD COLUMN order_type text,
+ ADD COLUMN priority text,ADD COLUMN status text,ADD COLUMN title text,ADD COLUMN description text,
+ ADD COLUMN work_summary text,ADD COLUMN scheduled_for timestamptz,ADD COLUMN started_at timestamptz,
+ ADD COLUMN completed_at timestamptz,ADD COLUMN assigned_to_user_id bigint,ADD COLUMN assigned_supplier_id bigint,
+ ADD COLUMN operating_hours_at_open numeric,ADD COLUMN operating_hours_at_close numeric,ADD COLUMN downtime_minutes numeric,
+ ADD COLUMN cost_amount numeric;
+ALTER TABLE public.generator_maintenance_work_order_parts
+ ADD COLUMN generator_id bigint,ADD COLUMN item_id bigint,ADD COLUMN warehouse_id bigint,ADD COLUMN quantity numeric,
+ ADD COLUMN stock_movement_id bigint,ADD COLUMN issued_at timestamptz DEFAULT now(),ADD COLUMN cost_amount numeric,
+ ADD CONSTRAINT synthetic_parent_fk FOREIGN KEY(work_order_id) REFERENCES public.generator_maintenance_work_orders(id) ON DELETE CASCADE;
+-- Drop only the synthetic stubs; rollback restores them. Exact archived SQL follows.
+DROP FUNCTION public.powerhub_project_fuel_event_delta_row(bigint,bigint,bigint);
+DROP FUNCTION public.powerhub_project_maintenance_work_order_delta_row(bigint,bigint,bigint);
+DROP FUNCTION public.powerhub_project_maintenance_work_order_part_delta_row(bigint,bigint,bigint,bigint);
+-- PR359_PINNED_FULL_PROJECTORS
+-- PR359_SHARED_CANDIDATE_PREFLIGHT
+INSERT INTO public.generator_fuel_events(id,tenant_id,site_id,generator_id,occurred_at,fuel_item_id,source_warehouse_id,destination_warehouse_id,litres,cost_amount)
+ VALUES(95101,1,101,1001,'2026-01-01',71,81,82,15,999);
+INSERT INTO public.generator_maintenance_work_orders(id,tenant_id,site_id,generator_id,reported_at,created_at,title,assigned_supplier_id,cost_amount)
+ VALUES(95201,1,101,1001,'2026-01-01','2026-01-01','repair',91,999),
+ (95202,1,101,1001,'2026-01-01','2026-01-01','second',91,999);
+INSERT INTO public.generator_maintenance_work_order_parts(id,tenant_id,site_id,work_order_id,generator_id,item_id,warehouse_id,quantity,cost_amount)
+ VALUES(95301,1,101,95201,1001,72,81,2,999);
+DO $check$
+DECLARE fuel jsonb; wo jsonb; part jsonb;
+BEGIN
+ fuel:=public.powerhub_project_fuel_event_delta_row(1,101,95101);
+ wo:=public.powerhub_project_maintenance_work_order_delta_row(1,101,95201);
+ part:=public.powerhub_project_maintenance_work_order_part_delta_row(1,101,95201,95301);
+ IF fuel->>'generator_name' IS DISTINCT FROM 'GEN-A'
+ OR fuel->>'fuel_item_name' IS DISTINCT FROM 'FUEL-A'
+ OR fuel->>'source_warehouse_name' IS DISTINCT FROM 'WH-A'
+ OR wo->>'assigned_supplier_name' IS DISTINCT FROM 'SUP-A'
+ OR part->>'item_name' IS DISTINCT FROM 'PART-A'
+ OR part->>'warehouse_name' IS DISTINCT FROM 'WH-A'
+ OR fuel ? 'cost_amount' OR wo ? 'cost_amount' OR part ? 'cost_amount'
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events' AND entity_id='95101' AND change_type='upsert' AND row_data=fuel)
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_orders' AND entity_id='95201' AND change_type='upsert' AND row_data=wo)
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:95201' AND entity_id='95301' AND change_type='upsert' AND row_data=part)
+ OR public.powerhub_project_fuel_event_delta_row(2,201,95101) IS NOT NULL
+ OR public.powerhub_project_maintenance_work_order_delta_row(1,102,95201) IS NOT NULL
+ OR public.powerhub_project_maintenance_work_order_part_delta_row(1,101,95202,95301) IS NOT NULL
+ THEN RAISE EXCEPTION 'PR359_CANDIDATE_FULL_PROJECTION_FAILED'; END IF;
+END $check$;
+SELECT 'PR359_CANDIDATE_FULL_PROJECTOR_PAYLOAD_PASS';
+-- Move the fuel record between branches and the part between parents.
+UPDATE public.generator_fuel_events SET site_id=102 WHERE id=95101;
+UPDATE public.generator_maintenance_work_order_parts SET work_order_id=95202 WHERE id=95301;
+DELETE FROM public.generator_maintenance_work_orders WHERE id=95202;
+DO $check$
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='fuel_events' AND entity_id='95101' AND change_type='delete' AND row_data IS NULL)
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=102 AND entity_type='fuel_events' AND entity_id='95101' AND change_type='upsert' AND row_data->>'generator_name'='GEN-B')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:95201' AND entity_id='95301' AND change_type='delete' AND row_data IS NULL)
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:95202' AND entity_id='95301' AND change_type='upsert')
+ OR NOT EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=1 AND site_id=101 AND entity_type='maintenance_work_order_parts:95202' AND entity_id='95301' AND change_type='delete' AND row_data IS NULL)
+ OR EXISTS(SELECT 1 FROM public.generator_maintenance_work_order_parts WHERE id=95301)
+ OR EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE tenant_id=2 AND entity_id IN ('95101','95201','95202','95301'))
+ THEN RAISE EXCEPTION 'PR359_CANDIDATE_MOVE_CASCADE_FAILED'; END IF;
+END $check$;
+SELECT 'PR359_CANDIDATE_MOVE_SYNTHETIC_CASCADE_PASS';
+DO $atomic$
+DECLARE before_state jsonb; before_journal jsonb; caught boolean:=false;
+BEGIN
+ SELECT jsonb_agg(to_jsonb(s) ORDER BY tenant_id,site_id,entity_type) INTO before_state FROM public.powerhub_sync_scope_state s;
+ SELECT jsonb_agg(to_jsonb(c) ORDER BY tenant_id,site_id,entity_type,cursor) INTO before_journal FROM public.powerhub_sync_changes c;
+ BEGIN
+  UPDATE public.generator_fuel_events SET litres=25 WHERE id=95101;
+  RAISE EXCEPTION USING ERRCODE='P3594',MESSAGE='test rollback';
+ EXCEPTION WHEN SQLSTATE 'P3594' THEN caught:=true;
+ END;
+ IF NOT caught OR (SELECT litres FROM public.generator_fuel_events WHERE id=95101) IS DISTINCT FROM 15::numeric
+ OR before_state IS DISTINCT FROM (SELECT jsonb_agg(to_jsonb(s) ORDER BY tenant_id,site_id,entity_type) FROM public.powerhub_sync_scope_state s)
+ OR before_journal IS DISTINCT FROM (SELECT jsonb_agg(to_jsonb(c) ORDER BY tenant_id,site_id,entity_type,cursor) FROM public.powerhub_sync_changes c)
+ THEN RAISE EXCEPTION 'PR359_CANDIDATE_PROJECTOR_ATOMICITY_FAILED'; END IF;
+END $atomic$;
+SELECT 'PR359_CANDIDATE_PROJECTOR_ROLLBACK_PASS';
+ROLLBACK;
+DO $restore$
+BEGIN
+ IF to_regclass('public.generators') IS NOT NULL
+ OR EXISTS(SELECT 1 FROM public.powerhub_sync_changes WHERE entity_id IN ('95101','95201','95202','95301'))
+ OR position('PR359_CANDIDATE_PAYLOAD_INVALID' in pg_get_functiondef('public.powerhub_append_fuel_maintenance_delta_sync_change(bigint,bigint,text,text,text,jsonb)'::regprocedure))>0
+ THEN RAISE EXCEPTION 'PR359_CANDIDATE_PROJECTOR_RESTORE_FAILED'; END IF;
+END $restore$;
+SELECT 'PR359_CANDIDATE_PROJECTOR_FIXTURE_RESTORE_PASS';
+SELECT 'PR359_REAL_PRODUCER_FULL_CALLER_CLOSURE_APPROVED=FALSE';
+SELECT 'PR359_CANONICAL_BASELINE_APPROVED=FALSE';

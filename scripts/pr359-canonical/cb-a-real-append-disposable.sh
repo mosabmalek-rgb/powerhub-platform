@@ -132,6 +132,15 @@ do
   exit 1
  }
 done
+# Separate rolled-back candidate integration; exact archived projectors, synthetic schema.
+node scripts/pr359-canonical/generate-candidate-projector-integration.mjs --out "$tmp/candidate-projectors.sql"
+docker exec -i -e "PGPASSWORD=$PR359_TEST_PASSWORD" "$PR359_TEST_CONTAINER" \
+ psql -X -w -qAt -v ON_ERROR_STOP=1 -U postgres -d pr359_real_capture \
+ < "$tmp/candidate-projectors.sql" > "$tmp/candidate-projector-results.txt"
+for marker in PR359_CANDIDATE_FULL_PROJECTOR_PAYLOAD_PASS PR359_CANDIDATE_MOVE_SYNTHETIC_CASCADE_PASS PR359_CANDIDATE_PROJECTOR_ROLLBACK_PASS PR359_CANDIDATE_PROJECTOR_FIXTURE_RESTORE_PASS PR359_REAL_PRODUCER_FULL_CALLER_CLOSURE_APPROVED=FALSE PR359_CANONICAL_BASELINE_APPROVED=FALSE; do
+ grep -Fxq "$marker" "$tmp/candidate-projector-results.txt" || { echo "PR359_CANDIDATE_PROJECTOR_MARKER_MISSING=$marker" >&2; exit 1; }
+ echo "$marker"
+done
 echo PR359_REAL_CAPTURE_THREE_OPERATIONAL_TRIGGERS_PASS
 echo PR359_REAL_CAPTURE_SOURCE_LOG_ROLLBACK_PASS
 echo PR359_REAL_APPEND_CONCURRENT_CURSOR_2_3_PASS

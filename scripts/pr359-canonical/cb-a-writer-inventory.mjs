@@ -45,6 +45,7 @@ export function classify(file){
  if (/^(docs\/|.*\.(md|mdx|txt)$)/i.test(file)) return 'documentation';
  if (/(^|\/)(fixtures?|__tests__|__mocks__)(\/|$)|\.(test|spec|contract)\.[^.]+$/i.test(file)) return 'test_or_fixture';
  if (/^supabase\/migrations\/.*\.sql$/i.test(file)) return 'migration_history';
+ if (/^scripts\/pr359-canonical\//.test(file)) return 'audit_tooling';
  if (/^(\.github\/|scripts\/)/.test(file)) return 'automation_or_script';
  return 'other_tracked_source';
 }
@@ -90,7 +91,14 @@ export function inventory(ref='HEAD',cwd=process.cwd()){
   files.push({...data,substring_only:data.rows.length===0});
  }
  files.sort((a,b)=>a.file.localeCompare(b.file,'en'));
- const coverage=roots.map(name=>({name,source_files:files.filter(f=>!['documentation','test_or_fixture'].includes(f.category)&&f.rows.some(r=>r.roots.includes(name))).length}));
+ const coverage=roots.map(name=>{
+  const matches=f=>f.rows.some(r=>r.roots.includes(name));
+  return {name,source_files:files.filter(f=>!['documentation','test_or_fixture','audit_tooling'].includes(f.category)&&matches(f)).length,
+   migration_files:files.filter(f=>f.category==='migration_history'&&matches(f)).length};
+ });
+ // A source root must be found in migration history independently of the scanner,
+ // other audit tooling, documentation and fixtures. This is still lexical evidence.
+ assert.ok(coverage.every(x=>x.migration_files>0),'missing independent migration root: '+coverage.filter(x=>!x.migration_files).map(x=>x.name).join(','));
  assert.ok(coverage.every(x=>x.source_files>0),'missing source root: '+coverage.filter(x=>!x.source_files).map(x=>x.name).join(','));
  const counts={};
  for(const f of files)counts[f.category]=(counts[f.category]??0)+1;

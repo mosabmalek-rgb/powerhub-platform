@@ -11,3 +11,7 @@ node scripts/pr359-canonical/cb-a-writer-inventory.mjs --out /tmp/pr359-writer-i
 This is SOURCE EVIDENCE, not catalog evidence or a complete SQL parser. Binary blobs, external Android repository, dynamic names, multiline/obfuscated constructs, runtime callers, cascade paths, exact overloads and ACL are unresolved. Candidate matches may include comments and historical statements. The scan records the actual checkout SHA (including a CI merge ref when used), not an assumed PR SHA. Review each candidate before classifying it as a writer. The current candidate Append concurrency and full projector integration remain open.
 
 No hosted database access or migration, release, merge, signoff, or destructive allowlist change. Full caller closure and all canonical approval gates remain false. New-head CI is required.
+
+## Independent coverage and reproducible CI evidence
+
+A follow-up excludes canonical audit tooling from source coverage and requires every root to have independent migration-history matches. This prevents the scanner's own root constants from satisfying its coverage requirement. PowerHub CI now invokes the CLI explicitly and retains its complete commit/blob/path/line report as a required artifact. The normal server regression remains enabled. Prior CI prints only the last 250 lines of the test log, so the missing stdout marker in the previous job log does not establish that the regression was skipped. No new-head PASS is asserted until the new report and run are verified.

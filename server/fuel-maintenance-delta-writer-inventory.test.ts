@@ -14,19 +14,20 @@ describe("CB-A commit-wide lexical writer inventory (not runtime closure)",()=>{
   expect(classify("server/a.test.ts")).toBe("test_or_fixture");
   expect(classify(".github/workflows/a.yml")).toBe("automation_or_script");
   expect(classify("docs/security/evidence.json")).toBe("documentation");
+  expect(classify("scripts/pr359-canonical/cb-a-writer-inventory.mjs")).toBe("audit_tooling");
  });
  it("scans the actual checked-out commit, including unrelated migration names and scripts",()=>{
   const report=inventory();
   expect(report.tracked_regular_blobs).toBeGreaterThan(0);
   expect(report.coverage).toHaveLength(roots.length);
-  expect(report.coverage.every(r=>r.source_files>0)).toBe(true);
+  expect(report.coverage.every(r=>r.source_files>0&&r.migration_files>0)).toBe(true);
   expect(report.categories.migration_history).toBeGreaterThan(0);
   expect(report.full_caller_closure_approved).toBe(false);
   expect(report.canonical_baseline_approved).toBe(false);
   console.info("PR359_CB_A_WRITER_INVENTORY",JSON.stringify({
    commit:report.commit,tracked_regular_blobs:report.tracked_regular_blobs,
    matching_files:report.matching_files,categories:report.categories,coverage:report.coverage,
-   source_candidates:report.files.filter(f=>!["documentation","test_or_fixture"].includes(f.category)).map(f=>({file:f.file,blob:f.blob,lines:f.rows.length})),
+   source_candidates:report.files.filter(f=>!["documentation","test_or_fixture","audit_tooling"].includes(f.category)).map(f=>({file:f.file,blob:f.blob,lines:f.rows.length})),
    full_caller_closure_approved:false
   }));
  },120000);
