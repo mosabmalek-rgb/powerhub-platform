@@ -57,7 +57,10 @@ test('pinned indirect source and all three candidate definitions retain dollar d
       'PR359_CANDIDATE_WAREHOUSE_TARGETED_PARTS_PASS',
       'PR359_CANDIDATE_HISTORICAL_PART_PULL_PASS',
       'PR359_CANDIDATE_ITEM_TARGETED_PARTS_PASS',
-      'PR359_CANDIDATE_INDIRECT_ROLLBACK_PASS'
+      'PR359_CANDIDATE_INDIRECT_ROLLBACK_PASS',
+      'PR359_SCALE_ACCESS_PLAN_COUNTS_PASS',
+      'PR359_SCALE_WAREHOUSE_EXACT_DELTA_PASS',
+      'PR359_SCALE_ITEM_EXACT_DELTA_PASS'
     ]){
       const statement="SELECT '"+marker+"';";
       assert.equal(sql.split(statement).length,2,marker);

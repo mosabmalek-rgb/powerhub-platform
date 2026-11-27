@@ -87,6 +87,8 @@ const candidate=[
 const rollback='\nROLLBACK;\n';
 assert.equal(checks.split(rollback).length,2,'characterization rollback anchor drift');
 const candidateChecks=readFileSync('scripts/pr359-canonical/fixtures/indirect-refresh-candidate-disposable.sql','utf8');
-const result=[setup,...ddl,checks.replace(rollback,()=>'\n'+candidate.join('\n')+'\n'+candidateChecks+rollback)].join('\n');
+const scaleChecks=readFileSync('scripts/pr359-canonical/fixtures/indirect-refresh-scale-disposable.sql','utf8');
+assert.ok(!scaleChecks.includes(rollback),'scale fixture must remain inside guarded rollback');
+const result=[setup,...ddl,checks.replace(rollback,()=>'\n'+candidate.join('\n')+'\n'+candidateChecks+'\n'+scaleChecks+rollback)].join('\n');
 assert.ok(!/\\connect\b|\\copy\b|dblink|postgres(?:ql)?:\/\//i.test(result));
 writeFileSync(args[2],result,{flag:'wx',mode:0o600});
