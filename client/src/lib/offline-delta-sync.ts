@@ -28,7 +28,7 @@ export type DeltaCursorScope = {
   siteId: number;
   entityType: DeltaEntityType;
 };
-export type DeltaCursorRecord = DeltaCursorScope & { cursor: string; updatedAt: number };
+export type DeltaCursorRecord = DeltaCursorScope & { cursor: string; updatedAt: number; repairVersion?: number };
 export type DeltaEntityRecord<Row extends Record<string, unknown> = Record<string, unknown>> =
   DeltaCursorScope & { entityId: string; rowData: Row; updatedAt: number };
 
@@ -36,7 +36,8 @@ export interface DeltaSyncStorage<Row extends Record<string, unknown> = Record<s
   getCursor(scope: DeltaCursorScope): Promise<string | null>;
   listEntities(scope: DeltaCursorScope): Promise<DeltaEntityRecord<Row>[]>;
   commitPage(scope: DeltaCursorScope, page: DeltaPage<Row>, nextCursor: string, isCurrent?: () => boolean): Promise<void>;
-  replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string, isCurrent?: () => boolean): Promise<void>;
+  replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string, isCurrent?: () => boolean, repairVersion?: number): Promise<void>;
+  getRepairVersion?(scope: DeltaCursorScope): Promise<number | undefined>;
   clearUser(userId: number): Promise<void>;
 }
 
@@ -509,12 +510,12 @@ function cursorKey(scope: DeltaCursorScope) {
   return [scope.userId, scope.tenantId, scope.siteId, scope.entityType];
 }
 
-export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | null> {
+async function getDeltaCursorRecord(scope: DeltaCursorScope): Promise<DeltaCursorRecord | undefined> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CURSOR_STORE, "readonly");
     const request = tx.objectStore(CURSOR_STORE).get(cursorKey(scope));
-    request.onsuccess = () => resolve((request.result as DeltaCursorRecord | undefined)?.cursor ?? null);
+    request.onsuccess = () => resolve(request.result as DeltaCursorRecord | undefined);
     request.onerror = () => reject(request.error ?? new Error("تعذر قراءة مؤشر المزامنة."));
     tx.oncomplete = () => db.close();
     tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر قراءة مؤشر المزامنة.")); };
@@ -522,6 +523,15 @@ export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | 
   });
 }
 
+
+export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | null> {
+  return (await getDeltaCursorRecord(scope))?.cursor ?? null;
+}
+
+export async function getDeltaRepairVersion(scope: DeltaCursorScope): Promise<number | undefined> {
+  const version = (await getDeltaCursorRecord(scope))?.repairVersion;
+  return typeof version === "number" && Number.isSafeInteger(version) && version > 0 ? version : undefined;
+}
 
 export type DeltaSyncStatusRecord = DeltaCursorScope & {
   cursor: string;
@@ -663,7 +673,8 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
         failTransaction("توقف تثبيت صفحة Delta بعد تغيّر هوية التشغيل.");
         return;
       }
-      const existing = (existingCursorRequest.result as DeltaCursorRecord | undefined)?.cursor ?? "0";
+      const previous = existingCursorRequest.result as DeltaCursorRecord | undefined;
+      const existing = previous?.cursor ?? "0";
       if (compareDeltaCursors(nextCursor, existing) < 0) {
         failTransaction("وصلت صفحة مزامنة أقدم من البيانات المحفوظة؛ أعد قراءة المؤشر.");
         return;
@@ -709,10 +720,10 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
             const entityId = String(record.entityId);
             if (!retainedIds.has(entityId)) entities.delete([key, entityId]);
           }
-          cursors.put({ ...scope, cursor: nextCursor, updatedAt: now } satisfies DeltaCursorRecord);
+          cursors.put({ ...scope, cursor: nextCursor, updatedAt: now, ...(previous?.repairVersion !== undefined ? { repairVersion: previous.repairVersion } : {}) } satisfies DeltaCursorRecord);
         };
       } else {
-        cursors.put({ ...scope, cursor: nextCursor, updatedAt: now } satisfies DeltaCursorRecord);
+        cursors.put({ ...scope, cursor: nextCursor, updatedAt: now, ...(previous?.repairVersion !== undefined ? { repairVersion: previous.repairVersion } : {}) } satisfies DeltaCursorRecord);
       }
     };
     tx.oncomplete = () => { db.close(); if (!rejected) resolve(); };
@@ -749,9 +760,13 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   cursor: string,
   now = Date.now(),
   isCurrent?: () => boolean,
+  repairVersion?: number,
 ) {
   assertDeltaSyncRunActive(isCurrent);
   const key = scopeKey(scope);
+  if (repairVersion !== undefined && (!Number.isSafeInteger(repairVersion) || repairVersion < 1)) {
+    throw new Error("Invalid Delta repair version.");
+  }
   assertCursor(cursor);
   assertDeltaSnapshotRows(scope, rows);
   const normalized = new Map<string, Row>(rows.map(row => [String(row.id), row]));
@@ -780,7 +795,12 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
         failTransaction("توقف استبدال لقطة Delta بعد تغيّر هوية التشغيل.");
         return;
       }
-      const existing = (request.result as DeltaCursorRecord | undefined)?.cursor ?? "0";
+      const previous = request.result as DeltaCursorRecord | undefined;
+      const existing = previous?.cursor ?? "0";
+      if (repairVersion !== undefined && (previous?.repairVersion ?? 0) > repairVersion) {
+        failTransaction("A newer Delta repair has already been committed.");
+        return;
+      }
       if (compareDeltaCursors(cursor, existing) < 0) {
         failTransaction("لقطة أقدم من مؤشر محلي أحدث؛ أعد المحاولة بالمؤشر الحالي.");
         return;
@@ -798,7 +818,7 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
         for (const [entityId, rowData] of boundedNormalized) {
           entities.put({ scopeKey: key, ...scope, entityId, rowData, updatedAt: now });
         }
-        cursors.put({ ...scope, cursor, updatedAt: now } satisfies DeltaCursorRecord);
+        cursors.put({ ...scope, cursor, updatedAt: now, ...(repairVersion !== undefined ? { repairVersion } : {}) } satisfies DeltaCursorRecord);
       };
     };
     tx.oncomplete = () => { db.close(); if (!rejected) resolve(); };
@@ -845,8 +865,9 @@ const indexedDbStorage: DeltaSyncStorage = {
   listEntities: listDeltaEntities,
   commitPage: (scope, page, nextCursor, isCurrent) =>
     commitDeltaPage(scope, page, nextCursor, Date.now(), isCurrent),
-  replaceSnapshot: (scope, rows, cursor, isCurrent) =>
-    replaceDeltaSnapshot(scope, rows, cursor, Date.now(), isCurrent),
+  replaceSnapshot: (scope, rows, cursor, isCurrent, repairVersion) =>
+    replaceDeltaSnapshot(scope, rows, cursor, Date.now(), isCurrent, repairVersion),
+  getRepairVersion: getDeltaRepairVersion,
   clearUser: clearDeltaSyncDataForUser,
 };
 
@@ -873,6 +894,8 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   storage?: DeltaSyncStorage<Row>;
   /** Explicit, caller-authorized repair after the producer fix is certified. Never set from an untrusted query parameter. */
   repairSnapshot?: boolean;
+  /** Monotonic, server-certified projection repair version. No runtime activation yet. */
+  repairVersion?: number;
   /** Prevent an obsolete authenticated run from applying or checkpointing late RPC results. */
   isCurrent?: () => boolean;
 }): Promise<{ cursor: string; appliedChanges: number; resetRequired: boolean }> {
@@ -891,6 +914,9 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   // A correct cursor cannot detect a historically stale projection. An explicit
   // repair replaces only this scoped snapshot, even at the same watermark.
   // No caller currently enables this until the producer correction is approved.
+  if (input.repairVersion !== undefined && (!input.repairSnapshot || !Number.isSafeInteger(input.repairVersion) || input.repairVersion < 1)) {
+    throw new Error("Invalid Delta repair version.");
+  }
   if (input.repairSnapshot) {
     const entity = input.scope.entityType;
     const partId = /^maintenance_work_order_parts:([1-9][0-9]{0,15})$/.exec(entity)?.[1];
@@ -904,14 +930,24 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     const requested = assertCursor(cursor ?? "0");
     const durable = assertCursor(durableCursor ?? "0");
     const minimum = compareDeltaCursors(requested, durable) >= 0 ? requested : durable;
-    const snapshot = await input.rebuildSnapshot(minimum);
+    if (input.repairVersion !== undefined && !storage.getRepairVersion) {
+      throw new Error("Versioned Delta repair requires durable repair metadata.");
+    }
+    const completed = input.repairVersion === undefined ? undefined : await storage.getRepairVersion!(input.scope);
     assertDeltaSyncRunActive(input.isCurrent);
-    const snapshotCursor = assertCursor(snapshot.cursor);
-    assertDeltaSnapshotWatermark(snapshotCursor, minimum);
-    assertDeltaSnapshotRows(input.scope, snapshot.rows);
-    await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
-    assertDeltaSyncRunActive(input.isCurrent);
-    cursor = snapshotCursor;
+    if (input.repairVersion !== undefined && completed !== undefined && completed >= input.repairVersion && durableCursor !== null) {
+      // Resume from the actual committed checkpoint, not a stale caller cursor.
+      cursor = durable;
+    } else {
+      const snapshot = await input.rebuildSnapshot(minimum);
+      assertDeltaSyncRunActive(input.isCurrent);
+      const snapshotCursor = assertCursor(snapshot.cursor);
+      assertDeltaSnapshotWatermark(snapshotCursor, minimum);
+      assertDeltaSnapshotRows(input.scope, snapshot.rows);
+      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent, input.repairVersion);
+      assertDeltaSyncRunActive(input.isCurrent);
+      cursor = snapshotCursor;
+    }
   }
   while (pages++ < 10000) {
     assertDeltaSyncRunActive(input.isCurrent);

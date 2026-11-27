@@ -80,6 +80,7 @@ const deltaCacheQuery = {
 
 function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>[] = []): DeltaSyncStorage {
   let cursor = initialCursor;
+  let repairVersion: number | undefined;
   let rows = new Map<string, Record<string, unknown>>(initialRows.map(row => [String(row.id), row]));
   const retainBoundedRows = (entityType: DeltaCursorScope["entityType"]) => {
     const bounded = limitDeltaEntityRows(entityType, [...rows].map(([entityId, rowData]) => ({
@@ -101,12 +102,14 @@ function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>
       retainBoundedRows(targetScope.entityType);
       cursor = next;
     },
-    replaceSnapshot: async (targetScope, snapshot, next) => {
+    getRepairVersion: async () => repairVersion,
+    replaceSnapshot: async (targetScope, snapshot, next, _isCurrent, version) => {
       if (BigInt(next) < BigInt(cursor)) throw new Error("stale snapshot");
       rows = new Map(limitDeltaEntityRows(targetScope.entityType, snapshot).map(row => [String(row.id), row]));
       cursor = next;
+      repairVersion = version;
     },
-    clearUser: async () => { cursor = "0"; rows.clear(); },
+    clearUser: async () => { cursor = "0"; rows.clear(); repairVersion = undefined; },
   };
 }
 
@@ -951,5 +954,61 @@ describe("Explicit scoped historical Delta snapshot repair", () => {
     await pullDeltaPages({ scope: partScope, storage, afterCursor: "10", pull, rebuildSnapshot });
     expect(rebuildSnapshot).not.toHaveBeenCalled();
     expect((await storage.listEntities(partScope))[0]?.rowData).toEqual(oldRow);
+  });
+});
+
+
+describe("Versioned scoped Delta repair", () => {
+  const partScope: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:42" };
+  const row = { id: 5, tenantId: 1, siteId: 7, workOrderId: 42 };
+  const pullAt = (cursor: string) => page({
+    entity_type: partScope.entityType, current_cursor: cursor, through_cursor: cursor, next_cursor: cursor,
+  });
+  it("persists the repair version with the snapshot and skips repeated or older versions", async () => {
+    const storage = memoryStorage("10", [row]);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "12", rows: [row] }));
+    const pull = vi.fn(async () => pullAt("13"));
+    const input = { scope: partScope, storage, afterCursor: "10", repairSnapshot: true, repairVersion: 1, pull, rebuildSnapshot };
+    await pullDeltaPages(input);
+    expect(await storage.getRepairVersion!(partScope)).toBe(1);
+    await pullDeltaPages(input);
+    expect(rebuildSnapshot).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenLastCalledWith({ afterCursor: "13", throughCursor: null, pageSize: 200 });
+    rebuildSnapshot.mockResolvedValue({ cursor: "13", rows: [row] });
+    await pullDeltaPages({ ...input, repairVersion: 2 });
+    expect(await storage.getRepairVersion!(partScope)).toBe(2);
+    await pullDeltaPages(input);
+    expect(rebuildSnapshot).toHaveBeenCalledTimes(2);
+  });
+  it("does not mark a failed snapshot and resumes catch-up after a committed repair", async () => {
+    const storage = memoryStorage("10", [row]);
+    const rebuildSnapshot = vi.fn()
+      .mockRejectedValueOnce(new Error("snapshot unavailable"))
+      .mockResolvedValueOnce({ cursor: "12", rows: [row] });
+    const pull = vi.fn()
+      .mockRejectedValueOnce(new Error("pull interrupted"))
+      .mockResolvedValueOnce(pullAt("13"));
+    const input = { scope: partScope, storage, afterCursor: "10", repairSnapshot: true, repairVersion: 1, pull, rebuildSnapshot };
+    await expect(pullDeltaPages(input)).rejects.toThrow("snapshot unavailable");
+    expect(await storage.getRepairVersion!(partScope)).toBeUndefined();
+    await expect(pullDeltaPages(input)).rejects.toThrow("pull interrupted");
+    expect(await storage.getRepairVersion!(partScope)).toBe(1);
+    expect(await storage.getCursor(partScope)).toBe("12");
+    await pullDeltaPages(input);
+    expect(rebuildSnapshot).toHaveBeenCalledTimes(2);
+    expect(pull).toHaveBeenLastCalledWith({ afterCursor: "12", throughCursor: null, pageSize: 200 });
+  });
+  it("fails closed on invalid versions or storage without a durable marker interface", async () => {
+    const storage = memoryStorage("10", [row]);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "10", rows: [row] }));
+    const pull = vi.fn(async () => pullAt("10"));
+    const input = { scope: partScope, storage, afterCursor: "10", repairSnapshot: true, pull, rebuildSnapshot };
+    for (const repairVersion of [0, -1, 1.5, Infinity, Number.NaN]) {
+      await expect(pullDeltaPages({ ...input, repairVersion })).rejects.toThrow(/Invalid Delta repair version/);
+    }
+    await expect(pullDeltaPages({ ...input, repairVersion: 1, repairSnapshot: false })).rejects.toThrow();
+    await expect(pullDeltaPages({ ...input, repairVersion: 1, storage: { ...storage, getRepairVersion: undefined } })).rejects.toThrow(/durable repair metadata/);
+    expect(rebuildSnapshot).not.toHaveBeenCalled();
+    expect(pull).not.toHaveBeenCalled();
   });
 });
