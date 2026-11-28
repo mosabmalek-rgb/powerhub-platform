@@ -1,6 +1,7 @@
 
 import { QueryClient } from "@tanstack/react-query";
-import { hydrateOfflineQueryCache, persistOfflineQueryForDeltaSync } from "../../client/src/lib/offline-query-cache";
+import superjson from "superjson";
+import { hydrateOfflineQueryCache, offlineQueryCacheKey, persistOfflineQueryForDeltaSync } from "../../client/src/lib/offline-query-cache";
 import { openOfflineWorkspaceDatabase } from "../../client/src/lib/offline-workspace-db";
 import { replaceDeltaSnapshot, getDeltaRepairCheckpoint, listDeltaEntities, pullDeltaPages, withDeltaSyncLock, type DeltaCursorScope, type DeltaPage } from "../../client/src/lib/offline-delta-sync";
 
@@ -143,6 +144,55 @@ async function assertHydratedCache(userId: string, expected: string) {
     equal(rows?.map(x => x.item_name), [expected], "actual durable query cache mismatch for user " + userId);
   } finally { fresh.clear(); }
 }
+// A legacy unsanitized record forces the asynchronous hydration rewrite.
+async function hydrationRaceAcceptance() {
+  const before = await readProtected();
+  const serializedQueryKey = offlineQueryCacheKey(cacheKey);
+  for (const mode of ["live", "identity"] as const) {
+    const userId = mode === "live" ? "101" : "102";
+    const client = new QueryClient();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("powerhub-offline-cache", 2);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("queries", "readwrite");
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error); };
+      tx.objectStore("queries").put({
+        key: userId + ":" + serializedQueryKey, userId, serializedQueryKey,
+        serializedData: superjson.stringify([{ ...cacheData("legacy")[0], notes: "legacy private note" }]),
+        updatedAt: 1, expiresAt: null,
+      });
+    });
+    let active = true;
+    let injected = false;
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function(value: any, key?: IDBValidKey) {
+      const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
+      if (this.name === "queries" && value?.userId === userId && !injected) {
+        request.addEventListener("success", () => {
+          injected = true;
+          if (mode === "live") client.setQueryData(cacheKey, cacheData("live"));
+          else active = false;
+        }, { once: true });
+      }
+      return request;
+    };
+    try {
+      const hydrated = await hydrateOfflineQueryCache(client, userId, Date.now(), () => active);
+      check(injected, "legacy rewrite race not exercised: " + mode);
+      equal(hydrated, 0, "obsolete hydration counted: " + mode);
+      equal(client.getQueryData(cacheKey), mode === "live" ? cacheData("live") : undefined,
+        "obsolete hydration exposed or overwrote query: " + mode);
+    } finally {
+      IDBObjectStore.prototype.put = put;
+      client.clear();
+    }
+  }
+  equal(await readProtected(), before, "hydration race touched protected stores");
+}
 async function actualCacheRepair() {
   const client = new QueryClient();
   const before = await readProtected();
@@ -221,7 +271,8 @@ async function run() {
     await assertHydratedCache("1", "repaired");
     await assertHydratedCache("9", "other user");
     equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "real cache checkpoint lost on reload");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS"] });
+    check(sessionStorage.getItem("hydration-races-verified") === "yes", "missing hydration race proof");
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS"] });
     return;
   }
   await seedProtected();
@@ -283,6 +334,8 @@ async function run() {
   equal(await readProtected(), before, "outbox changed during cache failure");
   sessionStorage.setItem("cache-retry-verified", "yes");
   await actualCacheRepair();
+  await hydrationRaceAcceptance();
+  sessionStorage.setItem("hydration-races-verified", "yes");
   await repairWithNativePeer();
   await rejectAction(replaceDeltaSnapshot(scope, [row], "4", 4, undefined, 1), "old version unexpectedly committed");
   await assertScope("4", 2, "repaired");

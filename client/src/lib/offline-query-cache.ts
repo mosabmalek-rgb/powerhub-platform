@@ -188,6 +188,40 @@ export async function pruneOfflineQueryCache(now = Date.now()) {
   return pruneInFlight;
 }
 
+// Sanitizing legacy data must not resurrect a deleted record or overwrite a
+// newer durable response that arrived after the hydration read.
+async function rewriteSanitizedQueryRecord(
+  original: OfflineQueryRecord,
+  sanitized: OfflineQueryRecord,
+  isStillCurrent: () => boolean,
+): Promise<boolean> {
+  const database = await openDatabase();
+  return new Promise<boolean>((resolve, reject) => {
+    let tx: IDBTransaction;
+    try { tx = database.transaction(QUERY_STORE, "readwrite"); }
+    catch (error) { database.close(); reject(error); return; }
+    let rewritten = false;
+    tx.oncomplete = () => { database.close(); resolve(rewritten); };
+    tx.onabort = tx.onerror = () => {
+      database.close();
+      reject(tx.error ?? new Error("تعذر تحديث سجل الكاش القديم."));
+    };
+    const store = tx.objectStore(QUERY_STORE);
+    const request = store.get(original.key);
+    request.onsuccess = () => {
+      const current = request.result as OfflineQueryRecord | undefined;
+      if (!isStillCurrent() || !current ||
+          current.userId !== original.userId ||
+          current.serializedQueryKey !== original.serializedQueryKey ||
+          current.serializedData !== original.serializedData ||
+          current.updatedAt !== original.updatedAt ||
+          current.expiresAt !== original.expiresAt) return;
+      store.put(sanitized);
+      rewritten = true;
+    };
+  });
+}
+
 export async function hydrateOfflineQueryCache(
   queryClient: QueryClient,
   userId: string,
@@ -217,8 +251,14 @@ export async function hydrateOfflineQueryCache(
       const safeSerializedData = superjson.stringify(data);
       if (safeSerializedData !== record.serializedData) {
         const sanitizedRecord = { ...record, serializedData: safeSerializedData };
-        await withStore("queries", "readwrite", (store) => store.put(sanitizedRecord)).catch(() => undefined);
+        const unchanged = await rewriteSanitizedQueryRecord(record, sanitizedRecord, isStillCurrent)
+          .catch(() => true); // sanitization persistence remains best effort
+        if (!unchanged) continue;
       }
+      // The awaited legacy rewrite can race both a live query and an identity
+      // change. Recheck immediately before exposing anything in memory.
+      if (!isStillCurrent()) return hydrated;
+      if (queryClient.getQueryData(queryKey) !== undefined) continue;
       // Treat Delta-backed snapshots as fresh only in this page's memory. The
       // durable record keeps its real timestamp; Delta sync remains authoritative.
       const hydratedAt = isDeltaSyncBackedQueryKey(queryKey) ? now : record.updatedAt;

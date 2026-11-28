@@ -1,0 +1,6 @@
+# CB-A: legacy query hydration race closure candidate
+
+Pinned parent: `0a352744d00e588877557177b6ce904e1061157b`. All six workflow runs succeeded: CI 46146866753, Security 46146866715, Admin Guard 46146866781, PostgreSQL 46146866731, B5 46146866804, disposable Shadow 46146866744.
+Native job 140984719890 emitted REAL_QUERY_CACHE_ABORT_RETRY_RELOAD and CACHE_FAILURE_RETRY markers. P0 job 140984719651 reported checkout 1c470f99a20ceec7c1f58e5c7213f615cdf64679, 296 candidates, 34 historical authenticated-only, 262 neither client role, 0 anon, 0 missing historical search_path, 0 signed approvals. Historical ACL hints are not effective authorization.
+
+Hydration previously checked live query state and current identity before an awaited legacy sanitation rewrite, then unconditionally applied the old snapshot. It also blindly rewrote the previously read record. This candidate compares the full original record inside a readwrite transaction, waits for completion and rechecks identity and live query before exposure. The native fixture injects live data or obsolete identity at actual IDB request success and requires a new marker. New-head CI not yet verified. No claim of full live snapshot-repair race, real auth switch, top-level tab acceptance, or effective ACL closure. No hosted changes, approval or operational activation.
