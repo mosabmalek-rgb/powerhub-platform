@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview} from './cb-a-p0-review-queue.mjs';
+import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview,attachReadOnlyRecapture,recaptureSource} from './cb-a-p0-review-queue.mjs';
 import {readFileSync} from 'node:fs';
 const head='a'.repeat(40);
 test('joins all 296 P0 candidates without promoting ownership',()=>{
@@ -71,4 +71,20 @@ test('privilege review buckets partition 296 pending records without granting si
  assert.equal(result.signed_approvals,0);
  const broken=structuredClone(report);broken.records[0].review_status='APPROVED';
  assert.throws(()=>summarizePrivilegeReview(broken));
+});
+
+test('all 296 read-only recapture records match archived exact definitions and client EXECUTE flags without approval',()=>{
+ const capture=parsePinned(readFileSync('docs/security/'+recaptureSource[0]),recaptureSource[1]);
+ const report=buildP0Review(loadSources(),head);
+ const result=attachReadOnlyRecapture(report,capture);
+ assert.equal(result.read_only_recapture_summary.matched,296);
+ assert.equal(result.read_only_recapture_summary.runtime_authorization_verified,false);
+ assert.equal(result.records.filter(x=>x.read_only_recapture.authenticated_execute).length,34);
+ assert.ok(result.records.every(x=>!x.effective_privileges_reviewed&&x.reviewer_approval===null));
+ for(const field of ['definition_sha256','anon_exec','authenticated_exec']){
+  const drift=structuredClone(capture);drift.rows[0][field]=field==='definition_sha256'?'f'.repeat(64):!drift.rows[0][field];
+  assert.throws(()=>attachReadOnlyRecapture(report,drift),/drift/);
+ }
+ const duplicate=structuredClone(capture);duplicate.rows[1]=duplicate.rows[0];
+ assert.throws(()=>attachReadOnlyRecapture(report,duplicate));
 });

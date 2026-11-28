@@ -1,0 +1,2971 @@
+{
+  "format": "PR359_CB_A_P0_READ_ONLY_RECAPTURE_V1",
+  "source_head": "2b7a74a1db1a68c37f7d010f1170468703b2f5ce",
+  "source_project_ref": "iyuryuhaylhisjfcrwkz",
+  "capture_date": "2026-11-28",
+  "capture_scope": "all public SECURITY DEFINER functions; pg_get_functiondef SHA256, proconfig, has_function_privilege by OID; not complete ACL or runtime evidence",
+  "rows": [
+    {
+      "identity": "chat_ai_append_assistant_message(bigint,text,uuid,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e8f863b354f3905590766b975e2ba4a6167308f4289b707e85cc203090c9d32d"
+    },
+    {
+      "identity": "chat_ai_claim_request(text,bigint,bigint,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a5dfdacb1d8696c9d382161acccf95f671145cdff25b71296779da78a068fbd6"
+    },
+    {
+      "identity": "chat_ai_get_account_context(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a8112b115d2cab6753b5144e70ff10f33ee6cbbc1c6529262a16d87ac96d13a8"
+    },
+    {
+      "identity": "chat_ai_get_settings()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "105f944c9a525029ae94f4b39292b46164a34aa1d8ea71d6863a93f6a4955bd3"
+    },
+    {
+      "identity": "chat_ai_handoff(bigint,bigint,bigint,bigint,text,text,text,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "aeda5355cdd07b8af2cb0222fa16c1f8dda96f06b564bcc1b5b774b8a716c2b8"
+    },
+    {
+      "identity": "chat_ai_rate_limit(bigint,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "bbda412ca9c3c38fd8985a37fb947c3c5855557439d6a28378436f3254e2e586"
+    },
+    {
+      "identity": "chat_ai_rate_message(bigint,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "d41d4b84cec403fa84f4f17a624147045a6d197a9f3c58b3c4d740af534e451f"
+    },
+    {
+      "identity": "chat_ai_record_run(uuid,bigint,bigint,bigint,text,text,text,text,real,bigint[],bigint,integer,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a3de9c310b9c8f1dfa5ec1d448fa71bbb4b1e99c0566f82dfd162f16c7ec38ee"
+    },
+    {
+      "identity": "chat_ai_search_knowledge(text,text,integer,bigint,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e8afdb133de2a9c2cbf3a55316066e0111e559ae58b3f577d6e89ed42e4f2bef"
+    },
+    {
+      "identity": "chat_assign_support(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "749247d92d1f09859548a1be0bee65ed9c5d61c33bba4ecc99304132c526046f"
+    },
+    {
+      "identity": "chat_create_conversation(bigint,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "4439d46335c1bd33a67663ecb97a9fcb815b0e87038719980c139e8bba504d81"
+    },
+    {
+      "identity": "chat_mark_all_notifications_read()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "16a77dd421a3eb1eaea6bf3ee11824826e4c16bac32c96596830d763a67f532a"
+    },
+    {
+      "identity": "chat_mark_delivered(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "57df4b5a9082c7a917ef7a27039f375971339f71b2c043aa613a9c744fb2c33b"
+    },
+    {
+      "identity": "chat_mark_notification_read(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "310f49dba312a73f365a1025fa4f9ed2fd06db49503d747f9981d8bb0e2c78d4"
+    },
+    {
+      "identity": "chat_mark_read_up_to(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "fe6241f674ceac37d431222468a520a0e1cc639925cc87ba229d8757a8035b72"
+    },
+    {
+      "identity": "chat_mark_read(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "00ef0ef4384b85dc403225b6ea9a798b2327d6909f522fc72891ab367d83d739"
+    },
+    {
+      "identity": "chat_rate_support(bigint,smallint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "77daaad178f07ad6bc0bd2a0d108592db4e987398c226c014e2e275e52a12d08"
+    },
+    {
+      "identity": "chat_receipts_for_message(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "7e3d7cb7116e7ca6a78778c06be3350d4483aa6ccb300dfee5e414bfd6086ab3"
+    },
+    {
+      "identity": "chat_release_support(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "418a9372dc53b53f569de91c86bca7cf452be71a9972abbeec1421c1eece85ca"
+    },
+    {
+      "identity": "chat_reopen_support_conversation(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "7f1b14e99b82427feb0058bda27fb5800c9df7523b496b5be08df10f9917e804"
+    },
+    {
+      "identity": "chat_send_internal_note(bigint,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "54f7dc581889438da970d71417d3f0f69b9f758a99f155da3d4af7658c4b555b"
+    },
+    {
+      "identity": "chat_send_message(bigint,text,uuid,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "955eeda1dcb1009a7f7bab57c456c916cd0b747fc627a10b8d302598958b6c1c"
+    },
+    {
+      "identity": "chat_set_conversation_tags(bigint,bigint[])",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "64b554c65febf882a8d94dae08769451c623e532301376affb1f1e01ba0717c8"
+    },
+    {
+      "identity": "chat_support_admin_save_settings(integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "a9df258e77b9911abe8a33d1fb5705129b7e677fbe608eea962009eb0d0f1802"
+    },
+    {
+      "identity": "chat_support_admin_snapshot()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "00606d6c8cf126c935dda03639b8d94f78a284cc05ed96dbe0ea58db4600f46b"
+    },
+    {
+      "identity": "chat_support_admin_upsert_category(text,text,text,integer,integer,integer,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "6bbcdd85de0c394ffe19b203845b9b57789d567ccb0583db03eaad54631d5846"
+    },
+    {
+      "identity": "chat_support_admin_upsert_quick_reply(text,text,text,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "7e68435d81379f70b2bdb07f343187c6565b06c1d9adce7b30a275a0c0ab93eb"
+    },
+    {
+      "identity": "chat_support_admin_upsert_sla(text,numeric)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "b1b1f3979b065f5a3ea7090f9d061ebd0334d2dcc48ae553940276f7ac7dfc05"
+    },
+    {
+      "identity": "chat_support_admin_upsert_tag(text,text,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "a30f806781fb7ddd960a1b8fe42823a2f73711c46c0b2aa156ed9636c3f7ad79"
+    },
+    {
+      "identity": "chat_support_metrics(timestamp with time zone,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "848ceb60a2d7129b30985cf64a125fc535bccd5ff307266789a5c2d7b6cd1c22"
+    },
+    {
+      "identity": "chat_support_queue(text,text,text,bigint,text,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "843191d2ca8c03d3e59228d54a24bde8cc23375578a1b18b1bcc956d46584d7d"
+    },
+    {
+      "identity": "chat_support_set_metadata(bigint,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "157cdb67e16efa29919d7f795fb6f06467d4398c24cef57f6589684abeb40e9e"
+    },
+    {
+      "identity": "chat_support_users()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "7e0900f70818b23c04e51fdeb5ff6cf6164ad33c9c385b7e3ead9a4d0cbf6e12"
+    },
+    {
+      "identity": "chat_ticket_timeline(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "8fce46747b9997db6cc9b2ad4b51a307ff8798c58cfca40bb6b83d227eaa395b"
+    },
+    {
+      "identity": "chat_transition_conversation(bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "d47483ce63fe1e7ec5eaa267ba2e715ff33fd5c2d6cc61c2c36ac5ed9715a778"
+    },
+    {
+      "identity": "chat_unread_notification_count()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "6a550e717089156c1612a66a3f938d9c78d3ee85c7016e876e8908f9a2cb3b04"
+    },
+    {
+      "identity": "powerhub_accept_pending_platform_invitation(uuid,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "99031ca827dd6615fa9b4f25f4919d2ecd31314954923802a9a780af0e81c536"
+    },
+    {
+      "identity": "powerhub_accept_pending_tenant_invitations(uuid,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b4d9373fda47adfa2f5e39db1b72d70e5229dab4c75c460f250839c300ab50ad"
+    },
+    {
+      "identity": "powerhub_admin_attach_generator_owner_provisioning_auth(bigint,uuid,uuid,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8b6d7f102481551fe91f476bd7a19dd0f69e290e25bf5b0dff0587690de48272"
+    },
+    {
+      "identity": "powerhub_admin_attach_owner_user(bigint,bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cdaf20c290f9dca15dd9c14200d72288fc1412b3995b2f593f3e2def0b646667"
+    },
+    {
+      "identity": "powerhub_admin_begin_generator_owner_provisioning(bigint,uuid,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f4915642b7c3a3c4db09d87851b4812442b9eab82792bfa0645ff317822762ad"
+    },
+    {
+      "identity": "powerhub_admin_cancel_generator_owner_provisioning(bigint,uuid,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c21bbf5f3ae1fd1fa812d96ecc577071a80d2c413481a3a2d062dd5b1b5e254a"
+    },
+    {
+      "identity": "powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,integer,text,text,text,timestamp with time zone,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b6b77b9491256ecd01d9ea5937c82236150601e14b48376d8bd7e70a9c14cce2"
+    },
+    {
+      "identity": "powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamp with time zone,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6e983a41ca57d37b118b779b62932c1e848b271743b2cf868a68a8c2847ff013"
+    },
+    {
+      "identity": "powerhub_admin_confirm_sms_recharge(bigint,bigint,text,integer,text,numeric,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c7587814a4779a600ba2d6cbdb512094d009a4f6e3b4df9c655f8d5c51ad6a38"
+    },
+    {
+      "identity": "powerhub_admin_create_sms_credit_package(bigint,text,text,text,integer,numeric,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "219c17847b3cfb2849b131d5b528f464d543120e23f632ee15fa6d9b06e3b6b5"
+    },
+    {
+      "identity": "powerhub_admin_create_sms_plan(bigint,text,text,text,integer,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b4f6e8baec5615d2adb72544829b9bfbc9b0d182bc4d6111f9167057984d3503"
+    },
+    {
+      "identity": "powerhub_admin_create_sms_recharge_request(bigint,bigint,integer,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4b9cc6a9efb581c881e955696b1445ba7316466d96ba6771b9fa7a6d6febf0ca"
+    },
+    {
+      "identity": "powerhub_admin_create_tariff_policy(bigint,numeric,numeric,timestamp with time zone,boolean,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ace5f54d7bb79029697314a7242a55970d33e327b71afb8e70474dcca435ac0a"
+    },
+    {
+      "identity": "powerhub_admin_feature_catalog()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "61055f3f16c5ae79e9acc6d3e79bc668fe9e0f32d8d5121c9b49134c9ceae294"
+    },
+    {
+      "identity": "powerhub_admin_get_activity_metrics()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "1c332e1fcc28854ccc79458d5e0c1bdd4029e0f9f5112751d0709e2b319a837c"
+    },
+    {
+      "identity": "powerhub_admin_get_activity_metrics(date,date)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7f98ff4df226584d59098b9b1f9e3a052919454a5a907df6c24b6515e5d008c9"
+    },
+    {
+      "identity": "powerhub_admin_get_generator_owner_provisioning_reconciliation(bigint,uuid,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cdbcbebb3b13543a9d7f0ed9faabe47cf476908d41993455e6c209420663baab"
+    },
+    {
+      "identity": "powerhub_admin_get_owner_activity_metrics(date,date)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cd8687dfbf49fc290d7f8ee362be50713ed51db7143233b1a4289e8377655ead"
+    },
+    {
+      "identity": "powerhub_admin_get_performance_metrics()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2566e9e00dc65f8dd92faf945f1946fb67ca33cfd2d70011d8ffb23ef385dee8"
+    },
+    {
+      "identity": "powerhub_admin_grant_tenant_addon(bigint,bigint,text,integer,text,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0f85af2facafee5ce9fc7f6a14e99cfeea904c427d672bf5c3d7839489905be9"
+    },
+    {
+      "identity": "powerhub_admin_invite_platform_access(bigint,text,text,text,timestamp with time zone,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "da620b4ffbf7fbbe3edc0fa0e288a70f5c74e38469d4d665059088db42aeae5c"
+    },
+    {
+      "identity": "powerhub_admin_invite_tenant_access(bigint,bigint,bigint,text,text,text,text,timestamp with time zone,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6013d4d8cf53ddf2b71560e8044e4512135d6f2c8e92c00455ab7707af8deefe"
+    },
+    {
+      "identity": "powerhub_admin_quick_upgrade_owner_plan_idempotent(bigint,bigint,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "5808a203c462a293acbe27148cd424803d9463f3a3036f776d08a6df6bfcb1ce"
+    },
+    {
+      "identity": "powerhub_admin_quick_upgrade_owner_plan(bigint,bigint,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "17400fdbf7c5abf04e6b9026be7ec2336112659c4d131cefe2cdb184c2438243"
+    },
+    {
+      "identity": "powerhub_admin_record_search_metric(integer,integer,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6245b4f34f15e1e0091cca6bc0a476306351c9e36e4fb1d866021f3601641187"
+    },
+    {
+      "identity": "powerhub_admin_renew_subscription_idempotent(bigint,bigint,integer,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7e3f4a1f39753f41364bf356bb7d4ad40c267204ef25abe0178d11756eb8d846"
+    },
+    {
+      "identity": "powerhub_admin_renew_subscription_with_addons(bigint,bigint,timestamp with time zone,text,jsonb,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d4ac3ac61b02d79e6430b590e4559428f5ed7956c78dfd812b1a5e40bd3358ac"
+    },
+    {
+      "identity": "powerhub_admin_renew_subscription(bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "76cf5c02c299e03fcd1fcd0cfdd946406fb1b539ab6423ba8176a20a3c209531"
+    },
+    {
+      "identity": "powerhub_admin_request_owner_access_recovery(bigint,bigint,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "3e02fc03cc7a88ab1d3d038b620dc673e09b7501053830db778cfc499670d49b"
+    },
+    {
+      "identity": "powerhub_admin_review_sms_package_request_v2(bigint,bigint,text,integer,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2c655513aacc7f1cc388eff51ec50eb2f6daffd6cc079c87f9e876e2ec96d736"
+    },
+    {
+      "identity": "powerhub_admin_review_sms_package_request(bigint,bigint,text,integer,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cdf79a347fb9b92b8af3c706feba157a3e45ebc59a560b3c2a564af133922bac"
+    },
+    {
+      "identity": "powerhub_admin_review_subscription_upgrade_request(bigint,bigint,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c5133cb69c06b83c1e751a33c63a5f71d622fd99027d194a13364bc6fca177b4"
+    },
+    {
+      "identity": "powerhub_admin_review_tenant_addon_request(bigint,bigint,text,text,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8477ef65991c6700c38d43ff2924fe198be5bf01a41500c7c88c1faaee4f9c17"
+    },
+    {
+      "identity": "powerhub_admin_save_platform_setting(bigint,text,boolean,text,jsonb,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "eacf37530a57f8022838c09c984eedfec809fe0505d60596f5a67056f337c746"
+    },
+    {
+      "identity": "powerhub_admin_save_tenant_branch_settings(bigint,bigint,boolean,integer,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6a164e4b41d04f3a4ca9e0c50470b15ecb5d2ab9c18330d4cc3ef8204db16d53"
+    },
+    {
+      "identity": "powerhub_admin_set_feature_global(bigint,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "df7a98207fd027577505be73a2c4050dffb90794d7f8833224f1b2e884155b5a"
+    },
+    {
+      "identity": "powerhub_admin_set_owner_capability_override(bigint,bigint,bigint,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "438f13a9ca373f15b50c7273aee950a7ae75c31b0751de6912f122c7bef0e5a9"
+    },
+    {
+      "identity": "powerhub_admin_set_platform_access_role(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e372a731af2090aef216e8847333740f431b3dc5ac88722d3b991864b663d006"
+    },
+    {
+      "identity": "powerhub_admin_set_platform_account_status(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b579cf0b911115ff0731b2cca842c7b27beea858f1feb404770d9f8caacd7960"
+    },
+    {
+      "identity": "powerhub_admin_set_staff_capability_override(bigint,bigint,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "490fdbf8dcf24b549d8b34855e9a8c9e34b099ba3d10045c919b00e6048dc2fd"
+    },
+    {
+      "identity": "powerhub_admin_set_tenant_feature_control(bigint,bigint,text,text,text,integer,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6dc69bcfec6a695b0026bf4ebda1d9e0d544bf82cd35b84ea08f549ad9f9f5f9"
+    },
+    {
+      "identity": "powerhub_admin_set_tenant_membership_status(bigint,bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a4278aa5e2ac214a0218084fc96fbefc3905af12b38109b9ed0bcae92b5a291c"
+    },
+    {
+      "identity": "powerhub_admin_sms_wallet_summaries(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2fa747df4fbe1cedcceb67a7dcaaa5d27650617121c1551f3da9c7abfbf6f974"
+    },
+    {
+      "identity": "powerhub_admin_subscription_upgrade_requests()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "39ab5d12e3d7ea87996aa376e7251d1905485237189d78e76c87057517781e50"
+    },
+    {
+      "identity": "powerhub_admin_tenant_feature_controls(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b913e9b80d0f800dbdb6059df0c8e553c0bdb0c8fd7b79fec9ae61f99270bed5"
+    },
+    {
+      "identity": "powerhub_admin_update_sms_credit_package(bigint,bigint,text,text,integer,numeric,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0b6a6d17bf315e43fa5c3a54a749c5c85690c5b9a3456b4c7e79323952853f9f"
+    },
+    {
+      "identity": "powerhub_admin_update_sms_plan(bigint,bigint,text,text,integer,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2831726f7a972eae13d415d30dc89da85d0517dc593560c46f9ed6facb0bb73c"
+    },
+    {
+      "identity": "powerhub_admin_update_subscription_idempotent(bigint,bigint,text,text,text,timestamp with time zone,boolean,text,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2fab6e5330a491c4031c2e6978b9bb2921680387a0038436d802ad009fb2f3f7"
+    },
+    {
+      "identity": "powerhub_admin_update_subscription(bigint,bigint,text,text,text,timestamp with time zone,boolean,text,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c8e897e091e39e5e7d8c5d88c1345464519d495c7edf2c0f1d94b12f40bed6a5"
+    },
+    {
+      "identity": "powerhub_append_fuel_maintenance_delta_sync_change(bigint,bigint,text,text,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b1019cbc1263df50ba23e93ed056e16ec203811b92d76602f1122f6ddcb93408"
+    },
+    {
+      "identity": "powerhub_append_hr_delta_sync_change(bigint,bigint,text,text,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "20731fccb3a4dfdfe7b6f56e2a6e3a7f283b0a32922bcb299717f9155d39bc43"
+    },
+    {
+      "identity": "powerhub_append_inventory_sync_change(bigint,bigint,text,text,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e472551bbcc0eb6045a0a05a6b4e13e21a51c49adb7e630139bc18adb67f6963"
+    },
+    {
+      "identity": "powerhub_append_operational_delta_sync_change(bigint,bigint,text,text,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7e6f0b72da3c32ebafd17a4a4dea87f04b0f141b9f8cd1d5a00282fc5757fc65"
+    },
+    {
+      "identity": "powerhub_append_sync_change(bigint,bigint,text,text,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4f55a7a57c7a36fa97e3f3de13a4e8405ad78824ff659278b95e8ac3d6031585"
+    },
+    {
+      "identity": "powerhub_apply_account_transaction_audit_site()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ea18cea450a55eeb0ab9d6ac689f92bc662dc6c65fb1fc64212da17e52d90df4"
+    },
+    {
+      "identity": "powerhub_apply_subscriber_credit_after_invoice_insert()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e6a57650604394323806f3a4552be5686ddeb632a9c9538ba6232d0ebc1c751d"
+    },
+    {
+      "identity": "powerhub_apply_subscriber_credit_to_invoice(bigint,bigint,bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cd1737fcd3640c33463e7272d61309e2fcc086f37af0cda4d9aaa72ee9d2c3e3"
+    },
+    {
+      "identity": "powerhub_apply_subscriber_credit_to_open_invoices(bigint,bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "928be51acd29bba979f7666ec7df50cf9d993824e49f6c569e2aef6d455207d5"
+    },
+    {
+      "identity": "powerhub_approve_and_issue_mobile_reading(bigint,bigint,bigint,bigint,integer,timestamp with time zone,text,numeric)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8f2ffdc1bc0316f90d6203a35222d409684641ef92de7123a9f25a4ded65576f"
+    },
+    {
+      "identity": "powerhub_assert_account_transaction_site()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c3f61bf327888cbff006de3b6d599200e7bb48a4c1d6b812cb8e2fee204a975f"
+    },
+    {
+      "identity": "powerhub_assign_invoice_cycle()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ba7a7230f8e63686bf6d5d1dfcb115f0e3ba395cc7ddfec59364ece4df44b89b"
+    },
+    {
+      "identity": "powerhub_assign_subscriber_field_reader()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "853ee82d200d09ab346d6af5335797d5fc5ea94c02bcfcab67bab265fb6221a1"
+    },
+    {
+      "identity": "powerhub_block_opening_baseline_invoice()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "836d5a505ce4e808d8e0c877591d4846d7c78ffaccb19405b2f316ccf9972c22"
+    },
+    {
+      "identity": "powerhub_bulk_upsert_subscribers(bigint,bigint,bigint,jsonb,boolean,integer,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a8a7938f1d4a81ab2974be7753209fc834f3fb8374cf205ff4f5ae3d08e63f4b"
+    },
+    {
+      "identity": "powerhub_bump_supplier_ledger_revision_for_allocation(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "655a6e8df0f66b5b40da0a68c873efe9d40e76a499404fed898311d24c2b8390"
+    },
+    {
+      "identity": "powerhub_bump_supplier_ledger_revision_for_purchase(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "9109b67f4b8df97e2f4b06d608bf0468b0c04946a29857635f2c4889b800d9ce"
+    },
+    {
+      "identity": "powerhub_bump_supplier_ledger_revision(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a557b04f9687c15112942857ac8cfb0e8aa84ebbe46e22d5eea1b10ef246bcd1"
+    },
+    {
+      "identity": "powerhub_capture_company_account_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "673837bb4f37021c3b1c7a03f0421db4580b2e67a87a4c31451d4d6dc39d04bc"
+    },
+    {
+      "identity": "powerhub_capture_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "22048ea2abc260d49fb2a4c42a7de3c87bb5df64249fc2051a936337cb199ca5"
+    },
+    {
+      "identity": "powerhub_capture_fuel_maintenance_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6a7332aa766d5ebc004b04e0a6b22390a2a304ee73556d174a18902fa5a4a22c"
+    },
+    {
+      "identity": "powerhub_capture_hr_advance_repayment_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "39ddc5de8b9e1fa3f2fe29b6d0e30132c327b20d01bf7c2772cac4ad751681dd"
+    },
+    {
+      "identity": "powerhub_capture_hr_attendance_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "26fcae18462e3097adecf92e2aced805dab4ec3e939c278de3202590ccba6c4b"
+    },
+    {
+      "identity": "powerhub_capture_hr_employee_advance_person_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4c1582191a68a5eba6f3fcc0eba165a82f1bde5f8802e901e767a96e691467dc"
+    },
+    {
+      "identity": "powerhub_capture_hr_employee_advances_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a45e360214e04516fd88413af0427c589b59d7297a45f686c3b12fe812f001d1"
+    },
+    {
+      "identity": "powerhub_capture_hr_employee_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "5cd6d24b266347be67b2ac64c317e0795f5aeb407ddafd4f5950184dc3497d2f"
+    },
+    {
+      "identity": "powerhub_capture_hr_payroll_run_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cda58386b4d20b5c71a8f81cf33c672b2a3fe768d32291de5ea1cf234b982604"
+    },
+    {
+      "identity": "powerhub_capture_inventory_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2d6b8d618314cb13899ab7c4bb0c3d5d93782fa30920e7352d4c4e90866af0ce"
+    },
+    {
+      "identity": "powerhub_capture_inventory_purchase_header_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "905db3a91b3c181e1b206063a5c99f1b9c81d8804eba488e90d1b2571f4a854c"
+    },
+    {
+      "identity": "powerhub_capture_inventory_stocktake_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d3413d39f76bc42d350e430cc11da395296bb749dd57bbb1d208d7677db33088"
+    },
+    {
+      "identity": "powerhub_capture_inventory_stocktake_line_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "043894aa4700d7b6764c328c6faadcd7ebb925894e0fdaac6070029e983d2db8"
+    },
+    {
+      "identity": "powerhub_capture_operational_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "54ceb6ee9cddbc2c21ccdd3edebc87b5f776b4d8ba7559ccd250453c3b9760b4"
+    },
+    {
+      "identity": "powerhub_capture_purchase_children_delta_after_parent_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "86c12370a9ef1e6c5675f615ab3a5861bb9dccd635b6287c4f5c3a6cf446ecc8"
+    },
+    {
+      "identity": "powerhub_capture_purchase_header_line_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c327d1c092958632c2a79bba0fb642ef50b09fd7856a5d6ef8cff888cbc794fb"
+    },
+    {
+      "identity": "powerhub_capture_purchase_receipt_header_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "bdee2d53171256cdfe6ca9a96a1ca0dea14fbcd85be48a2c5fdc4d3d934b8d20"
+    },
+    {
+      "identity": "powerhub_capture_purchase_receipt_line_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2a3ee6bcee87801437634e8e20fe426e4a14bb8dd9bb9aa09591fc338a0d2787"
+    },
+    {
+      "identity": "powerhub_capture_supplier_ledger_entry_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d9d433fa82f5a24bd9898707b844eeb3527ad15bf4f5322cc2369a9c5b868da1"
+    },
+    {
+      "identity": "powerhub_capture_supplier_payment_allocation_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "da46344dd5087c1b3eab23fc9da8db21ec9dadae6419b5f9c030a8c5918f3e1b"
+    },
+    {
+      "identity": "powerhub_capture_supplier_payment_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "467b0f4c89384ee817363bfa573f223e61f52a9667dc540e807f0e9cec7f2fe2"
+    },
+    {
+      "identity": "powerhub_capture_supplier_purchase_line_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b40b92910a78dcd89352cc57619971e6f7f772c49bef7a3759f6987bf61d34f0"
+    },
+    {
+      "identity": "powerhub_capture_supplier_purchase_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b2ca690aade78012a8b854b097e65a237f778aaeb66443fc3c4d22322e5f30a1"
+    },
+    {
+      "identity": "powerhub_capture_supplier_return_header_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c1d2bac762f97e50501c27a26924e85676407d2782051bba228746de1d2d048c"
+    },
+    {
+      "identity": "powerhub_capture_supplier_return_line_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0a2f259a0bd0f193ff0dcd3a5dff83f7219bd473f9faaa3eca9af7a03981304c"
+    },
+    {
+      "identity": "powerhub_capture_supplier_return_line_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "24ae73f2ba5d35100403e38ecfde417ef6c9adb390c4b6fb58d56eba45213e04"
+    },
+    {
+      "identity": "powerhub_capture_supplier_return_revision()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "37de45cf97ea324cc214810d61f9405da1d40d80af0fca6b07bb751614d4f03f"
+    },
+    {
+      "identity": "powerhub_capture_tenant_name_delta_sync_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "84ec86412ce0279a69268c2417e02ba4404c961aa286f65f64dcc2e4344eee6a"
+    },
+    {
+      "identity": "powerhub_catalog_package(text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "be70198512dd85399734cef417f55e901bc31d14ae79f8b5a1f79c14c9f46be3"
+    },
+    {
+      "identity": "powerhub_claim_offline_number(uuid,bigint,bigint,bigint,uuid,text,text,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cc12427c2783a98a9066db988a9f0150fdcf498f91c4011852808dd25eaaf8b3"
+    },
+    {
+      "identity": "powerhub_claim_storage_image_retention_objects(text[],uuid,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "25650d27757ec3ec7c3a3a7637012c3330aa3f0f47ed8ecf29c62c3b6190c628"
+    },
+    {
+      "identity": "powerhub_claim_user_device(uuid,uuid,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e1e3019b54b3430bf47dcb997187435c18fcab9c1a36710af51b443f0030fc3b"
+    },
+    {
+      "identity": "powerhub_company_account_balance_rollup(bigint,bigint[])",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ff4850668471fcd966271f6ab623ce22eb54c2cff8c347ba9072d7aeaded53e4"
+    },
+    {
+      "identity": "powerhub_company_account_history_page(bigint,bigint,bigint,timestamp with time zone,timestamp with time zone,date,date,text,text,timestamp with time zone,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f32774819b29a0f7b2fa7cb3b2f26ae7059ee6d0d1343bd51b7e2c3e879b9b55"
+    },
+    {
+      "identity": "powerhub_configure_field_reading_distribution(bigint,bigint,bigint,boolean,bigint[])",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "65ee1b7b5c57c7bb8ace75a7113de8561eac4d6e60dd226d48ff588cf7997adc"
+    },
+    {
+      "identity": "powerhub_create_portal_invoice_share_link(text,text,text,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "91b3d156472d268022189f84969144e6072a4a5af250cb8b78cf5401a6db35f2"
+    },
+    {
+      "identity": "powerhub_create_reading_and_issue_invoice_with_offline_number(bigint,bigint,bigint,bigint,uuid,timestamp with time zone,numeric,text,text,text,text,boolean,boolean,boolean,timestamp with time zone,text,uuid,uuid,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a2560b1275b105705ab998cf68a3b29e987411586ee603bb4b00c1a406e0d61e"
+    },
+    {
+      "identity": "powerhub_create_reading_and_issue_invoice(bigint,bigint,bigint,bigint,uuid,timestamp with time zone,numeric,text,text,text,text,boolean,boolean,boolean,timestamp with time zone,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "949fba1f5f0933913a6212abf9b23cd2d88cc508bfb104e31062ecd5aa1dcd8f"
+    },
+    {
+      "identity": "powerhub_create_subscriber_with_offline_number(bigint,bigint,bigint,uuid,uuid,text,text,text,text,text,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ca28ff764d7c37047513151d429efa7c99ad24df63438387a76bcfee89669e06"
+    },
+    {
+      "identity": "powerhub_create_subscriber_with_opening_reading(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamp with time zone,text,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4337ce43ffbd6301680a1c3ccfa83b4b2838531a761cb0d08da68d6b0845203a"
+    },
+    {
+      "identity": "powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamp with time zone,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "607e6548184893060bd184a90f4a07a830313b6a0c33bcc15b1d7f45c350e3f1"
+    },
+    {
+      "identity": "powerhub_create_tariff_idempotent(bigint,bigint,bigint,text,text,numeric,numeric,numeric,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0fd933b737527d505e4a8c25c98ca5f62963925654cef83580b2cc87e5e5b5cb"
+    },
+    {
+      "identity": "powerhub_dashboard_collector_performance_all_branches(bigint,timestamp with time zone,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8bd079e803a24200ff19b59ec25537a187d2997e1412500b21af23fcc7d8accc"
+    },
+    {
+      "identity": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "da763042afc1818ea80bdd90e7698913b6a57017eede20e24c7726c8216d9cc8"
+    },
+    {
+      "identity": "powerhub_dashboard_operational_summary(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0138a95a6f7f8597853f2695983f60e59a240dffae53923cf734531280c5cdc8"
+    },
+    {
+      "identity": "powerhub_dashboard_reading_kpis_all_branches(bigint,timestamp with time zone,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "54601dc4dd637bb31e9a0a7b1a24ed8527b53b79178d18a70b556203911feb90"
+    },
+    {
+      "identity": "powerhub_delta_sync_project_company_account(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d9af5bb854fd2ffd575aa56f546b17b1b357d2813fb2feba1e5db04de8d70cc6"
+    },
+    {
+      "identity": "powerhub_delta_sync_project_payment(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e49a73cff20a4f8e2a6585a57d8f88241c2147943cff80073109e9924d0c057e"
+    },
+    {
+      "identity": "powerhub_effective_tenant_quota(bigint,text,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "17c7bcdf68fff63a121dd84efb0f58cea00e2d4dbc542c57a9be55693a6a074a"
+    },
+    {
+      "identity": "powerhub_emit_fuel_maintenance_delta_sync_change(bigint,bigint,text,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "63d0076816fe0f4037b201c25e0ac94418a6a90967e5e9838504340a1045741d"
+    },
+    {
+      "identity": "powerhub_emit_hr_delta_sync_change(bigint,bigint,text,bigint,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7380b90b90b052ea5350eee480270adb6c143a3910667c42b2cfb96ed3e67753"
+    },
+    {
+      "identity": "powerhub_emit_inventory_purchase_header_sync_change(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cf8a7414343b69f015136a920d812aae7a927c8eef9de05fd145b3c4a7e39d8d"
+    },
+    {
+      "identity": "powerhub_emit_inventory_purchase_receipt_header_sync_change(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d2e6372de761791acb81362dd3939d4faf1ae3e209e0abbb05351c06aca89da1"
+    },
+    {
+      "identity": "powerhub_emit_inventory_stocktake_sync_change(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "fc559ab97ad78629e79a2e4659f9a00af6e5de8dd53426bc2223162f32713bd0"
+    },
+    {
+      "identity": "powerhub_emit_inventory_supplier_return_header_sync_change(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "31dbad83341e095eef6d893b0f1578526223ac88c2d8e3ce0708ed10dfee3732"
+    },
+    {
+      "identity": "powerhub_emit_operational_delta_sync_change(bigint,bigint,text,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "45150717c68b651448d2912966fee9fff8292432fe2c00f49a9a4d5c031b7588"
+    },
+    {
+      "identity": "powerhub_enforce_field_user_quota()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "3dbe26ac1ebdedcdcc6276ac31af139e70cde8c1506a17b50d2a2418a9dab8d6"
+    },
+    {
+      "identity": "powerhub_enforce_single_reading_per_cycle()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "1224d68a72f76175f85be22520f6c60b8fe2322bcfccc17308c46023fbbf301f"
+    },
+    {
+      "identity": "powerhub_enqueue_invoice_sms(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4c1de074821ba642b37e4ecbf8d9ac622456508a47801287f03df008f6f6520e"
+    },
+    {
+      "identity": "powerhub_ensure_owner_main_site()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8d402052eb2871a4f71c257ff882c4725c889152e827be46d9822859f844c2ca"
+    },
+    {
+      "identity": "powerhub_financial_gl_fixture_cohort_freeze()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cbc84d658660456f6d5cafaa01c1fb08efd5082e50bdc719493601d5a4a5a56a"
+    },
+    {
+      "identity": "powerhub_finish_storage_image_retention_objects(text[],uuid,boolean,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "46da7bc987cb3cafd6a3b3ce51f1ad3feba7a25e7357e25cba026748115a756b"
+    },
+    {
+      "identity": "powerhub_format_message_amount(bigint,bigint,numeric)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d56b3b036a7608cfc14c3def29e11e1e7251088da8b0acccb20da340af858dc8"
+    },
+    {
+      "identity": "powerhub_get_active_addon_delta(bigint,text,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a12a53e0912cc8bd652f6ae8eec1c3968c3a34101ff6563eef399a9a841d5f39"
+    },
+    {
+      "identity": "powerhub_get_fuel_maintenance_sync_snapshot(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7a8df075959919bf93553d18714f33707fc84a4e7800d4d1c0be72f21b702ae9"
+    },
+    {
+      "identity": "powerhub_get_hr_sync_snapshot(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "52862899bbd472a27e0c4f6ea28cc68417e56a19c156ba62a88e86df844d6b36"
+    },
+    {
+      "identity": "powerhub_get_inventory_sync_snapshot(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "302d20e10854864811c176f5578b9a22cb57fef7c818d76bedb4eca176920fcf"
+    },
+    {
+      "identity": "powerhub_get_operational_sync_snapshot(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "25dbee5f6ac891ac75fe50b3733ea3fbfeb63d7da5e0f80639fca25aa0196ac7"
+    },
+    {
+      "identity": "powerhub_get_public_payment_documentation_status(text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d6ccadcce4aa19aaa0e08260e155962dd38eacb0dc67380fbaa6636e6e3acb82"
+    },
+    {
+      "identity": "powerhub_get_public_payment_documentation_target(text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "fb1cbb74f3ec353fa1ae144855aea98a91678cdcb462c06eb8a95f8437f5fc16"
+    },
+    {
+      "identity": "powerhub_get_reading_cycle(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2f8b140fa1b3bd9823aae46af1f1760ba2d85626b228ec9eec3ea4c775c020f6"
+    },
+    {
+      "identity": "powerhub_get_sms_quota(bigint,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "fd64bea5eb8c19e1caea4460c6411efcdfc6218380bca2b50d6f3fa2533679e1"
+    },
+    {
+      "identity": "powerhub_get_sync_snapshot(bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "56960f0ef4105db80009dfe7a58fbef02f67134e6cd2ef4e6e5cedc7169861c3"
+    },
+    {
+      "identity": "powerhub_guard_field_reading_distribution_quota()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "67ab76bb52c247a508ef5addffa05377faacd4ccae5299ae47e97e2afe4acbe0"
+    },
+    {
+      "identity": "powerhub_guard_subscriber_disconnection_financial_closeout()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "02667e2da6a50dce4e83a9701a76884d684d5bb781bc6072c6d81f807bc6b99c"
+    },
+    {
+      "identity": "powerhub_guard_tenant_feature_control_scope()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "764e183648e84972f6a6d769a785d8f0d3d69f07b30aef80b386f735088f43e3"
+    },
+    {
+      "identity": "powerhub_hr_replay_offline_operation(bigint,bigint,bigint,uuid,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a0b8a0389da760afeea9707fe0adba67e6f45b0c44ba75007becba54e4b7933a"
+    },
+    {
+      "identity": "powerhub_http_rate_limit_consume(text,text,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b4cb122f5a69d1ef61494bb09c4c5b9343e307c6751513f2c3adc35d5640da5f"
+    },
+    {
+      "identity": "powerhub_initialize_sms_wallet_accounting()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "93deea28758883e5233d00002f2b07c1722a9988d2efbbe06f5554fda40b2912"
+    },
+    {
+      "identity": "powerhub_inventory_after_fuel_insert_evaluate_alerts()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "074bcdbb6b847c663812939252b969771bde5a1f1b956490bfe4a53ca65999d0"
+    },
+    {
+      "identity": "powerhub_inventory_evaluate_fuel_alerts(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f378153d33577bbfb51f3124e9e51ad1e42ec780c9cc5045a33e74f953a613b8"
+    },
+    {
+      "identity": "powerhub_inventory_fuel_consumption_cost_report_period(bigint,bigint,text,date,date,date,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "855344751e1b811f491879ec996f6c25603f9d9dc5ba0065e87a5c570d18c442"
+    },
+    {
+      "identity": "powerhub_inventory_fuel_consumption_report_period(bigint,bigint,text,date,date,date,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a1b4a69d0dee3480a2bcd80db87c9eb8a5173d41c3b46f037b3f83a907dbe2d5"
+    },
+    {
+      "identity": "powerhub_inventory_fuel_consumption_report_window(bigint,bigint,timestamp with time zone,timestamp with time zone,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "16b2cbeefba7e32c2ce037cabbd2020be5d8bebcd796c439970dd41de35d52a6"
+    },
+    {
+      "identity": "powerhub_inventory_fuel_consumption_report(bigint,bigint,date,date,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4838860ddca236a7430404fe492915307f5a5d9b35f1bf04252ede20eb411e43"
+    },
+    {
+      "identity": "powerhub_inventory_list_fuel_alert_dispatches(bigint,bigint,date,date,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e72c8b81f440b7aebe9b6af26ca3380e4f1dd9b40ef6267f440fedb4cb110c12"
+    },
+    {
+      "identity": "powerhub_inventory_list_fuel_alert_settings(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "3eda6c7dbb07b7593b5dbe223d2985f8f402fe346e4972e9ed29a51f66e89da3"
+    },
+    {
+      "identity": "powerhub_inventory_list_fuel_events(bigint,bigint,date,date,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "9ce1bcaec216526c6e9ddbd28ad360cd9ac73fa84bb3fa7e4c5873439a6a7117"
+    },
+    {
+      "identity": "powerhub_inventory_list_fuel_readings(bigint,bigint,bigint,text,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4399daf7296fdfb9e03cccad8d862ed7c422727433b574b20db0d209e265bb66"
+    },
+    {
+      "identity": "powerhub_inventory_record_fuel_fill(bigint,bigint,bigint,bigint,bigint,bigint,bigint,numeric,timestamp with time zone,numeric,numeric,numeric,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7c7a4e45ffe66ee720c7a69ef2c16cc86d18175738f6cd72083d4cb208cfb36f"
+    },
+    {
+      "identity": "powerhub_inventory_record_fuel_reading(bigint,bigint,bigint,bigint,text,bigint,numeric,timestamp with time zone,text,text,bigint,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "3cf3f63c4a01040a1018c56743f41097886d625240a79b7a2e5774a7f1f267bf"
+    },
+    {
+      "identity": "powerhub_inventory_transfer_stock(bigint,bigint,bigint,bigint,bigint,bigint,numeric,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7d7d4f5d18dec55e049575494df8fdb746a5044147b706b9dd841bf9462e2f7e"
+    },
+    {
+      "identity": "powerhub_inventory_upsert_fuel_alert_settings(bigint,bigint,bigint,bigint,bigint,numeric,numeric,numeric,boolean,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c67f049ed96b298348f7d82032d181607c2534e94ed3b273f0f6d8821e56725c"
+    },
+    {
+      "identity": "powerhub_list_field_reading_assignments(bigint,bigint,text,boolean,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "bedf2dc8388a236b7ade3f8628e1d86f667e65cf8b47630c098ad8eb6a094f53"
+    },
+    {
+      "identity": "powerhub_mobile_create_single_device_session(bigint,bigint,text,text,timestamp with time zone,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "be0bd2c0743d4c8003be1ae160e4dfe9fa8ab6b50ae6cb545e3e0d489eba5f74"
+    },
+    {
+      "identity": "powerhub_mobile_rotate_refresh_session(text,text,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "af12d817e1284a7b91222788d6033c225f3fc711fc5dc8914c23d61901c26c86"
+    },
+    {
+      "identity": "powerhub_mobile_touch_session(bigint,bigint,bigint,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f13cb3358702c804b0a88739f4305668e1d8aedcb2b3d03ef9ef935ba4edb28b"
+    },
+    {
+      "identity": "powerhub_move_subscriber_field_reader(bigint,bigint,bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f8ea393a22858cd879a1d3e672af4d7cb21ca407f4c93ebdb47a21e4a2fd06b9"
+    },
+    {
+      "identity": "powerhub_notification_insert(bigint,bigint,text,text,text,text,text,text,text,jsonb)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "89c779aa042affb2313cf2f9c1c513c7b2a0ae589b39ec376ec4305e1a3a193f"
+    },
+    {
+      "identity": "powerhub_notification_list(integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "a0fac67c9dc2114535f162fa0832af50089caa7c74b02aa5fe07d01b454a2542"
+    },
+    {
+      "identity": "powerhub_notification_mark_all_read()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "01064f720e09e8ef89b7ab4e030949a778d175029f47136255f390942836fd7a"
+    },
+    {
+      "identity": "powerhub_notification_mark_read(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "714fd2139cbac9cbd748f3a2ae356283683330b13d5c60285631fa45ba5fc60e"
+    },
+    {
+      "identity": "powerhub_notification_unread_count()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "e6a708522c90bad6a45d9b677fc17c6e55b7213fad197770d84ad29b910058b2"
+    },
+    {
+      "identity": "powerhub_notify_admin_pending_request()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "97564edc943aafcb659efa304b13e8e18e6e6cfbe7b2b55bf5225bd306fd4f63"
+    },
+    {
+      "identity": "powerhub_notify_field_sync_received()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4f4958239ff0f1dd339c06ab10e0ebf180ba0d3074283efe692c6ae49902b209"
+    },
+    {
+      "identity": "powerhub_notify_payment_documentation_request()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e84cbc5e3e579f919ec6daac84ae13fc0838664b949ff0006485549c2bf60dd4"
+    },
+    {
+      "identity": "powerhub_owner_set_payment_documentation(bigint,bigint,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8e326655f044ef20e44d39e9ec3843765331662ef29e78ba8fd9b5e5830e543b"
+    },
+    {
+      "identity": "powerhub_payment_documentation_access(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "27ae60d2b8bba3a07bfdc5958690abd13d899ac251ed44a9d7106e9c9041435d"
+    },
+    {
+      "identity": "powerhub_platform_announcement_unread_count_for_user(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ce774b428370802832d021f533aa7972d12d8f6d4eb2684aca7fb9529fb3c92f"
+    },
+    {
+      "identity": "powerhub_prepare_addon_renewal_choices(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "148e3ced4c6ba5ea6a2423c65ec2e45cf66e2d908401c6587aebb92ec7a9018f"
+    },
+    {
+      "identity": "powerhub_process_subscription_lifecycle()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b180e27e6ec703cc1c7fbf8e91dc044f1a0568153b4f819c5dbd05d51228b6ec"
+    },
+    {
+      "identity": "powerhub_project_fuel_event_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "cb15ce59901d64f1112646dd8b671a83bbe62e84b1bd93010c1e8a0df057b621"
+    },
+    {
+      "identity": "powerhub_project_fuel_reading_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2e962e487ee6891e1104b288f80b0187cd224ceeec7e04a6e2adb56c27cd2d26"
+    },
+    {
+      "identity": "powerhub_project_hr_attendance_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0c695012c9c0a9d17fbb7714ed6664c9a7ce9fcbcd573a7c6593cf613f4f5605"
+    },
+    {
+      "identity": "powerhub_project_hr_employee_advance_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7779b2d54cc9293e2c70100262cb5d3ff0a6e7d686089d1b3cd0d814e4988932"
+    },
+    {
+      "identity": "powerhub_project_hr_employee_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "3f2a864a93f7ffee35fcd89d68d81ea7245893c7b4237987c6e5b4502feaab9a"
+    },
+    {
+      "identity": "powerhub_project_hr_payroll_run_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c2de5dbb509781e58f4fc7e05d8a07971f83ebc3b0e3012348bc5e91fbd18ad6"
+    },
+    {
+      "identity": "powerhub_project_maintenance_plan_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4538a773f90a23d2fe133e40e23f827b5c5bef18492aff799e10cf37d8ea8982"
+    },
+    {
+      "identity": "powerhub_project_maintenance_work_order_delta_row(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "3bf4d56f0e5697f28b9b89637ce39f0379905386f8e1d994c17a389508f33d8e"
+    },
+    {
+      "identity": "powerhub_project_maintenance_work_order_part_delta_row(bigint,bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6e10fbf7cd0b8781ccd43a6abcc985fbc0cfd9d154c6e20f98db4be1ed5a4661"
+    },
+    {
+      "identity": "powerhub_publish_company_account_delta(bigint,bigint,bigint[],boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "52180c7dd10f69e24663efaddb2c921ecb93ef9652681f4e22b10bc29e52a477"
+    },
+    {
+      "identity": "powerhub_pull_fuel_maintenance_sync_delta(bigint,bigint,text,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f0111ab599cd6dec8eb08294e49719126ca6ae314b7089d8a98dd091fc0056dd"
+    },
+    {
+      "identity": "powerhub_pull_hr_sync_delta(bigint,bigint,text,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "183f5a19e1a2f3ff307c690a63747eca8137693082d8204e8550f18cf7a35ffb"
+    },
+    {
+      "identity": "powerhub_pull_inventory_sync_delta(bigint,bigint,text,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6be4b7430d4f627a6aead776efc9725f12363f56386658f5226d907fc8a470a9"
+    },
+    {
+      "identity": "powerhub_pull_operational_sync_delta(bigint,bigint,text,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "dcc392c882b36d568fa52bf2694e5a6418beb9ac2a95d19fe9d1db2feb1083b3"
+    },
+    {
+      "identity": "powerhub_pull_sync_delta(bigint,bigint,text,bigint,bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "79f45c1e24e0c33f369b5aed98097fee78b572e1a9a3601c861d28b8c223dc94"
+    },
+    {
+      "identity": "powerhub_queue_invoice_sms_after_issue()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ab192a47a1d2c857efc806808ac62845002599944cb6e70ff815c598787021dc"
+    },
+    {
+      "identity": "powerhub_reconcile_expired_field_readers(timestamp with time zone,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "54576420851225722c6e16032ccdb3576f1d9b34f77b875e7f2534a10c45ad85"
+    },
+    {
+      "identity": "powerhub_reconcile_field_reader_after_membership_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "26fb171178808fcf6be1be19c7524a1a4349714b0374d003a96fba25ad0902dc"
+    },
+    {
+      "identity": "powerhub_reconcile_field_reader_after_profile_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "17b2b6fe295bb418ef47f6db0bd559e593b8e32aae57a1e7e362f1a687ac141b"
+    },
+    {
+      "identity": "powerhub_reconcile_field_reader_after_user_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f668a31a65becfa5f67ed9e85285d1867ec995c407e23eefb5415b9c6429878e"
+    },
+    {
+      "identity": "powerhub_reconcile_field_reader_selection_at(bigint,bigint,bigint,timestamp with time zone)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b867ad20e5ea0d2ac77c0d23ee3c556d9e0ebb630610524e074a2d8afee3adb7"
+    },
+    {
+      "identity": "powerhub_reconcile_field_reader_selection(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4230f1d81d762509035bbde2ba13228d6230d790f3418ef4d8cb5990897ca812"
+    },
+    {
+      "identity": "powerhub_record_quota_alert(bigint,bigint,bigint,text,text,integer,integer,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d7c43fe010370ea1c7cab45686fc16919680574ade1cda82a1dd5283818d208d"
+    },
+    {
+      "identity": "powerhub_record_security_deposit_receipt(bigint,bigint,bigint,bigint,text,numeric,bigint,text,text,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "686e383e047ed2ade0ee928c8fa860753f9c45037cb11e3d29d7954ff4fea864"
+    },
+    {
+      "identity": "powerhub_record_tenant_search_metric(bigint,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "7c035d7b650fdb6d583c30fab93a46cf5e851a97a4b1775b9eee368ef367d417"
+    },
+    {
+      "identity": "powerhub_refresh_fuel_event_delta_after_item_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "e5a84b1c25f09a3708bb4dea1fc2cfd92515d5e95cd7b9472f41884483b9b395"
+    },
+    {
+      "identity": "powerhub_refresh_fuel_event_delta_after_warehouse_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a9fcce24d6a32c7df32a949981e4f363adbc4a05247ab64148adaf7e65d3c817"
+    },
+    {
+      "identity": "powerhub_refresh_fuel_event_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6a6f7daeeb689a3085be3870e50fc644e3142bbeee5750c168ebf50b47af756e"
+    },
+    {
+      "identity": "powerhub_refresh_fuel_maintenance_delta_after_generator_name_up()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "31a052a3bfd92dfcaf5d9d5b19032e07ba215de24bf78135115d64d1138a5f6c"
+    },
+    {
+      "identity": "powerhub_refresh_fuel_reading_delta_after_warehouse_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "576df1a20d86b6a4e9f2b169170657e7248d8f253ad3d1fcf283c9b65a878b5f"
+    },
+    {
+      "identity": "powerhub_refresh_fuel_reading_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c852df1b9f82c677f3bb851d495a0ac6dd4893ea260de06c6641a29599168dfe"
+    },
+    {
+      "identity": "powerhub_refresh_hr_attendance_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "5ce957092c63e39391a69e62eec99f531c7d173e19fa2efac9595a1e420e2ed3"
+    },
+    {
+      "identity": "powerhub_refresh_hr_attendance_for_employee(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "0243bf9dac8a1232400d888f39e26d4c797990802845f383cf37bea59bdac168"
+    },
+    {
+      "identity": "powerhub_refresh_hr_employee_advances_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "4621c228cc485946ace94d0a2bc80bd0f30d71e930255123cafc8aa4c92f34c6"
+    },
+    {
+      "identity": "powerhub_refresh_hr_employee_directory_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ca7d7085f2bf19ba82caffb56b411ab0f6f7a76242ba2d2dfec4e403d7b48357"
+    },
+    {
+      "identity": "powerhub_refresh_hr_payroll_runs_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "bdf60ec4ff1ab82c62f064f49b7ea8fdabfab85d5fc119de55a2913c9af2d242"
+    },
+    {
+      "identity": "powerhub_refresh_inventory_purchase_header_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8d2760b20df159b010b464d4b4927b5a7dca91c8642f2d4e78aff250bb9ba7dc"
+    },
+    {
+      "identity": "powerhub_refresh_inventory_purchase_receipt_header_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "88100ebd1ab9e554e9e2b3bb03e122d04f455f23758152a90a61d1da5a5568c2"
+    },
+    {
+      "identity": "powerhub_refresh_inventory_stocktake_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "c5ad93729dc00ba89adc0d991aa9a38bfbf004bee077524e6ce85ca7c68f4694"
+    },
+    {
+      "identity": "powerhub_refresh_inventory_supplier_return_header_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a63aa4a12e1e6d3a4cb289ed87bd2433fffb20b4ad2f107dfd8e7efdd4c8ddb6"
+    },
+    {
+      "identity": "powerhub_refresh_maintenance_order_delta_after_supplier_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "040cc4fe444ca1f204a832d06cabea83d2fd2a8eb48280c80f495e0e911bddfc"
+    },
+    {
+      "identity": "powerhub_refresh_maintenance_part_delta_after_warehouse_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "9b416a968799404208ad91bb4ac907fc84c5e2fa7a2ed71a4bd7b516944c9822"
+    },
+    {
+      "identity": "powerhub_refresh_maintenance_part_delta_order(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "95bb604f2e8940a84c29f0f9c486f63ca57ae7ccf2309e148d322ceb1ca3528f"
+    },
+    {
+      "identity": "powerhub_refresh_maintenance_plan_delta_after_alert_change()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f3c29731200c3baf55e00fc4f4852261557de0ddca034e70babc9def7a04e735"
+    },
+    {
+      "identity": "powerhub_refresh_maintenance_plan_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a8bf48503243212a05e8804bbc415640b722a5b4c8ea54cba9315f016a48ab03"
+    },
+    {
+      "identity": "powerhub_refresh_maintenance_work_order_delta_scope(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "1b209e315293dca9d2692a193ae257977d26aca7ba9744f546b4c675635b4014"
+    },
+    {
+      "identity": "powerhub_refresh_operational_delta_after_generator_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "981f6dff5e734ba0f75a02c3ff786306e99a80202e148184ecff5c02f2df49ef"
+    },
+    {
+      "identity": "powerhub_refresh_purchase_child_headers_after_supplier_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "db6876c70b30206c02d94bd30396477d7553fbcc1604b2d3a57b3a7fb21fe8c3"
+    },
+    {
+      "identity": "powerhub_refresh_purchase_child_headers_after_warehouse_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b603c664b7192f24e590ce35ea037665a7e6f47e71b30f0431d9ca7d19c7107e"
+    },
+    {
+      "identity": "powerhub_refresh_purchase_headers_after_supplier_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "975baa317e3c59fd755dc8a29d2ef0341e872d6e81f0b94725d93baa1ea63d27"
+    },
+    {
+      "identity": "powerhub_refresh_purchase_headers_after_warehouse_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d975af30e627bad96c34fac2b8e5de2bc22c6e536bb185f2f94befc2ae342b17"
+    },
+    {
+      "identity": "powerhub_refresh_stocktake_delta_after_warehouse_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "64160dda03a922bb3bbbce249a6cff9919dabfa9b5929ff4236585dc233ff5d4"
+    },
+    {
+      "identity": "powerhub_refresh_supplier_ledger_revision_after_supplier_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "149ff533b66e5bc129daa5826b2d302327e783ef01b575e21c15e3abafe2a0cf"
+    },
+    {
+      "identity": "powerhub_refund_subscriber_security_deposit(bigint,bigint,bigint,bigint,numeric,text,bigint,text,text,uuid,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "666382f49507f200c4a04e35defccc12fb5711bf211373520fce989b93e41c41"
+    },
+    {
+      "identity": "powerhub_release_user_device(uuid,uuid)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "ff200127898eed2d28c442de42f1cbf2fee722678ba00813e1047c5127c8f4e1"
+    },
+    {
+      "identity": "powerhub_request_sms_package_plan(bigint,bigint,bigint,bigint,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d30a5df857442e030725d8febf13f42255995bc55328c4614c733ea5c05aacd7"
+    },
+    {
+      "identity": "powerhub_reschedule_invoice_issued_automation(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "459b50cff8c739faf99543d9d576967a72ba90f037455a4db723a5470fbd9639"
+    },
+    {
+      "identity": "powerhub_reserve_offline_number_grant(bigint,bigint,bigint,uuid,uuid,text,text,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "6c31959d57793d8fc5167491cd3c21f7f9bd922c509a5c14473d018d462b7514"
+    },
+    {
+      "identity": "powerhub_security_deposit_overview(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "1b11f412614490ab1c575bdd76d885f53be438fbf1edefd316d797c7e8bdccc8"
+    },
+    {
+      "identity": "powerhub_set_account_transaction_site_scope()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "33b733d53baf54b253da0f461fa002619520bf4dc37cfde703ac9de40a984979"
+    },
+    {
+      "identity": "powerhub_staging_bootstrap_first_platform_admin()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, auth, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b997ca04a8e6ff245a23d59f4174f2685e903087e93b3fd9be0640c3700c333e"
+    },
+    {
+      "identity": "powerhub_staging_transfer_platform_admin_to_known_e2e_account()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, auth, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b5067333f6e25e19ccaaf49cebd8353a71dbd94cc382b2cdcdf96a1a71d92bde"
+    },
+    {
+      "identity": "powerhub_subscriber_balance_snapshot(bigint,bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=pg_catalog, public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "61eff61e02d6c82d9029ef26f7f2de0c51cc70217a872f2f9ceea3c31baa5421"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_check_rate_limit(text,text,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d99399cc083e2444a313ee30ed09ffdff9aa2dfca18293d206cd9cbaccb3130e"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_invoice(text,text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d5793b9747129a38bc479d44a11987b782ef45732b7d0dee87f3253a0f15a1be"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_list()",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "d390a79c836b8dac4ae18116f1b703bb11b0b15a3b5f2b866163ff298a0e49d8"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_logo_access(bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "a1f9ad0a21ef31a6fc6b01f0f3b7cd1896a2aef1e5643792d097466b3c7e683c"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_lookup(text,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "86be69fff0947316cc89c2c992ff86d55c1cc9797fea801e0a15fdb657e23d87"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_record_attempt(text,text,boolean)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "1b70998351c124b48ba929aa59eef11f85dca94416d6ad518ca81327891b333d"
+    },
+    {
+      "identity": "powerhub_subscriber_portal_theme(text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2aeb6b288efa4df03fd2502b024e4fe7942e1ee77ac1d9fad1953b18ccef838d"
+    },
+    {
+      "identity": "powerhub_sync_generator_create(bigint,text,text,text,numeric,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "82aa627ae8ae37801da4a77cff0e038ac64bf9f4314aba90ca868a876074f660"
+    },
+    {
+      "identity": "powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamp with time zone,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon_exec": false,
+      "authenticated_exec": true,
+      "definition_sha256": "7c72840cc6ed96fe721e6ddcdb2665aedeb7e4df8d06206914a1e4c89ce569b7"
+    },
+    {
+      "identity": "powerhub_sync_sms_addon_end_to_subscription()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f487dbb979717ab79b67b8845083376d88d14e3f3ff268756c9a25b820688fd5"
+    },
+    {
+      "identity": "powerhub_tariff_history_after_write()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "955eda1f7bac4ae4105ee4a31a7b7d1e536701ec53286ca09843723e82eec034"
+    },
+    {
+      "identity": "powerhub_tariff_history_before_update()",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "b0777116bb795af9809543f0217687acdeffcd9e2a33dc30c82f1441ebcbcaa7"
+    },
+    {
+      "identity": "powerhub_unified_messaging_automations(bigint,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "1d2ff2b150f6064a59b062c41d319518a503955a8bedb31e7cc9c5ddabdb1cde"
+    },
+    {
+      "identity": "powerhub_unified_messaging_history(bigint,bigint,text,date,date,text,text,text,text,integer,integer)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "bda02b0f0ddb82addbe69d45a6e44521f8fe1e45be57ae6fbb02984d01f7e685"
+    },
+    {
+      "identity": "powerhub_unified_messaging_templates(bigint,text,text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "2781bd548b3e53e42b7767bf04190a861fc2064fe5fa2b33a93488852c221344"
+    },
+    {
+      "identity": "powerhub_unified_messaging_upsert_automation(bigint,bigint,bigint,text,text,text,text,timestamp with time zone,text,jsonb,jsonb,boolean,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "8a28aa95384e8a6208e41db34e606bf3dfd44ec22507cce1a5f3b9aa52961a74"
+    },
+    {
+      "identity": "powerhub_unified_messaging_upsert_template(bigint,text,text,text,text,text,jsonb,boolean,bigint)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "f06f9cd07db7f61499a157e8ae2f8c8c88f9d13197a9f5b5f840213e6d5c876a"
+    },
+    {
+      "identity": "powerhub_update_tariff_price(bigint,bigint,bigint,bigint,numeric,numeric,numeric)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "9a22f67f8db4c44b357c0af3d65fc3cb9f30f2abda53c847551097ad5863f1eb"
+    },
+    {
+      "identity": "powerhub_validate_package_code(text)",
+      "security_definer": true,
+      "config": [
+        "search_path=public, pg_temp"
+      ],
+      "anon_exec": false,
+      "authenticated_exec": false,
+      "definition_sha256": "5edc51b59ce95db402ee32fef6ba09fe181390281a16402c0bc21a08aa817c33"
+    }
+  ],
+  "approved": false,
+  "signed_approvals": 0
+}

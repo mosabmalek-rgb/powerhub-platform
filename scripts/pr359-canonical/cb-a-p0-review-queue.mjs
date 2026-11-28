@@ -160,6 +160,29 @@ export function summarizePrivilegeReview(report){
   caveat:'Client execute exposure or missing explicit search_path is a review signal, not proof of an exploit or current grant state.'
  }};
 }
+export const recaptureSource=Object.freeze(['pr359-cb-a-p0-staging-recapture-20261128.json','f5297cd9c1608ec4142ca0f44b85ac167884fffa']);
+export function attachReadOnlyRecapture(report,capture){
+ assert.equal(capture.format,'PR359_CB_A_P0_READ_ONLY_RECAPTURE_V1');
+ assert.equal(capture.source_project_ref,'iyuryuhaylhisjfcrwkz');
+ assert.equal(capture.approved,false);
+ assert.equal(capture.signed_approvals,0);
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(report.records.length,296);
+ assert.equal(capture.rows.length,296);
+ const byId=new Map(capture.rows.map(x=>[x.identity,x]));
+ assert.equal(byId.size,296);
+ const records=report.records.map(row=>{
+  const live=byId.get(row.identity);
+  assert.ok(live,'recapture missing identity: '+row.identity);
+  assert.equal(live.security_definer,true);
+  assert.equal(live.definition_sha256,row.definition_sha256,'definition drift: '+row.identity);
+  assert.equal(live.anon_exec,row.anon_execute,'anon EXECUTE drift: '+row.identity);
+  assert.equal(live.authenticated_exec,row.authenticated_execute,'authenticated EXECUTE drift: '+row.identity);
+  assert.ok(Array.isArray(live.config)&&live.config.some(x=>x.startsWith('search_path=')));
+  return {...row,read_only_recapture:{definition_sha256:live.definition_sha256,anon_execute:live.anon_exec,authenticated_execute:live.authenticated_exec,config:live.config},effective_privileges_reviewed:false};
+ });
+ return {...report,records,read_only_recapture_summary:{capture_date:capture.capture_date,matched:records.length,definition_or_client_execute_drift:0,signed_approvals:0,runtime_authorization_verified:false}};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -168,9 +191,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  validateMigrationProvenance(manifest);
  const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
  const gapInputs=loadCbBGapReviewInputs();
- const report=summarizePrivilegeReview(attachGapCallerEvidence(
+ const report=attachReadOnlyRecapture(summarizePrivilegeReview(attachGapCallerEvidence(
   attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...gapInputs)),
-  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8'))));
+  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')))),parsePinned(readFileSync(dir+recaptureSource[0]),recaptureSource[1]));
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,read_only_recapture:report.read_only_recapture_summary,app_owned_approved:false}));
 }
