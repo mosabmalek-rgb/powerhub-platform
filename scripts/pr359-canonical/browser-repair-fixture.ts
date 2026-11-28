@@ -59,16 +59,22 @@ async function rejectAction(task: Promise<unknown>, label: string) {
 async function report(result: Record<string, unknown>) {
   await fetch("/result", { method: "POST", body: JSON.stringify(result), headers: { "Content-Type": "application/json" } });
 }
+const topScope: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:44" };
+const topRow = { ...row, id: 8, workOrderId: 44 };
 async function runPeer() {
-  check(location.hostname === "127.0.0.1" && window.parent !== window, "isolated peer only");
+  const topLevel = location.pathname === "/top-peer";
+  const parent = topLevel ? window.opener as Window | null : window.parent;
+  check(location.hostname === "127.0.0.1" && parent && parent !== window, "isolated peer only");
+  if (topLevel) check(window.top === window, "top-level peer must not be an iframe");
+  const peerScope = topLevel ? topScope : scope;
   const send = (type: string, data: Record<string, unknown> = {}) =>
-    window.parent.postMessage({ type, ...data }, location.origin);
+    parent.postMessage({ type, ...data }, location.origin);
   await new Promise<void>((resolve, reject) => {
     const receive = (event: MessageEvent) => {
-      if (event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "start") return;
+      if (event.origin !== location.origin || event.source !== parent || event.data?.type !== "start") return;
       window.removeEventListener("message", receive);
-      const pending = withDeltaSyncLock(scope, async () => {
-        const checkpoint = await getDeltaRepairCheckpoint(scope);
+      const pending = withDeltaSyncLock(peerScope, async () => {
+        const checkpoint = await getDeltaRepairCheckpoint(peerScope);
         send("peer-acquired", { checkpoint });
       });
       send("peer-requested");
@@ -79,14 +85,18 @@ async function runPeer() {
   });
 }
 
-async function repairWithNativePeer() {
+async function repairWithNativePeer(topLevel = false) {
   check(!!navigator.locks, "native Web Locks unavailable");
+  const activeScope = topLevel ? topScope : scope;
+  const activeRow = topLevel ? topRow : row;
+  if (topLevel) await replaceDeltaSnapshot(topScope, [topRow], "3", 1, undefined, 1);
   const frame = document.createElement("iframe");
   frame.src = "/peer";
+  let peer: Window | null = null;
   const messages = new Map<string, any>();
   const waiters = new Map<string, (value: any) => void>();
   const receive = (event: MessageEvent) => {
-    if (event.origin !== location.origin || event.source !== frame.contentWindow || typeof event.data?.type !== "string") return;
+    if (event.origin !== location.origin || event.source !== peer || typeof event.data?.type !== "string") return;
     messages.set(event.data.type, event.data);
     waiters.get(event.data.type)?.(event.data);
   };
@@ -95,10 +105,15 @@ async function repairWithNativePeer() {
     : new Promise(resolve => waiters.set(type, resolve));
   window.addEventListener("message", receive);
   try {
-    await withDeltaSyncLock(scope, async () => {
-      document.body.append(frame);
+    await withDeltaSyncLock(activeScope, async () => {
+      if (topLevel) peer = window.open("/top-peer", "_blank");
+      else {
+        document.body.append(frame);
+        peer = frame.contentWindow;
+      }
+      check(peer, "native peer could not be opened");
       await wait("peer-ready");
-      frame.contentWindow!.postMessage({ type: "start" }, location.origin);
+      peer.postMessage({ type: "start" }, location.origin);
       await wait("peer-requested");
       // The browser must report a queued lock for this user while the parent owns it.
       const name = "powerhub:delta-sync:user:" + scope.userId;
@@ -120,12 +135,13 @@ async function repairWithNativePeer() {
       await withDeltaSyncLock(other, async () => {
         equal(await getDeltaRepairCheckpoint(other), { cursor: "3", repairVersion: 1 }, "independent user lock blocked or changed");
       });
-      await replaceDeltaSnapshot(scope, [{ ...row, itemName: "repaired" }], "4", 3, undefined, 2);
+      await replaceDeltaSnapshot(activeScope, [{ ...activeRow, itemName: "repaired" }], "4", 3, undefined, 2);
     });
     const acquired = await wait("peer-acquired");
     equal(acquired.checkpoint, { cursor: "4", repairVersion: 2 }, "peer did not observe committed repair");
   } finally {
     window.removeEventListener("message", receive);
+    if (topLevel) peer?.close();
     frame.remove();
   }
 }
@@ -271,8 +287,10 @@ async function run() {
     await assertHydratedCache("1", "repaired");
     await assertHydratedCache("9", "other user");
     equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "real cache checkpoint lost on reload");
+    check(sessionStorage.getItem("top-level-peer-verified") === "yes", "missing top-level peer proof");
+    equal(await getDeltaRepairCheckpoint(topScope), { cursor: "4", repairVersion: 2 }, "top-level checkpoint lost on reload");
     check(sessionStorage.getItem("hydration-races-verified") === "yes", "missing hydration race proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS"] });
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS"] });
     return;
   }
   await seedProtected();
@@ -337,6 +355,10 @@ async function run() {
   await hydrationRaceAcceptance();
   sessionStorage.setItem("hydration-races-verified", "yes");
   await repairWithNativePeer();
+  await repairWithNativePeer(true);
+  equal(await getDeltaRepairCheckpoint(topScope), { cursor: "4", repairVersion: 2 }, "top-level checkpoint mismatch");
+  equal((await listDeltaEntities(topScope)).map(x => x.rowData), [{ ...topRow, itemName: "repaired" }], "top-level entity mismatch");
+  sessionStorage.setItem("top-level-peer-verified", "yes");
   await rejectAction(replaceDeltaSnapshot(scope, [row], "4", 4, undefined, 1), "old version unexpectedly committed");
   await assertScope("4", 2, "repaired");
   equal(await readProtected(), before, "outbox changed after repair");
@@ -344,4 +366,4 @@ async function run() {
   sessionStorage.setItem("repair-phase", "reload");
   location.reload();
 }
-(location.pathname === "/peer" ? runPeer() : run()).catch(error => report({ ok: false, error: String(error?.stack ?? error) }));
+(location.pathname === "/peer" || location.pathname === "/top-peer" ? runPeer() : run()).catch(error => report({ ok: false, error: String(error?.stack ?? error) }));

@@ -23,7 +23,7 @@ const result = new Promise((resolve, reject) => { settle = resolve; fail = rejec
 const server = createServer(async (req, res) => {
   res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; frame-ancestors 'self'");
   res.setHeader("Cache-Control", "no-store");
-  if (req.method === "GET" && (req.url === "/" || req.url === "/peer")) {
+  if (req.method === "GET" && (req.url === "/" || req.url === "/peer" || req.url === "/top-peer")) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.end('<!doctype html><title>PR359 isolated repair fixture</title><script type="module" src="/fixture.js"></script>');
   }
@@ -47,7 +47,7 @@ try {
   await once(server, "listening");
   const origin = "http://127.0.0.1:" + server.address().port;
   child = spawn(chrome, ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage", "--disable-background-networking",
-    "--disable-component-update", "--no-first-run", "--no-default-browser-check", "--user-data-dir=" + profile, origin],
+    "--disable-component-update",  "--disable-popup-blocking", "--no-first-run", "--no-default-browser-check", "--user-data-dir=" + profile, origin],
     { stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";
   child.stderr.on("data", data => { stderr = (stderr + data).slice(-8000); });
@@ -56,7 +56,7 @@ try {
   timeout = setTimeout(() => fail(new Error("Native IndexedDB fixture timed out\n" + stderr)), 90000);
   const outcome = await result;
   assert.equal(outcome.ok, true, outcome.error);
-  const required = ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS"];
+  const required = ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS"];
   assert.deepEqual(outcome.markers, required);
   for (const marker of required) console.log(marker);
   console.log("PR359_NATIVE_IDB_FIXTURE_ONLY_NO_HOSTED_AUTHORIZATION");
