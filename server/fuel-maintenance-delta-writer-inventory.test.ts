@@ -34,11 +34,24 @@ describe("CB-A commit-wide lexical writer inventory (not runtime closure)",()=>{
 });
 
 it("discovers indirect projection sources without requiring a journal reference", () => {
-  const relations = ["generators", "inventory_warehouses", "inventory_items", "inventory_suppliers", "inventory_stock_movements", "generator_fuel_readings"];
+  const relations = ["generators", "inventory_warehouses", "inventory_items", "suppliers", "inventory_stock_movements", "generator_fuel_readings"];
   for (const relation of relations) {
     expect(roots).toContain(relation);
     const data = scanFile("server/indirect-writer.ts", "a".repeat(40),
       "UPDATE public." + relation + " SET name = 'x';\nUPDATE public." + relation + "_backup SET name = 'x';");
     expect(data.rows).toEqual([{line:1,roots:[relation],signals:[]}]);
   }
+});
+
+it("uses the physical supplier relation and flags cascade and replica-only trigger candidates", () => {
+  expect(roots).toContain("suppliers");
+  expect(roots).not.toContain("inventory_suppliers");
+  const data = scanFile("supabase/migrations/2_test.sql", "a".repeat(40),
+    "UPDATE public.suppliers SET name = 'x';\nUPDATE public.inventory_suppliers SET name = 'x';\nREFERENCES public.suppliers(id) ON DELETE CASCADE;\nREFERENCES public.suppliers(id) ON UPDATE CASCADE;\nALTER TABLE public.suppliers ENABLE REPLICA TRIGGER t;");
+  expect(data.rows).toEqual([
+    {line:1,roots:["suppliers"],signals:[]},
+    {line:3,roots:["suppliers"],signals:["fk_cascade"]},
+    {line:4,roots:["suppliers"],signals:["fk_cascade"]},
+    {line:5,roots:["suppliers"],signals:["trigger_replica_only"]},
+  ]);
 });

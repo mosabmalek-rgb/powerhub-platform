@@ -8,7 +8,7 @@ import path from 'node:path';
 export const roots = Object.freeze([
  'generator_fuel_events','generator_maintenance_work_orders','generator_maintenance_work_order_parts',
  // Indirect source relations can refresh projections without naming the journal.
- 'generators','inventory_warehouses','inventory_items','inventory_suppliers','inventory_stock_movements','generator_fuel_readings',
+ 'generators','inventory_warehouses','inventory_items','suppliers','inventory_stock_movements','generator_fuel_readings',
  'powerhub_sync_changes','powerhub_sync_scope_state',
  'powerhub_append_fuel_maintenance_delta_sync_change',
  'powerhub_emit_fuel_maintenance_delta_sync_change',
@@ -40,7 +40,9 @@ const bypass = [
  ['replication_role','session_replication_role'],
  ['truncate','truncate[[:space:]]'],
  ['cron','cron[[:space:]]*[.][[:space:]]*schedule'],
- ['dynamic_sql','execute[[:space:]]+format[[:space:]]*[(]']
+ ['dynamic_sql','execute[[:space:]]+format[[:space:]]*[(]'],
+ ['fk_cascade','on[[:space:]]+(delete|update)[[:space:]]+cascade'],
+ ['trigger_replica_only','enable[[:space:]]+replica[[:space:]]+trigger']
 ];
 const grepPattern = [...aliases,...bypass.map(x=>x[1])].join('|');
 const signals = bypass.map(([name,p])=>[name,new RegExp(p.replaceAll('[[:space:]]','\\s'),'i')]);
