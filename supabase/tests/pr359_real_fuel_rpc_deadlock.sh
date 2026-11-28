@@ -83,10 +83,10 @@ verify() {
   run_sql <<SQL
 DO \$verify\$
 BEGIN
- IF (SELECT count(*) FROM public.generator_fuel_events WHERE tenant_id=10 AND site_id=100 AND fuel_item_id=$item AND operation_key IN ('pr359-fuel-deadlock-a1','pr359-fuel-deadlock-a2'))<>$a
+ IF (SELECT count(*) FROM public.generator_fuel_events WHERE tenant_id=10 AND site_id=100 AND fuel_item_id=$item AND operation_key IN ('pr359-fuel-deadlock-a1','pr359-fuel-deadlock-a2','pr359-fuel-deadlock-concurrent-replay'))<>$a
  OR (SELECT count(*) FROM public.generator_fuel_events WHERE tenant_id=10 AND site_id=100 AND fuel_item_id=$item AND operation_key='pr359-fuel-deadlock-b1')<>$b
  OR (SELECT count(*) FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND item_id=$item AND movement_type='fuel_consumption')<>($a+$b)
- OR (SELECT count(*) FROM public.audit_logs WHERE tenant_id=10 AND site_id=100 AND entity_type='generator_fuel_event' AND action='create' AND metadata->>'operationKey' IN ('pr359-fuel-deadlock-a1','pr359-fuel-deadlock-a2','pr359-fuel-deadlock-b1'))<>($a+$b)
+ OR (SELECT count(*) FROM public.audit_logs WHERE tenant_id=10 AND site_id=100 AND entity_type='generator_fuel_event' AND action='create' AND metadata->>'operationKey' IN ('pr359-fuel-deadlock-a1','pr359-fuel-deadlock-a2','pr359-fuel-deadlock-b1','pr359-fuel-deadlock-concurrent-replay'))<>($a+$b)
  OR (SELECT coalesce(sum(CASE WHEN movement_type='adjustment_in' THEN quantity ELSE -quantity END),0) FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND item_id=$item AND warehouse_id=1)<>(10-$a-$b)
  OR (SELECT coalesce(sum(total_cost_amount),0) FROM public.generator_fuel_events WHERE tenant_id=10 AND site_id=100 AND fuel_item_id=$item) IS DISTINCT FROM (8.00*($a+$b))::numeric
  OR (SELECT coalesce(sum(total_cost_amount),0) FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND item_id=$item AND movement_type='fuel_consumption') IS DISTINCT FROM (8.00*($a+$b))::numeric
@@ -108,4 +108,41 @@ fi
 verify 2 1 PR359_REAL_FUEL_RPC_WHOLE_TRANSACTION_RETRY_PASS
 printf '%s\n' 'BEGIN;' "$a1" "$a2" "$b1" 'COMMIT;' | run_sql >/dev/null
 verify 2 1 PR359_REAL_FUEL_RPC_DEADLOCK_REPLAY_PASS
+
+# A single RPC per transaction, same exact operation key and payload.
+# Observe real lock contention and require the same result identity with
+# replayed=true only after the first transaction commits.
+sql="SELECT fuel_event_id::text||'|'||replayed::text FROM public.powerhub_inventory_record_fuel_fill(10,100,1,31001,$item,1,$tank_a,1,'$occurred'::timestamptz,null,null,null,'Replay',null,'pr359-fuel-deadlock-concurrent-replay');"
+coproc WRITER { run_sql 2>"$tmp/replay-a.err"; }
+a_pid="$WRITER_PID"; a_in="${WRITER[1]}"; a_out="${WRITER[0]}"
+printf '%s\n' "SET application_name='pr359_fuel_replay_a';" "SET statement_timeout='30s';" "SET lock_timeout='20s';" 'BEGIN;' "$sql" >&"$a_in"
+IFS= read -r -t 20 result <&"$a_out"
+[[ "$result" =~ ^[1-9][0-9]*\|false$ ]] || { echo "unexpected first response: $result" >&2; exit 1; }
+id="${result%%|*}"
+{
+ printf '%s\n' "SET application_name='pr359_fuel_replay_b';" "SET statement_timeout='30s';" "SET lock_timeout='20s';" 'BEGIN;' "$sql" 'COMMIT;'
+} | run_sql >"$tmp/replay-b.out" 2>"$tmp/replay-b.err" &
+b_pid="$!"
+blocked=0
+for i in $(seq 1 100); do
+ n="$(run_sql <<'SQL'
+SELECT count(*) FROM pg_stat_activity b JOIN pg_stat_activity a ON a.pid=ANY(pg_blocking_pids(b.pid))
+WHERE b.datname=current_database() AND a.datname=current_database()
+AND b.application_name='pr359_fuel_replay_b' AND a.application_name='pr359_fuel_replay_a' AND b.wait_event_type='Lock';
+SQL
+)"
+ if [[ "$n" == 1 ]]; then blocked=1; break; fi
+ sleep 0.1
+done
+[[ "$blocked" == 1 ]] || { cat "$tmp/replay-b.err" >&2; exit 1; }
+printf '%s\n' 'COMMIT;' '\q' >&"$a_in"
+if ! wait "$a_pid"; then cat "$tmp/replay-a.err" >&2; exit 1; fi
+a_pid=''
+if ! wait "$b_pid"; then cat "$tmp/replay-b.err" >&2; exit 1; fi
+b_pid=''
+[[ "$(cat "$tmp/replay-b.out")" == "$id|true" ]] || { cat "$tmp/replay-b.out" >&2; exit 1; }
+verify 3 1 PR359_REAL_FUEL_RPC_CONCURRENT_EXACT_REPLAY_PASS
+# Replay once more with no concurrency and require unchanged effects.
+[[ "$(printf '%s\n' "$sql" | run_sql)" == "$id|true" ]] || exit 1
+verify 3 1 PR359_REAL_FUEL_RPC_CONCURRENT_REPLAY_STABLE_EFFECTS_PASS
 echo PR359_REAL_FUEL_GLOBAL_LOCK_ORDER_APPROVED=FALSE
