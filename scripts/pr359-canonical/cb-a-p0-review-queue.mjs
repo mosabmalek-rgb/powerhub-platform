@@ -183,6 +183,69 @@ export function attachReadOnlyRecapture(report,capture){
  });
  return {...report,records,read_only_recapture_summary:{capture_date:capture.capture_date,matched:records.length,definition_or_client_execute_drift:0,signed_approvals:0,runtime_authorization_verified:false}};
 }
+export const chatGuardSource=Object.freeze(['pr359-cb-a-chat-remaining-guard-screening-20261128.json','b2040b814fab4c8c9246d47878a2daa94af407f2']);
+function guardIdentity(row){
+ const types=row.args ? row.args.split(', ').map(arg=>{
+  const match=/^[a-z_][a-z_0-9]* (.+)$/.exec(arg);
+  assert.ok(match,'unsupported argument shape');
+  return match[1];
+ }).join(',') : '';
+ return row.proname+'('+types+')';
+}
+export function attachChatGuardScreening(report,capture){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(report.signed_approvals,0);
+ assert.equal(capture.environment,'staging');
+ assert.equal(capture.read_only,true);
+ assert.equal(capture.public_count,15);
+ assert.equal(capture.private_count,14);
+ assert.equal(capture.functions.length,29);
+ const seen=new Set();
+ for(const x of capture.functions){
+  assert.ok(x.schema_name==='public'||x.schema_name==='private');
+  const identity=x.schema_name+'.'+guardIdentity(x);
+  assert.ok(!seen.has(identity),'duplicate chat guard identity');
+  seen.add(identity);
+  assert.match(x.definition_sha256,/^[a-f0-9]{64}$/);
+  assert.equal(x.security_definer,true);
+  assert.equal(x.anon_execute,false);
+  assert.equal(x.authenticated_execute,x.schema_name==='public');
+  assert.deepEqual(x.proconfig,['search_path=""']);
+  assert.ok(Array.isArray(x.guard_source_lines)&&x.guard_source_lines.length>0);
+ }
+ const publics=capture.functions.filter(x=>x.schema_name==='public');
+ const privates=capture.functions.filter(x=>x.schema_name==='private');
+ assert.equal(publics.length,15);assert.equal(privates.length,14);
+ const byId=new Map(publics.map(x=>[guardIdentity(x),x]));
+ const privateById=new Map(privates.map(x=>[guardIdentity(x),x]));
+ let matched=0;
+ const records=report.records.map(row=>{
+  const x=byId.get(row.identity);
+  if(!x)return row;
+  matched++;
+  assert.equal(row.review_status,'PENDING');
+  assert.equal(row.reviewer_approval,null);
+  assert.equal(row.definition_sha256,x.definition_sha256,'chat guard definition drift: '+row.identity);
+  assert.ok(row.read_only_recapture,'missing full P0 recapture');
+  assert.equal(row.read_only_recapture.definition_sha256,x.definition_sha256,'chat guard recapture drift');
+  assert.equal(row.read_only_recapture.authenticated_execute,true);
+  assert.equal(row.read_only_recapture.anon_execute,false);
+  assert.deepEqual(row.read_only_recapture.config,x.proconfig);
+  const implementation=privateById.get(row.identity);
+  assert.ok(implementation||row.identity==='chat_ai_rate_message(bigint,text,text)','missing matching private guard');
+  return {...row,chat_guard_screening:{
+   source_blob_sha:chatGuardSource[1],public_definition_sha256:x.definition_sha256,
+   public_guard_source_lines:x.guard_source_lines,
+   private_implementation:implementation?{identity:'private.'+row.identity,definition_sha256:implementation.definition_sha256,
+    anon_execute:false,authenticated_execute:false,guard_source_lines:implementation.guard_source_lines}:null,
+   source_screening_only:true,runtime_authorization_verified:false,caller_closure_approved:false
+  }};
+ });
+ assert.equal(matched,15,'unmatched public chat guard evidence');
+ assert.equal(records.filter(x=>x.chat_guard_screening?.private_implementation).length,14);
+ return {...report,records,chat_guard_screening_summary:{public_matched:15,private_matched:14,
+  source_screening_only:true,runtime_authorization_verified:false,signed_approvals:0}};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -191,9 +254,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  validateMigrationProvenance(manifest);
  const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
  const gapInputs=loadCbBGapReviewInputs();
- const report=attachReadOnlyRecapture(summarizePrivilegeReview(attachGapCallerEvidence(
+ const report=attachChatGuardScreening(attachReadOnlyRecapture(summarizePrivilegeReview(attachGapCallerEvidence(
   attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...gapInputs)),
-  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')))),parsePinned(readFileSync(dir+recaptureSource[0]),recaptureSource[1]));
+  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')))),parsePinned(readFileSync(dir+recaptureSource[0]),recaptureSource[1])),parsePinned(readFileSync(dir+chatGuardSource[0]),chatGuardSource[1]));
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,read_only_recapture:report.read_only_recapture_summary,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,read_only_recapture:report.read_only_recapture_summary,chat_guard_screening:report.chat_guard_screening_summary,app_owned_approved:false}));
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview,attachReadOnlyRecapture,recaptureSource} from './cb-a-p0-review-queue.mjs';
+import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview,attachReadOnlyRecapture,recaptureSource,attachChatGuardScreening,chatGuardSource} from './cb-a-p0-review-queue.mjs';
 import {readFileSync} from 'node:fs';
 const head='a'.repeat(40);
 test('joins all 296 P0 candidates without promoting ownership',()=>{
@@ -87,4 +87,29 @@ test('all 296 read-only recapture records match archived exact definitions and c
  }
  const duplicate=structuredClone(capture);duplicate.rows[1]=duplicate.rows[0];
  assert.throws(()=>attachReadOnlyRecapture(report,duplicate));
+});
+
+test('pins and joins 15 public and 14 private chat guard screenings without approving P0',()=>{
+ const report=attachReadOnlyRecapture(buildP0Review(loadSources(),head),parsePinned(readFileSync('docs/security/'+recaptureSource[0]),recaptureSource[1]));
+ const raw=readFileSync('docs/security/'+chatGuardSource[0]);
+ const evidence=parsePinned(raw,chatGuardSource[1]);
+ const result=attachChatGuardScreening(report,evidence);
+ assert.equal(result.chat_guard_screening_summary.public_matched,15);
+ assert.equal(result.chat_guard_screening_summary.private_matched,14);
+ assert.equal(result.records.filter(x=>x.chat_guard_screening).length,15);
+ assert.ok(result.records.every(x=>x.review_status==='PENDING'&&x.reviewer_approval===null&&!x.effective_privileges_reviewed));
+ assert.equal(result.signed_approvals,0);
+ assert.throws(()=>parsePinned(Buffer.concat([raw,Buffer.from(' ')]),chatGuardSource[1]),/source blob drift/);
+ const publicRow=evidence.functions.findIndex(x=>x.schema_name==='public');
+ const privateRow=evidence.functions.findIndex(x=>x.schema_name==='private');
+ for(const change of [
+  x=>{x.functions[publicRow].definition_sha256='f'.repeat(64)},
+  x=>{x.functions[privateRow].authenticated_execute=true},
+  x=>{x.functions[publicRow].args='p_fake integer'},
+  x=>{x.functions[publicRow].proconfig=['search_path=public']},
+  x=>{x.functions[privateRow]=x.functions[privateRow+1]}
+ ]){
+  const altered=structuredClone(evidence);change(altered);
+  assert.throws(()=>attachChatGuardScreening(report,altered));
+ }
 });
