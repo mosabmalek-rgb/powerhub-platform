@@ -48,6 +48,7 @@ export function assessRootDependencies(snap,reg,fn,rel){
  ]);
  assert.equal(sourceIds.size,978);
  let inTotal=0,outTotal=0,funcCount=0,relCount=0;
+ const subTotals={managed_incoming:0,managed_outgoing:0,unidentified_incoming:0,unidentified_outgoing:0};
  const seen=new Set();
  for(const x of snap.entries){
   assert.ok(ids.has(x.identity),'unknown live root: '+x.identity);
@@ -63,11 +64,13 @@ export function assessRootDependencies(snap,reg,fn,rel){
   assert.ok(x.managed_outgoing<=x.outgoing_edges);
   assert.ok(x.unidentified_incoming<=x.incoming_edges);
   assert.ok(x.unidentified_outgoing<=x.outgoing_edges);
+  for(const k of Object.keys(subTotals)) subTotals[k]+=x[k];
   inTotal+=x.incoming_edges;outTotal+=x.outgoing_edges;
   if(x.kind==='function')funcCount++;else relCount++;
  }
  assert.equal(funcCount,641);assert.equal(relCount,337);
  assert.equal(inTotal,snap.incoming_edge_count);assert.equal(outTotal,snap.outgoing_edge_count);
+ for(const [key,total] of Object.entries(subTotals)) assert.equal(total,snap[key+'_count'],'dependency subtotal mismatch: '+key);
  for(const id of ids)assert.ok(seen.has(id),'missing root '+id);
  return {
   scope:'PR359_R4_ROOT_DEPENDENCIES_VERIFIED_V1',

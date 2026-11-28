@@ -48,3 +48,14 @@ test('changed dependency counts, direction and digests require new review',()=>{
   const x=evidence();mutate(x);assert.throws(()=>assessRootDependencies(...x));
  }
 });
+
+test('rejects nonzero per-root managed and unidentified counts even when they fit the edge counts',()=>{
+ for(const key of ['managed_incoming','managed_outgoing','unidentified_incoming','unidentified_outgoing']){
+  const x=evidence();
+  const direction=key.endsWith('incoming')?'incoming':'outgoing';
+  const entry=x[0].entries.find(row=>row[direction+'_edges']>0);
+  assert.ok(entry);
+  entry[key]=1;
+  assert.throws(()=>assessRootDependencies(...x),/dependency subtotal mismatch/);
+ }
+});
