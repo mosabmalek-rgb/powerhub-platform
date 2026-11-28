@@ -312,7 +312,7 @@ SELECT 'PR359_CHAT_SINGLE_BULK_MONOTONIC_CANDIDATE_PASS';
 
 -- Notification scope parity. The access helper is synthetic, not real JWT/RLS.
 CREATE TABLE public.chat_inbox_notifications(id bigint PRIMARY KEY,user_id bigint NOT NULL,tenant_id bigint NOT NULL,conversation_id bigint,read_at timestamptz);
-CREATE FUNCTION private.chat_rls_can_select_conversation(bigint,bigint) RETURNS boolean LANGUAGE sql AS $ SELECT $1=1 AND $2=1 $;
+CREATE FUNCTION private.chat_rls_can_select_conversation(bigint,bigint) RETURNS boolean LANGUAGE sql AS $visibility_fixture$ SELECT $1=1 AND $2=1 $visibility_fixture$;
 INSERT INTO public.chat_inbox_notifications VALUES
  (1,10,1,1,NULL),(2,10,2,2,NULL),(3,10,2,1,NULL),
  (4,20,1,1,NULL),(5,10,1,NULL,NULL),(6,10,1,1,'2026-01-01T00:00:00Z');
@@ -380,7 +380,10 @@ AS $function$
     ));
 $function$;
 DO $notification_baseline$ BEGIN
- IF private.chat_unread_notification_count()<>2 OR private.chat_mark_all_notifications_read()<>4 THEN
+ IF private.chat_unread_notification_count()<>2 THEN
+   RAISE EXCEPTION 'unexpected baseline unread visibility';
+ END IF;
+ IF private.chat_mark_all_notifications_read()<>4 THEN
    RAISE EXCEPTION 'expected notification visibility discrepancy was not reproduced';
  END IF;
  IF EXISTS(SELECT 1 FROM public.chat_inbox_notifications WHERE id IN (2,3) AND read_at IS NULL) THEN
@@ -424,10 +427,17 @@ BEGIN
  BEGIN PERFORM private.chat_mark_notification_read(2); EXCEPTION WHEN OTHERS THEN IF SQLERRM='NOT_FOUND' THEN v_denied:=true; ELSE RAISE; END IF; END;
  IF NOT v_denied THEN RAISE EXCEPTION 'mark one allowed inaccessible notification'; END IF;
  IF private.chat_mark_all_notifications_read()<>2 THEN RAISE EXCEPTION 'mark all did not match unread visibility'; END IF;
- IF private.chat_unread_notification_count()<>0 OR private.chat_mark_all_notifications_read()<>0 THEN RAISE EXCEPTION 'mark all replay/count mismatch'; END IF;
+ IF private.chat_unread_notification_count()<>0 THEN RAISE EXCEPTION 'mark all unread count mismatch'; END IF;
+ IF private.chat_mark_all_notifications_read()<>0 THEN RAISE EXCEPTION 'mark all replay count mismatch'; END IF;
  IF EXISTS(SELECT 1 FROM public.chat_inbox_notifications WHERE id IN (2,3,4) AND read_at IS NOT NULL) THEN RAISE EXCEPTION 'mark all modified unauthorized notification'; END IF;
  IF EXISTS(SELECT 1 FROM public.chat_inbox_notifications WHERE id IN (1,5) AND read_at IS NULL) THEN RAISE EXCEPTION 'mark all skipped visible notification'; END IF;
  IF (SELECT read_at FROM public.chat_inbox_notifications WHERE id=6) IS DISTINCT FROM '2026-01-01T00:00:00Z'::timestamptz THEN RAISE EXCEPTION 'mark all modified existing read timestamp'; END IF;
 END $notification_candidate$;
 SELECT 'PR359_CHAT_MARK_ALL_VISIBILITY_CANDIDATE_PASS';
+-- Default remains rollback. Only the disposable CI database may retain
+-- the tested candidate for the separate-session concurrency harness.
+\if :{?pr359_concurrency_fixture}
+COMMIT;
+\else
 ROLLBACK;
+\endif

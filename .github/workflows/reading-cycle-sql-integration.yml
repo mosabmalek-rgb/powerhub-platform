@@ -966,4 +966,5 @@ jobs:
           PGPASSWORD: postgres
         run: |
           createdb --host 127.0.0.1 --port 5432 --username postgres pr359_chat_receipt_characterization
-          psql --host 127.0.0.1 --port 5432 --username postgres --dbname pr359_chat_receipt_characterization --set ON_ERROR_STOP=1 --file scripts/pr359-canonical/chat-receipt-characterization.sql
+          psql --host 127.0.0.1 --port 5432 --username postgres --dbname pr359_chat_receipt_characterization --set ON_ERROR_STOP=1 --set pr359_concurrency_fixture=1 --file scripts/pr359-canonical/chat-receipt-characterization.sql
+          bash scripts/pr359-canonical/chat-receipt-concurrency.sh
