@@ -1,4 +1,6 @@
 
+import { QueryClient } from "@tanstack/react-query";
+import { hydrateOfflineQueryCache, persistOfflineQueryForDeltaSync } from "../../client/src/lib/offline-query-cache";
 import { openOfflineWorkspaceDatabase } from "../../client/src/lib/offline-workspace-db";
 import { replaceDeltaSnapshot, getDeltaRepairCheckpoint, listDeltaEntities, pullDeltaPages, withDeltaSyncLock, type DeltaCursorScope, type DeltaPage } from "../../client/src/lib/offline-delta-sync";
 
@@ -127,6 +129,75 @@ async function repairWithNativePeer() {
   }
 }
 
+// Exercise the actual TanStack Query + separate IndexedDB cache store, not
+// merely an injected callback rejection. The scope is independent of the peer test.
+const cacheScope: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:43" };
+const cacheRow = { ...row, id: 7, workOrderId: 43 };
+const cacheKey = [["powerhub", "maintenance", "listParts"], { input: { siteId: 3, workOrderId: 43 }, type: "query" }] as const;
+const cacheData = (name: string) => [{ id: 7, part_id: 7, work_order_id: 43, item_name: name }];
+async function assertHydratedCache(userId: string, expected: string) {
+  const fresh = new QueryClient();
+  try {
+    await hydrateOfflineQueryCache(fresh, userId);
+    const rows = fresh.getQueryData<{ item_name: string }[]>(cacheKey);
+    equal(rows?.map(x => x.item_name), [expected], "actual durable query cache mismatch for user " + userId);
+  } finally { fresh.clear(); }
+}
+async function actualCacheRepair() {
+  const client = new QueryClient();
+  const before = await readProtected();
+  const save = async (userId: string, name: string) => {
+    client.setQueryData(cacheKey, cacheData(name));
+    const query = client.getQueryCache().find({ queryKey: cacheKey, exact: true });
+    check(query, "missing real TanStack query");
+    await persistOfflineQueryForDeltaSync(query, userId);
+  };
+  try {
+    await save("1", "before");
+    await save("9", "other user");
+    await replaceDeltaSnapshot(cacheScope, [cacheRow], "3", 1, undefined, 1);
+    const assertBefore = async () => {
+      equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "3", repairVersion: 1 }, "cache failure advanced checkpoint");
+      equal((await listDeltaEntities(cacheScope)).map(x => x.rowData), [cacheRow], "cache failure changed entities");
+      equal(await readProtected(), before, "real cache repair changed outbox");
+    };
+    let pulls = 0;
+    const input = { scope: cacheScope, afterCursor: "3", repairSnapshot: true, repairVersion: 2,
+      rebuildSnapshot: async () => ({ cursor: "4", rows: [{ ...cacheRow, itemName: "repaired" }], applyCache: () => save("1", "repaired") }),
+      pull: async (args: { afterCursor: string | null }): Promise<DeltaPage> => {
+        pulls++;
+        equal(args.afterCursor, "4", "cache retry resumed at wrong cursor");
+        await assertHydratedCache("1", "repaired");
+        return { status: "ok", entity_type: cacheScope.entityType, current_cursor: "4", retained_from_cursor: "0",
+          snapshot_cursor: null, through_cursor: "4", next_cursor: "4", has_more: false, changes: [] };
+      } };
+    const put = IDBObjectStore.prototype.put;
+    let injected = false;
+    IDBObjectStore.prototype.put = function(value: any, key?: IDBValidKey) {
+      const request = key === undefined ? put.call(this, value) : put.call(this, value, key);
+      if (this.name === "queries" && value?.userId === "1" && !injected) {
+        const tx = this.transaction;
+        request.addEventListener("success", () => { injected = true; tx.abort(); }, { once: true });
+      }
+      return request;
+    };
+    try { await rejectAction(pullDeltaPages(input), "real query-cache abort unexpectedly checkpointed"); }
+    finally { IDBObjectStore.prototype.put = put; }
+    check(injected, "real query-cache request success/transaction abort not injected");
+    equal(pulls, 0, "cache failure reached delta pull");
+    await assertBefore();
+    await assertHydratedCache("1", "before");
+    await assertHydratedCache("9", "other user");
+    const result = await pullDeltaPages(input);
+    equal(result.cursor, "4", "actual cache retry failed");
+    equal(pulls, 1, "actual retry pull count");
+    equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "actual cache retry checkpoint");
+    equal((await listDeltaEntities(cacheScope)).map(x => x.rowData), [{ ...cacheRow, itemName: "repaired" }], "actual cache retry entity");
+    await assertHydratedCache("9", "other user");
+    equal(await readProtected(), before, "real cache retry changed outbox");
+  } finally { client.clear(); }
+}
+
 async function run() {
   check(location.hostname === "127.0.0.1", "local fixture only");
   if (sessionStorage.getItem("repair-phase") === "reload") {
@@ -147,7 +218,10 @@ async function run() {
     equal(await readProtected(), JSON.parse(baseline), "outbox changed during delta catch-up");
     check(sessionStorage.getItem("obsolete-run-verified") === "yes", "missing obsolete-run proof");
     check(sessionStorage.getItem("cache-retry-verified") === "yes", "missing cache retry proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS"] });
+    await assertHydratedCache("1", "repaired");
+    await assertHydratedCache("9", "other user");
+    equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "real cache checkpoint lost on reload");
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS"] });
     return;
   }
   await seedProtected();
@@ -208,6 +282,7 @@ async function run() {
   await assertScope("3", 1, "before");
   equal(await readProtected(), before, "outbox changed during cache failure");
   sessionStorage.setItem("cache-retry-verified", "yes");
+  await actualCacheRepair();
   await repairWithNativePeer();
   await rejectAction(replaceDeltaSnapshot(scope, [row], "4", 4, undefined, 1), "old version unexpectedly committed");
   await assertScope("4", 2, "repaired");
