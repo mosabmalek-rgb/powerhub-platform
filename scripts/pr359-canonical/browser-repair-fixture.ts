@@ -1,7 +1,7 @@
 
 import { QueryClient } from "@tanstack/react-query";
 import superjson from "superjson";
-import { hydrateOfflineQueryCache, offlineQueryCacheKey, persistOfflineQueryForDeltaSync } from "../../client/src/lib/offline-query-cache";
+import { hydrateOfflineQueryCache, offlineQueryCacheKey, persistOfflineQueryForDeltaSync, pruneOfflineQueryCache } from "../../client/src/lib/offline-query-cache";
 import { openOfflineWorkspaceDatabase } from "../../client/src/lib/offline-workspace-db";
 import { replaceDeltaSnapshot, getDeltaRepairCheckpoint, listDeltaEntities, pullDeltaPages, withDeltaSyncLock, type DeltaCursorScope, type DeltaPage } from "../../client/src/lib/offline-delta-sync";
 
@@ -209,6 +209,56 @@ async function hydrationRaceAcceptance() {
   }
   equal(await readProtected(), before, "hydration race touched protected stores");
 }
+// Queue a refresh after prune has read its candidates, but before its
+// subsequent write transaction. The new record must survive, while an
+// unchanged expired record still has to be removed.
+async function pruneRaceAcceptance() {
+  const before = await readProtected();
+  const now = Date.now();
+  await pruneOfflineQueryCache(now);
+  const serializedQueryKey = offlineQueryCacheKey(cacheKey);
+  const stale = { key: "103:" + serializedQueryKey, userId: "103", serializedQueryKey,
+    serializedData: superjson.stringify(cacheData("expired")), updatedAt: 1, expiresAt: now - 1 };
+  const unchanged = { ...stale, key: "104:" + serializedQueryKey, userId: "104" };
+  const refreshed = { ...stale, serializedData: superjson.stringify(cacheData("fresh")), updatedAt: now, expiresAt: null };
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open("powerhub-offline-cache", 2);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const write = (records: typeof refreshed[] | (typeof refreshed | typeof stale)[]) => new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("queries", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("prune race write failed"));
+    for (const record of records) tx.objectStore("queries").put(record);
+  });
+  const read = (key: string) => new Promise<unknown>((resolve, reject) => {
+    const tx = db.transaction("queries", "readonly");
+    const req = tx.objectStore("queries").get(key);
+    tx.oncomplete = () => resolve(req.result);
+    tx.onabort = tx.onerror = () => reject(tx.error);
+  });
+  try {
+    await write([stale, unchanged]);
+    const getAll = IDBObjectStore.prototype.getAll;
+    let refresh: Promise<void> | undefined;
+    IDBObjectStore.prototype.getAll = function(...args: Parameters<typeof getAll>) {
+      const req = getAll.apply(this, args);
+      if (this.name === "queries" && !refresh) {
+        req.addEventListener("success", () => { refresh = write([refreshed]); }, { once: true });
+      }
+      return req;
+    };
+    try { await pruneOfflineQueryCache(now); }
+    finally { IDBObjectStore.prototype.getAll = getAll; }
+    check(refresh, "prune refresh race not exercised");
+    await refresh;
+    equal(await read(stale.key), refreshed, "prune deleted a refreshed durable record");
+    equal(await read(unchanged.key), undefined, "prune failed to remove unchanged expired record");
+    await assertHydratedCache("103", "fresh");
+    equal(await readProtected(), before, "prune race touched protected stores");
+  } finally { db.close(); }
+}
 async function actualCacheRepair() {
   const client = new QueryClient();
   const before = await readProtected();
@@ -289,8 +339,10 @@ async function run() {
     equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "real cache checkpoint lost on reload");
     check(sessionStorage.getItem("top-level-peer-verified") === "yes", "missing top-level peer proof");
     equal(await getDeltaRepairCheckpoint(topScope), { cursor: "4", repairVersion: 2 }, "top-level checkpoint lost on reload");
+    check(sessionStorage.getItem("prune-race-verified") === "yes", "missing prune race proof");
+    await assertHydratedCache("103", "fresh");
     check(sessionStorage.getItem("hydration-races-verified") === "yes", "missing hydration race proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS"] });
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS"] });
     return;
   }
   await seedProtected();
@@ -354,6 +406,8 @@ async function run() {
   await actualCacheRepair();
   await hydrationRaceAcceptance();
   sessionStorage.setItem("hydration-races-verified", "yes");
+  await pruneRaceAcceptance();
+  sessionStorage.setItem("prune-race-verified", "yes");
   await repairWithNativePeer();
   await repairWithNativePeer(true);
   equal(await getDeltaRepairCheckpoint(topScope), { cursor: "4", repairVersion: 2 }, "top-level checkpoint mismatch");

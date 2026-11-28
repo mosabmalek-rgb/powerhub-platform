@@ -161,12 +161,44 @@ async function deleteQueryCacheKeys(keys: readonly string[]) {
   });
 }
 
+// Pruning is based on a read snapshot. Recheck each candidate under the
+// write transaction so an intervening refresh is not deleted by stale evidence.
+function sameOfflineQueryRecord(current: OfflineQueryRecord | undefined, original: OfflineQueryRecord): boolean {
+  return !!current && current.key === original.key && current.userId === original.userId &&
+    current.serializedQueryKey === original.serializedQueryKey &&
+    current.serializedData === original.serializedData &&
+    Object.is(current.updatedAt, original.updatedAt) && Object.is(current.expiresAt, original.expiresAt);
+}
+
+async function deleteUnchangedQueryRecords(records: readonly OfflineQueryRecord[]): Promise<void> {
+  if (!records.length) return;
+  const database = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    let transaction: IDBTransaction;
+    try { transaction = database.transaction(QUERY_STORE, "readwrite"); }
+    catch (error) { database.close(); reject(error); return; }
+    transaction.oncomplete = () => { database.close(); resolve(); };
+    transaction.onabort = transaction.onerror = () => {
+      database.close(); reject(transaction.error ?? new Error("تعذر تنظيف الكاش المحلي."));
+    };
+    const store = transaction.objectStore(QUERY_STORE);
+    for (const original of records) {
+      const request = store.get(original.key);
+      request.onsuccess = () => {
+        if (sameOfflineQueryRecord(request.result as OfflineQueryRecord | undefined, original)) {
+          store.delete(original.key);
+        }
+      };
+    }
+  });
+}
+
 export async function pruneOfflineQueryCache(now = Date.now()) {
   if (pruneInFlight) return pruneInFlight;
   pruneInFlight = (async () => {
     let records: OfflineQueryRecord[];
     try { records = await withStore<OfflineQueryRecord[]>(QUERY_STORE, "readonly", (store) => store.getAll()); } catch { return; }
-    const remove = new Set<string>();
+    const remove = new Map<string, OfflineQueryRecord>();
     const byUser = new Map<string, OfflineQueryRecord[]>();
     for (const record of records) {
       const expiryValid = record.expiresAt === null || (Number.isFinite(record.expiresAt) && record.expiresAt > now);
@@ -174,16 +206,16 @@ export async function pruneOfflineQueryCache(now = Date.now()) {
         typeof record.userId === "string" && record.userId.length > 0 &&
         typeof record.serializedData === "string" && typeof record.serializedQueryKey === "string" &&
         isOfflineQueryRecordUsable(record, record.userId, now);
-      if (!valid) { remove.add(record.key); continue; }
+      if (!valid) { remove.set(record.key, record); continue; }
       const group = byUser.get(record.userId) ?? [];
       group.push(record);
       byUser.set(record.userId, group);
     }
     for (const group of byUser.values()) {
       group.sort((a, b) => b.updatedAt - a.updatedAt);
-      for (const record of group.slice(OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER)) remove.add(record.key);
+      for (const record of group.slice(OFFLINE_QUERY_CACHE_MAX_RECORDS_PER_USER)) remove.set(record.key, record);
     }
-    try { await deleteQueryCacheKeys([...remove]); } catch { /* cache maintenance is best effort */ }
+    try { await deleteUnchangedQueryRecords([...remove.values()]); } catch { /* cache maintenance is best effort */ }
   })().finally(() => { pruneInFlight = null; });
   return pruneInFlight;
 }
@@ -210,12 +242,7 @@ async function rewriteSanitizedQueryRecord(
     const request = store.get(original.key);
     request.onsuccess = () => {
       const current = request.result as OfflineQueryRecord | undefined;
-      if (!isStillCurrent() || !current ||
-          current.userId !== original.userId ||
-          current.serializedQueryKey !== original.serializedQueryKey ||
-          current.serializedData !== original.serializedData ||
-          current.updatedAt !== original.updatedAt ||
-          current.expiresAt !== original.expiresAt) return;
+      if (!isStillCurrent() || !sameOfflineQueryRecord(current, original)) return;
       store.put(sanitized);
       rewritten = true;
     };
