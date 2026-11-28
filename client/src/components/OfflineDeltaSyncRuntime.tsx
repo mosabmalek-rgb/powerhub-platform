@@ -4,6 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { getSupabaseSession } from "@/lib/supabase";
 import { persistOfflineQueryForDeltaSync } from "@/lib/offline-query-cache";
+import { captureSnapshotQueryBoundary } from "@/lib/offline-snapshot-query-boundary";
 import {
   clearDeltaSyncDataForUser,
   assertDeltaSnapshotWatermark,
@@ -542,6 +543,19 @@ export function OfflineDeltaSyncRuntime() {
       };
       const rebuildSnapshot = async (requestedCursor: string) => {
         assertDeltaRuntimeCurrent(isRunCurrent);
+        const getMatchingQueries = () => queryClient.getQueryCache().findAll().filter((query) => {
+          if (queryIsSupportedList(query) !== candidate.entityType || !getQueryRows(query)) return false;
+          if (candidate.entityType === "sites") {
+            const segments = getSegments(query.queryKey);
+            return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
+          }
+          return (candidate.entityType === "company_accounts"
+            ? Number(getOfflineQueryInput(query.queryKey).branchId)
+            : findNumberProperty(query.queryKey, "siteId")) === candidate.siteId;
+        });
+        // No server watermark exists on ordinary live list results. Treat any
+        // competing local query change as ambiguous and retry, never overwrite it.
+        const boundary = captureSnapshotQueryBoundary(getMatchingQueries);
         // Rows and cursor are read by one STABLE PostgreSQL RPC, so changes committed
         // during snapshot creation cannot fall between the snapshot and its cursor.
         const snapshot = await utils.powerhub.deltaSync.snapshot.fetch({
@@ -580,19 +594,11 @@ export function OfflineDeltaSyncRuntime() {
         }
         const applyCache = async () => {
           assertDeltaRuntimeCurrent(isRunCurrent);
-          const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
-            if (queryIsSupportedList(query) !== candidate.entityType || !getQueryRows(query)) return false;
-            if (candidate.entityType === "sites") {
-              const segments = getSegments(query.queryKey);
-              return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
-            }
-            return (candidate.entityType === "company_accounts"
-              ? Number(getOfflineQueryInput(query.queryKey).branchId)
-              : findNumberProperty(query.queryKey, "siteId")) === candidate.siteId;
-          });
-          if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
+          boundary.assertUnchanged();
+          const matchingQueries = getMatchingQueries();
           for (const query of matchingQueries) {
             assertDeltaRuntimeCurrent(isRunCurrent);
+            boundary.assertUnchanged();
             if (candidate.entityType === "sites") {
               const current = query.state.data as AnyRow[];
               const siteRows = (queryRows as AnyRow[]).filter((row) => Number(row.id) === candidate.siteId);
@@ -709,8 +715,11 @@ export function OfflineDeltaSyncRuntime() {
             } else {
               queryClient.setQueryData(query.queryKey, queryRows);
             }
-            await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isRunCurrent);
+            boundary.acceptLocalWrite(query);
+            await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(),
+              () => isRunCurrent() && boundary.isUnchanged());
             assertDeltaRuntimeCurrent(isRunCurrent);
+            boundary.assertUnchanged();
           }
         };
         return {

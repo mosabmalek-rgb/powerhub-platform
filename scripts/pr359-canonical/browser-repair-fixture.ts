@@ -1,5 +1,6 @@
 
 import { QueryClient } from "@tanstack/react-query";
+import { captureSnapshotQueryBoundary } from "../../client/src/lib/offline-snapshot-query-boundary";
 import superjson from "superjson";
 import { hydrateOfflineQueryCache, offlineQueryCacheKey, persistOfflineQueryForDeltaSync, pruneOfflineQueryCache } from "../../client/src/lib/offline-query-cache";
 import { openOfflineWorkspaceDatabase } from "../../client/src/lib/offline-workspace-db";
@@ -277,6 +278,29 @@ async function actualCacheRepair() {
       equal((await listDeltaEntities(cacheScope)).map(x => x.rowData), [cacheRow], "cache failure changed entities");
       equal(await readProtected(), before, "real cache repair changed outbox");
     };
+    // Simulate a live success while an older snapshot is in flight, using the
+    // same boundary helper as the operational runtime and actual durable cache.
+    let racePulls = 0;
+    await rejectAction(pullDeltaPages({
+      scope: cacheScope, afterCursor: "3", repairSnapshot: true, repairVersion: 2,
+      rebuildSnapshot: async () => {
+        const boundary = captureSnapshotQueryBoundary(() => client.getQueryCache().findAll());
+        await save("1", "live-newer");
+        return { cursor: "4", rows: [{ ...cacheRow, itemName: "stale-snapshot" }],
+          applyCache: async () => {
+            boundary.assertUnchanged();
+            await save("1", "stale-snapshot");
+          } };
+      },
+      pull: async () => { racePulls++; throw new Error("racing snapshot reached pull"); },
+    }), "racing snapshot unexpectedly committed");
+    equal(racePulls, 0, "racing snapshot reached Delta pull");
+    equal(client.getQueryData(cacheKey), cacheData("live-newer"), "live query was overwritten");
+    await assertBefore();
+    await assertHydratedCache("1", "live-newer");
+    await assertHydratedCache("9", "other user");
+    sessionStorage.setItem("snapshot-query-boundary-verified", "yes");
+    await save("1", "before");
     let pulls = 0;
     const input = { scope: cacheScope, afterCursor: "3", repairSnapshot: true, repairVersion: 2,
       rebuildSnapshot: async () => ({ cursor: "4", rows: [{ ...cacheRow, itemName: "repaired" }], applyCache: () => save("1", "repaired") }),
@@ -389,6 +413,7 @@ async function run() {
     check(sessionStorage.getItem("obsolete-run-verified") === "yes", "missing obsolete-run proof");
     check(sessionStorage.getItem("cache-retry-verified") === "yes", "missing cache retry proof");
     check(sessionStorage.getItem("cache-ahead-checkpoint-replay-verified") === "yes", "missing cache-ahead checkpoint replay proof");
+    check(sessionStorage.getItem("snapshot-query-boundary-verified") === "yes", "missing snapshot query boundary proof");
     await assertHydratedCache("1", "repaired");
     await assertHydratedCache("9", "other user");
     equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "real cache checkpoint lost on reload");
@@ -397,7 +422,7 @@ async function run() {
     check(sessionStorage.getItem("prune-race-verified") === "yes", "missing prune race proof");
     await assertHydratedCache("103", "fresh");
     check(sessionStorage.getItem("hydration-races-verified") === "yes", "missing hydration race proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS", "PR359_NATIVE_CACHE_AHEAD_CHECKPOINT_ABORT_REPLAY_PASS", "PR359_NATIVE_RETENTION_REPAIR_VERSION_PASS"] });
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS", "PR359_NATIVE_CACHE_AHEAD_CHECKPOINT_ABORT_REPLAY_PASS", "PR359_NATIVE_RETENTION_REPAIR_VERSION_PASS", "PR359_NATIVE_SNAPSHOT_LIVE_QUERY_BOUNDARY_PASS"] });
     return;
   }
   await seedProtected();
