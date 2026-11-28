@@ -7,6 +7,8 @@ import path from 'node:path';
 import {auditOwnershipCandidates} from '../pr359-r4/audit-ownership-candidates.mjs';
 import {verifyLiveOwnershipCatalog} from '../pr359-r4/verify-live-ownership-catalog.mjs';
 import {assessRootDependencies} from '../pr359-r4/verify-root-dependency-digests.mjs';
+import {buildIndex} from './source-index.mjs';
+import {validateMigrationProvenance} from '../pr359-r4/verify-legacy-migration-provenance.mjs';
 
 const dir='docs/security/';
 export const sources=Object.freeze({
@@ -59,10 +61,35 @@ export function buildP0Review(input,commit){
   limitations:['Archived metadata only, not a fresh live capture','Historical search_path and service EXECUTE are review hints, not current effective privilege proof','Root pg_depend hashes exclude some managed subobjects and dynamic/runtime dependencies','No executable DDL or ownership authorization'],
   app_owned_approved:false,canonical_baseline_approved:false,destructive_allowlist:[],staging_inplace_go:false,production_inplace_go:false,pr359_merge_go:false,records};
 }
+export function attachHistoricalCandidates(report,index){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(index.canonical_baseline_approved,false);
+ assert.equal(index.object_count,978);
+ assert.equal(index.objects.length,978);
+ const byId=new Map(index.objects.map(x=>[x.id,x]));
+ assert.equal(byId.size,978);
+ const records=report.records.map(row=>{
+  const x=byId.get(row.identity);
+  assert.ok(x&&x.kind==='function','missing source index identity: '+row.identity);
+  assert.equal(x.approved,false);
+  assert.equal(x.exact_signature_verified,false);
+  assert.equal(x.current_executable_definition_verified,false);
+  return {...row,historical_source_status:x.source_status,historical_source_candidates:x.source_candidates};
+ });
+ assert.equal(records.length,296);
+ return {...report,records,historical_source_index_files:index.legacy_files,
+  with_lexical_source_candidates:records.filter(x=>x.historical_source_candidates.length>0).length,
+  without_lexical_source_candidates:records.filter(x=>x.historical_source_candidates.length===0).length,
+  historical_source_candidates_only:true};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
- const report=buildP0Review(loadSources(),commit);
+ const input=loadSources();
+ const manifest=JSON.parse(readFileSync(dir+'pr359-r4-legacy-migration-provenance-20261123.json','utf8'));
+ validateMigrationProvenance(manifest);
+ const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
+ const report=attachHistoricalCandidates(buildP0Review(input,commit),index);
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,app_owned_approved:false}));
 }

@@ -578,141 +578,145 @@ export function OfflineDeltaSyncRuntime() {
             assertDeltaRowWithinScope("readings", row, scope);
           }
         }
-        const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
-          if (queryIsSupportedList(query) !== candidate.entityType || !getQueryRows(query)) return false;
-          if (candidate.entityType === "sites") {
-            const segments = getSegments(query.queryKey);
-            return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
-          }
-          return (candidate.entityType === "company_accounts"
-            ? Number(getOfflineQueryInput(query.queryKey).branchId)
-            : findNumberProperty(query.queryKey, "siteId")) === candidate.siteId;
-        });
-        if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
-        for (const query of matchingQueries) {
+        const applyCache = async () => {
           assertDeltaRuntimeCurrent(isRunCurrent);
-          if (candidate.entityType === "sites") {
-            const current = query.state.data as AnyRow[];
-            const siteRows = (queryRows as AnyRow[]).filter((row) => Number(row.id) === candidate.siteId);
-            const merged = [
-              ...current.filter((row) => Number(row.id) !== candidate.siteId),
-              ...siteRows,
-            ].sort((a, b) => {
-              const aDate = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(String(a.createdAt ?? 0)).getTime();
-              const bDate = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(String(b.createdAt ?? 0)).getTime();
-              return bDate - aDate;
-            });
-            queryClient.setQueryData(query.queryKey, merged);
-          } else if (candidate.entityType === "subscribers" &&
-              getSegments(query.queryKey)[1] === "subscribers" &&
-              getSegments(query.queryKey)[2] === "directoryPage") {
-            queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
-              queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), scope,
-            ));
-          } else if (candidate.entityType === "hr_employee_advances" || candidate.entityType === "hr_payroll_runs") {
-            queryClient.setQueryData(query.queryKey, limitDeltaEntityRows(candidate.entityType, queryRows as AnyRow[]));
-          } else if (candidate.entityType === "hr_employee_directory" || candidate.entityType === "hr_attendance") {
-            const ordered = (queryRows as AnyRow[]).slice().sort((a, b) => {
-              if (candidate.entityType === "hr_attendance") {
-                const left = (a.attendance ?? a) as AnyRow;
-                const right = (b.attendance ?? b) as AnyRow;
-                const leftDate = left.workDate instanceof Date ? left.workDate.getTime() : Date.parse(String(left.workDate ?? left.work_date ?? ""));
-                const rightDate = right.workDate instanceof Date ? right.workDate.getTime() : Date.parse(String(right.workDate ?? right.work_date ?? ""));
-                return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
-                  Number(right.id ?? 0) - Number(left.id ?? 0);
-              }
-              const leftDate = a.createdAt instanceof Date ? a.createdAt.getTime() : Date.parse(String(a.createdAt ?? a.created_at ?? ""));
-              const rightDate = b.createdAt instanceof Date ? b.createdAt.getTime() : Date.parse(String(b.createdAt ?? b.created_at ?? ""));
-              return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) || Number(b.id) - Number(a.id);
-            });
-            queryClient.setQueryData(query.queryKey, ordered.slice(0, candidate.entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS));
-          } else if (candidate.entityType === "invoices") {
-            queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
-              queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), query.state.data, scope,
-            ));
-          } else if (candidate.entityType === "readings" && getSegments(query.queryKey)[2] === "page") {
-            queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(snapshotRowsFromQuery("readings", queryRows), subscriberRowsForSite(queryClient.getQueryCache().findAll(), candidate.siteId, candidate.tenantId), getOfflineQueryInput(query.queryKey), query.state.data, scope));
-          } else if (candidate.entityType === "payments" && getSegments(query.queryKey)[2] === "page") {
-            queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
-          } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
-            queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
-          } else if (candidate.entityType === "fuel_readings" || candidate.entityType === "maintenance_preventive_plans" || candidate.entityType === "fuel_events" || candidate.entityType === "maintenance_work_orders" || candidate.entityType.startsWith("maintenance_work_order_parts:")) {
-            const queryInput = getOfflineQueryInput(query.queryKey);
-            const generatorId = Number(queryInput.generatorId);
-            const workOrderId = Number(queryInput.workOrderId);
-            const filtered = (queryRows as AnyRow[])
-              .filter((row) => (candidate.entityType !== "fuel_readings" && candidate.entityType !== "maintenance_preventive_plans") ||
-                !Number.isSafeInteger(generatorId) || generatorId < 1 ||
-                Number(row.generator_id ?? row.generatorId) === generatorId)
-              .filter((row) => !candidate.entityType.startsWith("maintenance_work_order_parts:") ||
-                Number(row.work_order_id ?? row.workOrderId) === workOrderId)
-              .sort((a, b) => {
-                if (candidate.entityType === "fuel_readings" || candidate.entityType === "fuel_events") {
-                  const field = candidate.entityType === "fuel_readings" ? "recorded_at" : "occurred_at";
-                  const left = Date.parse(String(a[field] ?? ""));
-                  const right = Date.parse(String(b[field] ?? ""));
-                  const idField = candidate.entityType === "fuel_readings" ? "reading_id" : "event_id";
-                  return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
-                    Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
-                }
-                if (candidate.entityType === "maintenance_work_orders") {
-                  const left = Date.parse(String(a.reported_at ?? ""));
-                  const right = Date.parse(String(b.reported_at ?? ""));
-                  return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
-                    Number(b.work_order_id ?? b.id) - Number(a.work_order_id ?? a.id);
-                }
-                if (candidate.entityType.startsWith("maintenance_work_order_parts:")) {
-                  const left = Date.parse(String(a.issued_at ?? ""));
-                  const right = Date.parse(String(b.issued_at ?? ""));
-                  return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0) ||
-                    Number(a.part_id ?? a.id) - Number(b.part_id ?? b.id);
-                }
-                const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
-                return priority(a) - priority(b) ||
-                  String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
-                  Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
+          const matchingQueries = queryClient.getQueryCache().findAll().filter((query) => {
+            if (queryIsSupportedList(query) !== candidate.entityType || !getQueryRows(query)) return false;
+            if (candidate.entityType === "sites") {
+              const segments = getSegments(query.queryKey);
+              return segments[0] === "powerhub" && segments[1] === "sites" && segments[2] === "list";
+            }
+            return (candidate.entityType === "company_accounts"
+              ? Number(getOfflineQueryInput(query.queryKey).branchId)
+              : findNumberProperty(query.queryKey, "siteId")) === candidate.siteId;
+          });
+          if (matchingQueries.length === 0) throw new Error("لا يوجد استعلام قائمة لاستقبال لقطة المزامنة.");
+          for (const query of matchingQueries) {
+            assertDeltaRuntimeCurrent(isRunCurrent);
+            if (candidate.entityType === "sites") {
+              const current = query.state.data as AnyRow[];
+              const siteRows = (queryRows as AnyRow[]).filter((row) => Number(row.id) === candidate.siteId);
+              const merged = [
+                ...current.filter((row) => Number(row.id) !== candidate.siteId),
+                ...siteRows,
+              ].sort((a, b) => {
+                const aDate = a.createdAt instanceof Date ? a.createdAt.getTime() : new Date(String(a.createdAt ?? 0)).getTime();
+                const bDate = b.createdAt instanceof Date ? b.createdAt.getTime() : new Date(String(b.createdAt ?? 0)).getTime();
+                return bDate - aDate;
               });
-            const requestedLimit = Number(queryInput.limit ?? 100);
-            const limit = candidate.entityType === "fuel_readings"
-              ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
-              : candidate.entityType === "fuel_events"
-                ? 100
-                : candidate.entityType === "maintenance_work_orders"
-                  ? 200
-                  : candidate.entityType.startsWith("maintenance_work_order_parts:")
-                    ? filtered.length
-                    : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
-            queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
-          } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
-            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
-            queryClient.setQueryData(query.queryKey, candidate.entityType === "inventory_purchase_receipt_headers"
-              ? sortPurchaseReceiptRows(queryRows as AnyRow[], limit)
-              : sortSupplierReturnRows(queryRows as AnyRow[], limit));
-          } else if (candidate.entityType === "inventory_purchase_headers") {
-            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
-            queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(queryRows as AnyRow[], limit));
-          } else if (candidate.entityType === "inventory_stocktakes") {
-            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
-            queryClient.setQueryData(query.queryKey, sortStocktakeRows(queryRows as AnyRow[], limit));
-          } else if (candidate.entityType === "inventory_stock_movements") {
-            const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
-            const movements = (queryRows as AnyRow[]).slice().sort((a, b) => {
-              const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
-              return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
-            }).slice(0, limit);
-            queryClient.setQueryData(query.queryKey, movements);
-          } else if (candidate.entityType === "inventory_item_units") {
-            const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
-            queryClient.setQueryData(query.queryKey, queryRows.filter((row: AnyRow) => Number(row.itemId ?? row.item_id) === itemId));
-          } else {
-            queryClient.setQueryData(query.queryKey, queryRows);
+              queryClient.setQueryData(query.queryKey, merged);
+            } else if (candidate.entityType === "subscribers" &&
+                getSegments(query.queryKey)[1] === "subscribers" &&
+                getSegments(query.queryKey)[2] === "directoryPage") {
+              queryClient.setQueryData(query.queryKey, projectSubscriberDirectoryPage(
+                queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), scope,
+              ));
+            } else if (candidate.entityType === "hr_employee_advances" || candidate.entityType === "hr_payroll_runs") {
+              queryClient.setQueryData(query.queryKey, limitDeltaEntityRows(candidate.entityType, queryRows as AnyRow[]));
+            } else if (candidate.entityType === "hr_employee_directory" || candidate.entityType === "hr_attendance") {
+              const ordered = (queryRows as AnyRow[]).slice().sort((a, b) => {
+                if (candidate.entityType === "hr_attendance") {
+                  const left = (a.attendance ?? a) as AnyRow;
+                  const right = (b.attendance ?? b) as AnyRow;
+                  const leftDate = left.workDate instanceof Date ? left.workDate.getTime() : Date.parse(String(left.workDate ?? left.work_date ?? ""));
+                  const rightDate = right.workDate instanceof Date ? right.workDate.getTime() : Date.parse(String(right.workDate ?? right.work_date ?? ""));
+                  return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) ||
+                    Number(right.id ?? 0) - Number(left.id ?? 0);
+                }
+                const leftDate = a.createdAt instanceof Date ? a.createdAt.getTime() : Date.parse(String(a.createdAt ?? a.created_at ?? ""));
+                const rightDate = b.createdAt instanceof Date ? b.createdAt.getTime() : Date.parse(String(b.createdAt ?? b.created_at ?? ""));
+                return (Number.isFinite(rightDate) ? rightDate : 0) - (Number.isFinite(leftDate) ? leftDate : 0) || Number(b.id) - Number(a.id);
+              });
+              queryClient.setQueryData(query.queryKey, ordered.slice(0, candidate.entityType === "hr_employee_directory" ? MAX_LOCAL_HR_EMPLOYEE_ROWS : MAX_LOCAL_HR_ATTENDANCE_ROWS));
+            } else if (candidate.entityType === "invoices") {
+              queryClient.setQueryData(query.queryKey, projectInvoiceDeltaPage(
+                queryRows as AnyRow[], getOfflineQueryInput(query.queryKey), query.state.data, scope,
+              ));
+            } else if (candidate.entityType === "readings" && getSegments(query.queryKey)[2] === "page") {
+              queryClient.setQueryData(query.queryKey, projectReadingDeltaPage(snapshotRowsFromQuery("readings", queryRows), subscriberRowsForSite(queryClient.getQueryCache().findAll(), candidate.siteId, candidate.tenantId), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+            } else if (candidate.entityType === "payments" && getSegments(query.queryKey)[2] === "page") {
+              queryClient.setQueryData(query.queryKey, projectPaymentDeltaPage(snapshotRowsFromQuery("payments", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+            } else if (candidate.entityType === "expenses" && getSegments(query.queryKey)[2] === "page") {
+              queryClient.setQueryData(query.queryKey, projectExpenseDeltaPage(snapshotRowsFromQuery("expenses", queryRows), getOfflineQueryInput(query.queryKey), query.state.data, scope));
+            } else if (candidate.entityType === "fuel_readings" || candidate.entityType === "maintenance_preventive_plans" || candidate.entityType === "fuel_events" || candidate.entityType === "maintenance_work_orders" || candidate.entityType.startsWith("maintenance_work_order_parts:")) {
+              const queryInput = getOfflineQueryInput(query.queryKey);
+              const generatorId = Number(queryInput.generatorId);
+              const workOrderId = Number(queryInput.workOrderId);
+              const filtered = (queryRows as AnyRow[])
+                .filter((row) => (candidate.entityType !== "fuel_readings" && candidate.entityType !== "maintenance_preventive_plans") ||
+                  !Number.isSafeInteger(generatorId) || generatorId < 1 ||
+                  Number(row.generator_id ?? row.generatorId) === generatorId)
+                .filter((row) => !candidate.entityType.startsWith("maintenance_work_order_parts:") ||
+                  Number(row.work_order_id ?? row.workOrderId) === workOrderId)
+                .sort((a, b) => {
+                  if (candidate.entityType === "fuel_readings" || candidate.entityType === "fuel_events") {
+                    const field = candidate.entityType === "fuel_readings" ? "recorded_at" : "occurred_at";
+                    const left = Date.parse(String(a[field] ?? ""));
+                    const right = Date.parse(String(b[field] ?? ""));
+                    const idField = candidate.entityType === "fuel_readings" ? "reading_id" : "event_id";
+                    return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                      Number(b[idField] ?? b.id) - Number(a[idField] ?? a.id);
+                  }
+                  if (candidate.entityType === "maintenance_work_orders") {
+                    const left = Date.parse(String(a.reported_at ?? ""));
+                    const right = Date.parse(String(b.reported_at ?? ""));
+                    return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0) ||
+                      Number(b.work_order_id ?? b.id) - Number(a.work_order_id ?? a.id);
+                  }
+                  if (candidate.entityType.startsWith("maintenance_work_order_parts:")) {
+                    const left = Date.parse(String(a.issued_at ?? ""));
+                    const right = Date.parse(String(b.issued_at ?? ""));
+                    return (Number.isFinite(left) ? left : 0) - (Number.isFinite(right) ? right : 0) ||
+                      Number(a.part_id ?? a.id) - Number(b.part_id ?? b.id);
+                  }
+                  const priority = (row: AnyRow) => row.alert_type === "overdue" ? 0 : row.alert_type === "due_soon" ? 1 : 2;
+                  return priority(a) - priority(b) ||
+                    String(a.next_due_at ?? "9999").localeCompare(String(b.next_due_at ?? "9999")) ||
+                    Number(a.plan_id ?? a.id) - Number(b.plan_id ?? b.id);
+                });
+              const requestedLimit = Number(queryInput.limit ?? 100);
+              const limit = candidate.entityType === "fuel_readings"
+                ? Math.min(MAX_LOCAL_FUEL_READING_QUERY_ROWS, Math.max(1, requestedLimit))
+                : candidate.entityType === "fuel_events"
+                  ? 100
+                  : candidate.entityType === "maintenance_work_orders"
+                    ? 200
+                    : candidate.entityType.startsWith("maintenance_work_order_parts:")
+                      ? filtered.length
+                      : MAX_LOCAL_MAINTENANCE_PLAN_QUERY_ROWS;
+              queryClient.setQueryData(query.queryKey, filtered.slice(0, limit));
+            } else if (candidate.entityType === "inventory_purchase_receipt_headers" || candidate.entityType === "inventory_supplier_return_headers") {
+              const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+              queryClient.setQueryData(query.queryKey, candidate.entityType === "inventory_purchase_receipt_headers"
+                ? sortPurchaseReceiptRows(queryRows as AnyRow[], limit)
+                : sortSupplierReturnRows(queryRows as AnyRow[], limit));
+            } else if (candidate.entityType === "inventory_purchase_headers") {
+              const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+              queryClient.setQueryData(query.queryKey, sortPurchaseHeaderRows(queryRows as AnyRow[], limit));
+            } else if (candidate.entityType === "inventory_stocktakes") {
+              const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+              queryClient.setQueryData(query.queryKey, sortStocktakeRows(queryRows as AnyRow[], limit));
+            } else if (candidate.entityType === "inventory_stock_movements") {
+              const limit = Number(getOfflineQueryInput(query.queryKey).limit ?? 100);
+              const movements = (queryRows as AnyRow[]).slice().sort((a, b) => {
+                const dateDiff = new Date(String(b.occurred_at ?? "")).getTime() - new Date(String(a.occurred_at ?? "")).getTime();
+                return dateDiff || Number(b.id ?? b.movement_id) - Number(a.id ?? a.movement_id);
+              }).slice(0, limit);
+              queryClient.setQueryData(query.queryKey, movements);
+            } else if (candidate.entityType === "inventory_item_units") {
+              const itemId = Number(getOfflineQueryInput(query.queryKey).itemId);
+              queryClient.setQueryData(query.queryKey, queryRows.filter((row: AnyRow) => Number(row.itemId ?? row.item_id) === itemId));
+            } else {
+              queryClient.setQueryData(query.queryKey, queryRows);
+            }
+            await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isRunCurrent);
+            assertDeltaRuntimeCurrent(isRunCurrent);
           }
-          await persistOfflineQueryForDeltaSync(query, cacheOwnerId, Date.now(), isRunCurrent);
-          assertDeltaRuntimeCurrent(isRunCurrent);
-        }
+        };
         return {
           cursor: snapshot.snapshot_cursor,
           rows: snapshotRows,
+          applyCache,
         };
       };
       try {

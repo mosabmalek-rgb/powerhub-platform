@@ -106,6 +106,7 @@ jobs:
       - name: CB-A P0 ownership review queue (archived metadata only)
         run: |
           node --test scripts/pr359-r4/verify-root-dependency-digests.test.mjs
+          node --test scripts/pr359-canonical/source-index.test.mjs
           node --test scripts/pr359-canonical/cb-a-p0-review-queue.test.mjs
           node scripts/pr359-canonical/cb-a-p0-review-queue.mjs --out pr359-cb-a-p0-review-queue.json
 

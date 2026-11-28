@@ -1034,3 +1034,45 @@ describe("Atomic repair checkpoint read", () => {
     expect(pull).toHaveBeenCalledWith({ afterCursor: "12", throughCursor: null, pageSize: 200 });
   });
 });
+
+
+describe("Validated snapshot cache application boundary", () => {
+  const target: DeltaCursorScope = { ...scope, entityType: "maintenance_work_order_parts:42" };
+  const valid = { id: 5, tenantId: 1, siteId: 7, workOrderId: 42 };
+  const done = (cursor: string) => page({ entity_type: target.entityType, current_cursor: cursor, through_cursor: cursor, next_cursor: cursor });
+  it("does not write cache for stale or cross-order repair snapshots", async () => {
+    for (const snapshot of [{ cursor: "9", rows: [valid] }, { cursor: "10", rows: [{ ...valid, workOrderId: 43 }] }]) {
+      const storage = memoryStorage("10", [valid]);
+      const applyCache = vi.fn(async () => undefined);
+      await expect(pullDeltaPages({ scope: target, storage, afterCursor: "10", repairSnapshot: true, repairVersion: 1,
+        pull: async () => done("10"), rebuildSnapshot: async () => ({ ...snapshot, applyCache }) })).rejects.toThrow();
+      expect(applyCache).not.toHaveBeenCalled();
+      expect(await storage.getCursor(target)).toBe("10");
+      expect(await storage.getRepairVersion!(target)).toBeUndefined();
+    }
+  });
+  it("replays a snapshot after failed cache persistence without advancing its repair marker", async () => {
+    const storage = memoryStorage("10", [valid]);
+    const applyCache = vi.fn().mockRejectedValueOnce(new Error("cache persistence interrupted")).mockResolvedValueOnce(undefined);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "12", rows: [valid], applyCache }));
+    const input = { scope: target, storage, afterCursor: "10", repairSnapshot: true, repairVersion: 1,
+      pull: async () => done("12"), rebuildSnapshot };
+    await expect(pullDeltaPages(input)).rejects.toThrow("cache persistence interrupted");
+    expect(await storage.getCursor(target)).toBe("10");
+    expect(await storage.getRepairVersion!(target)).toBeUndefined();
+    await pullDeltaPages(input);
+    expect(rebuildSnapshot).toHaveBeenCalledTimes(2);
+    expect(await storage.getRepairVersion!(target)).toBe(1);
+  });
+  it("uses the durable cursor floor on retention reset before cache application", async () => {
+    const storage = memoryStorage("15", [valid]);
+    const applyCache = vi.fn(async () => undefined);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "12", rows: [valid], applyCache }));
+    await expect(pullDeltaPages({ scope: target, storage, afterCursor: "10", rebuildSnapshot,
+      pull: async () => page({ entity_type: target.entityType, status: "reset_required", current_cursor: "12",
+        retained_from_cursor: "11", snapshot_cursor: "12", through_cursor: "12", next_cursor: null, changes: [] }) })).rejects.toThrow();
+    expect(rebuildSnapshot).toHaveBeenCalledWith("15");
+    expect(applyCache).not.toHaveBeenCalled();
+    expect(await storage.getCursor(target)).toBe("15");
+  });
+});

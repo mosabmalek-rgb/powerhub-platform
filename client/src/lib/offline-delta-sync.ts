@@ -897,7 +897,7 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   pageSize?: number;
   pull: (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => Promise<DeltaPage<Row>>;
   applyPage?: (page: DeltaPage<Row>) => Promise<void>;
-  rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[] }>;
+  rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[]; applyCache?: () => Promise<void> }>;
   storage?: DeltaSyncStorage<Row>;
   /** Explicit, caller-authorized repair after the producer fix is certified. Never set from an untrusted query parameter. */
   repairSnapshot?: boolean;
@@ -956,6 +956,9 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
       const snapshotCursor = assertCursor(snapshot.cursor);
       assertDeltaSnapshotWatermark(snapshotCursor, minimum);
       assertDeltaSnapshotRows(input.scope, snapshot.rows);
+      // Cache writes must follow snapshot validation and precede the durable cursor.
+      await snapshot.applyCache?.();
+      assertDeltaSyncRunActive(input.isCurrent);
       await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent, input.repairVersion);
       assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;
@@ -982,12 +985,19 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
         throw new Error("تكررت مطالبة الخادم بإعادة التهيئة؛ أوقفت المزامنة لحماية البيانات المحلية.");
       }
       assertDeltaSyncRunActive(input.isCurrent);
-      const snapshot = await input.rebuildSnapshot(requestedSnapshotCursor);
+      const durable = assertCursor((await storage.getCursor(input.scope)) ?? "0");
+      assertDeltaSyncRunActive(input.isCurrent);
+      const floor = [requestedSnapshotCursor, durable, assertCursor(cursor ?? "0")]
+        .reduce((left, right) => compareDeltaCursors(left, right) >= 0 ? left : right);
+      const snapshot = await input.rebuildSnapshot(floor);
       assertDeltaSyncRunActive(input.isCurrent);
       const snapshotCursor = assertCursor(snapshot.cursor);
       // The snapshot service may return a NEWER coherent watermark, but
       // must never silently roll back before the reset-required boundary.
-      assertDeltaSnapshotWatermark(snapshotCursor, requestedSnapshotCursor);
+      assertDeltaSnapshotWatermark(snapshotCursor, floor);
+      assertDeltaSnapshotRows(input.scope, snapshot.rows);
+      await snapshot.applyCache?.();
+      assertDeltaSyncRunActive(input.isCurrent);
       await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
       assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;
