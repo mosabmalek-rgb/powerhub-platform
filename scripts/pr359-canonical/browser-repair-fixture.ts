@@ -304,6 +304,29 @@ async function actualCacheRepair() {
     await assertBefore();
     await assertHydratedCache("1", "before");
     await assertHydratedCache("9", "other user");
+    // Distinct failure window: the separate query cache commits successfully,
+    // then the entity/cursor transaction aborts. The repair must stay replayable.
+    const cursorPut = IDBObjectStore.prototype.put;
+    let checkpointAborted = false;
+    IDBObjectStore.prototype.put = function(value: any, key?: IDBValidKey) {
+      const request = key === undefined ? cursorPut.call(this, value) : cursorPut.call(this, value, key);
+      if (this.name === "cursors" && value?.entityType === cacheScope.entityType &&
+          value?.userId === cacheScope.userId && value?.repairVersion === 2 && !checkpointAborted) {
+        request.addEventListener("success", () => {
+          checkpointAborted = true;
+          this.transaction.abort();
+        }, { once: true });
+      }
+      return request;
+    };
+    try { await rejectAction(pullDeltaPages(input), "checkpoint abort unexpectedly succeeded"); }
+    finally { IDBObjectStore.prototype.put = cursorPut; }
+    check(checkpointAborted, "checkpoint failure after durable cache was not injected");
+    equal(pulls, 0, "aborted checkpoint reached delta pull");
+    await assertBefore();
+    await assertHydratedCache("1", "repaired");
+    await assertHydratedCache("9", "other user");
+    sessionStorage.setItem("cache-ahead-checkpoint-replay-verified", "yes");
     const result = await pullDeltaPages(input);
     equal(result.cursor, "4", "actual cache retry failed");
     equal(pulls, 1, "actual retry pull count");
@@ -334,6 +357,7 @@ async function run() {
     equal(await readProtected(), JSON.parse(baseline), "outbox changed during delta catch-up");
     check(sessionStorage.getItem("obsolete-run-verified") === "yes", "missing obsolete-run proof");
     check(sessionStorage.getItem("cache-retry-verified") === "yes", "missing cache retry proof");
+    check(sessionStorage.getItem("cache-ahead-checkpoint-replay-verified") === "yes", "missing cache-ahead checkpoint replay proof");
     await assertHydratedCache("1", "repaired");
     await assertHydratedCache("9", "other user");
     equal(await getDeltaRepairCheckpoint(cacheScope), { cursor: "4", repairVersion: 2 }, "real cache checkpoint lost on reload");
@@ -342,7 +366,7 @@ async function run() {
     check(sessionStorage.getItem("prune-race-verified") === "yes", "missing prune race proof");
     await assertHydratedCache("103", "fresh");
     check(sessionStorage.getItem("hydration-races-verified") === "yes", "missing hydration race proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS"] });
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS", "PR359_NATIVE_CACHE_AHEAD_CHECKPOINT_ABORT_REPLAY_PASS"] });
     return;
   }
   await seedProtected();
