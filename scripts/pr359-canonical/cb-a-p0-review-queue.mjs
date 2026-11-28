@@ -246,6 +246,36 @@ export function attachChatGuardScreening(report,capture){
  return {...report,records,chat_guard_screening_summary:{public_matched:15,private_matched:14,
   source_screening_only:true,runtime_authorization_verified:false,signed_approvals:0}};
 }
+export const managedEdgeDetailSource=Object.freeze(['pr359-cb-a-managed-edge-detail-20261128.json','34fe0506766364c4bf7b77a108ef615c1704eff4']);
+export function assessManagedEdgeDetail(capture){
+ assert.equal(capture.format,'PR359_CB_A_MANAGED_EDGE_DETAIL_V1');
+ assert.equal(capture.read_only,true);
+ assert.equal(capture.ownership_approved,false);
+ assert.deepEqual(capture.destructive_allowlist,[]);
+ assert.equal(capture.edge_count,48);
+ assert.equal(capture.identity_sha256,'86c83659f5781ac140aa6145ba651b8d2d5a6b0042df3305090c02b094f8722f');
+ assert.equal(capture.edges.length,48);
+ const groups={};
+ const targets=new Set();
+ for(const e of capture.edges){
+  assert.equal(e.source_catalog,'pg_policy');
+  assert.ok(['realtime','storage'].includes(e.source_schema));
+  assert.ok(e.source_object.startsWith(e.source_schema+'.'));
+  assert.ok(['pg_class','pg_proc'].includes(e.target_catalog));
+  assert.ok(/^(public|private|powerhub_private)\\./.test(e.target_object));
+  assert.equal(e.deptype,'n');
+  assert.ok(Number.isSafeInteger(e.refobjsubid)&&e.refobjsubid>=0);
+  const group=e.source_schema+':'+e.target_catalog;
+  groups[group]=(groups[group]??0)+1;
+  targets.add(e.target_object);
+ }
+ assert.deepEqual(groups,{'realtime:pg_class':32,'realtime:pg_proc':11,'storage:pg_class':4,'storage:pg_proc':1});
+ assert.equal(targets.size,9);
+ // Digest is server-generated and evidence bytes are independently pinned.
+ // The 48 raw dependency rows may include repeated projected identities.
+ return {edge_count:48,target_count:9,groups,targets:[...targets].sort(),
+  source_blob_sha:managedEdgeDetailSource[1],catalog_only:true,ownership_approved:false,full_dependency_closure_approved:false};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -257,6 +287,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  const report=attachChatGuardScreening(attachReadOnlyRecapture(summarizePrivilegeReview(attachGapCallerEvidence(
   attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...gapInputs)),
   auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')))),parsePinned(readFileSync(dir+recaptureSource[0]),recaptureSource[1])),parsePinned(readFileSync(dir+chatGuardSource[0]),chatGuardSource[1]));
+ report.managed_reverse_dependency_detail=assessManagedEdgeDetail(parsePinned(readFileSync(dir+managedEdgeDetailSource[0]),managedEdgeDetailSource[1]));
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,read_only_recapture:report.read_only_recapture_summary,chat_guard_screening:report.chat_guard_screening_summary,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,read_only_recapture:report.read_only_recapture_summary,chat_guard_screening:report.chat_guard_screening_summary,managed_reverse_dependency_detail:report.managed_reverse_dependency_detail,app_owned_approved:false}));
 }

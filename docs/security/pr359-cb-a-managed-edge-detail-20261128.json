@@ -1,0 +1,443 @@
+{
+  "format": "PR359_CB_A_MANAGED_EDGE_DETAIL_V1",
+  "capture_date": "2026-11-28",
+  "read_only": true,
+  "edge_count": 48,
+  "identity_sha256": "86c83659f5781ac140aa6145ba651b8d2d5a6b0042df3305090c02b094f8722f",
+  "edges": [
+    {
+      "deptype": "n",
+      "refobjsubid": 1,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 4,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 7,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 5,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 6,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 8,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "powerhub_private.current_user_id()",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "private.chat_rls_can_select_conversation(p_conversation_id bigint, p_tenant_id bigint)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_conversation_receive",
+      "source_schema": "realtime",
+      "target_object": "private.powerhub_has_platform_capability(p_capability text)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 1,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 4,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 7,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.chat_participants",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 5,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 6,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 8,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "public.tenant_members",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "powerhub_private.current_user_id()",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "private.chat_rls_can_select_conversation(p_conversation_id bigint, p_tenant_id bigint)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_conversation_send",
+      "source_schema": "realtime",
+      "target_object": "private.powerhub_has_platform_capability(p_capability text)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 1,
+      "source_object": "realtime.messages.chat_support_receive_conversation",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_support_receive_conversation",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_support_receive_conversation",
+      "source_schema": "realtime",
+      "target_object": "private.powerhub_has_platform_capability(p_capability text)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 1,
+      "source_object": "realtime.messages.chat_support_send_conversation",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_support_send_conversation",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_support_send_conversation",
+      "source_schema": "realtime",
+      "target_object": "private.powerhub_has_platform_capability(p_capability text)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 1,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_conversations",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 1,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_inbox_notifications",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_inbox_notifications",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_inbox_notifications",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 4,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "public.chat_inbox_notifications",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "powerhub_private.current_user_id()",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.chat_user_notification_receive",
+      "source_schema": "realtime",
+      "target_object": "private.chat_rls_can_select_conversation(p_conversation_id bigint, p_tenant_id bigint)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "realtime.messages.powerhub_delta_revision_receive",
+      "source_schema": "realtime",
+      "target_object": "private.powerhub_realtime_can_read_delta_topic(p_tenant_id bigint, p_site_id bigint, p_tenant_all boolean)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 2,
+      "source_object": "storage.objects.chat_storage_select_conversation_access",
+      "source_schema": "storage",
+      "target_object": "public.chat_message_attachments",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 3,
+      "source_object": "storage.objects.chat_storage_select_conversation_access",
+      "source_schema": "storage",
+      "target_object": "public.chat_message_attachments",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 5,
+      "source_object": "storage.objects.chat_storage_select_conversation_access",
+      "source_schema": "storage",
+      "target_object": "public.chat_message_attachments",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 6,
+      "source_object": "storage.objects.chat_storage_select_conversation_access",
+      "source_schema": "storage",
+      "target_object": "public.chat_message_attachments",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_class"
+    },
+    {
+      "deptype": "n",
+      "refobjsubid": 0,
+      "source_object": "storage.objects.chat_storage_select_conversation_access",
+      "source_schema": "storage",
+      "target_object": "private.chat_rls_can_select_conversation(p_conversation_id bigint, p_tenant_id bigint)",
+      "source_catalog": "pg_policy",
+      "target_catalog": "pg_proc"
+    }
+  ],
+  "ownership_approved": false,
+  "destructive_allowlist": []
+}

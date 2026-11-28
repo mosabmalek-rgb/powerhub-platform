@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview,attachReadOnlyRecapture,recaptureSource,attachChatGuardScreening,chatGuardSource} from './cb-a-p0-review-queue.mjs';
+import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview,attachReadOnlyRecapture,recaptureSource,attachChatGuardScreening,chatGuardSource,assessManagedEdgeDetail,managedEdgeDetailSource} from './cb-a-p0-review-queue.mjs';
 import {readFileSync} from 'node:fs';
 const head='a'.repeat(40);
 test('joins all 296 P0 candidates without promoting ownership',()=>{
@@ -112,4 +112,13 @@ test('pins and joins 15 public and 14 private chat guard screenings without appr
   const altered=structuredClone(evidence);change(altered);
   assert.throws(()=>attachChatGuardScreening(report,altered));
  }
+});
+
+test('pins the 48 detailed managed reverse edges without approving dependency closure',()=>{
+ const raw=readFileSync('docs/security/'+managedEdgeDetailSource[0]);
+ const e=parsePinned(raw,managedEdgeDetailSource[1]);
+ const report=assessManagedEdgeDetail(e);
+ assert.equal(report.edge_count,48);assert.equal(report.target_count,9);assert.equal(report.full_dependency_closure_approved,false);
+ assert.throws(()=>parsePinned(Buffer.concat([raw,Buffer.from(' ')]),managedEdgeDetailSource[1]));
+ for(const change of [x=>{x.edges.pop()},x=>{x.edges[0].source_schema='public'},x=>{x.ownership_approved=true},x=>{x.identity_sha256='f'.repeat(64)}]){const altered=structuredClone(e);change(altered);assert.throws(()=>assessManagedEdgeDetail(altered));}
 });

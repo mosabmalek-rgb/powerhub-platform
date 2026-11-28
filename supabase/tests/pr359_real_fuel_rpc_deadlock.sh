@@ -145,4 +145,59 @@ verify 3 1 PR359_REAL_FUEL_RPC_CONCURRENT_EXACT_REPLAY_PASS
 # Replay once more with no concurrency and require unchanged effects.
 [[ "$(printf '%s\n' "$sql" | run_sql)" == "$id|true" ]] || exit 1
 verify 3 1 PR359_REAL_FUEL_RPC_CONCURRENT_REPLAY_STABLE_EFFECTS_PASS
+sql="SELECT fuel_event_id::text||'|'||replayed::text FROM public.powerhub_inventory_record_fuel_fill(10,100,1,31001,$item,1,$tank_a,1,'$occurred'::timestamptz,2,3,10,'Measured replay',null,'pr359-fuel-deadlock-measured-replay');"
+coproc WRITER { run_sql 2>"$tmp/replay-a.err"; }
+a_pid="$WRITER_PID"; a_in="${WRITER[1]}"; a_out="${WRITER[0]}"
+printf '%s\n' "SET application_name='pr359_fuel_measured_a';" "SET statement_timeout='30s';" "SET lock_timeout='20s';" 'BEGIN;' "$sql" >&"$a_in"
+IFS= read -r -t 20 result <&"$a_out"
+[[ "$result" =~ ^[1-9][0-9]*\|false$ ]] || { echo "unexpected first response: $result" >&2; exit 1; }
+id="${result%%|*}"
+{
+ printf '%s\n' "SET application_name='pr359_fuel_measured_b';" "SET statement_timeout='30s';" "SET lock_timeout='20s';" 'BEGIN;' "$sql" 'COMMIT;'
+} | run_sql >"$tmp/replay-b.out" 2>"$tmp/replay-b.err" &
+b_pid="$!"
+blocked=0
+for i in $(seq 1 100); do
+ n="$(run_sql <<'SQL'
+SELECT count(*) FROM pg_stat_activity b JOIN pg_stat_activity a ON a.pid=ANY(pg_blocking_pids(b.pid))
+WHERE b.datname=current_database() AND a.datname=current_database()
+AND b.application_name='pr359_fuel_measured_b' AND a.application_name='pr359_fuel_measured_a' AND b.wait_event_type='Lock';
+SQL
+)"
+ if [[ "$n" == 1 ]]; then blocked=1; break; fi
+ sleep 0.1
+done
+[[ "$blocked" == 1 ]] || { cat "$tmp/replay-b.err" >&2; exit 1; }
+printf '%s\n' 'COMMIT;' '\q' >&"$a_in"
+if ! wait "$a_pid"; then cat "$tmp/replay-a.err" >&2; exit 1; fi
+a_pid=''
+if ! wait "$b_pid"; then cat "$tmp/replay-b.err" >&2; exit 1; fi
+b_pid=''
+[[ "$(cat "$tmp/replay-b.out")" == "$id|true" ]] || { cat "$tmp/replay-b.out" >&2; exit 1; }
+
+verify_measured() {
+ run_sql <<SQL
+DO \$measured\$
+BEGIN
+ IF (SELECT count(*) FROM public.generator_fuel_events WHERE tenant_id=10 AND site_id=100 AND fuel_item_id=$item)<>5
+ OR (SELECT count(*) FROM public.generator_fuel_events WHERE tenant_id=10 AND site_id=100 AND id=$id AND operation_key='pr359-fuel-deadlock-measured-replay' AND level_before_liters=2 AND level_after_liters=3 AND operating_hours=10 AND total_cost_amount=8)<>1
+ OR (SELECT count(*) FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND item_id=$item AND movement_type='fuel_consumption')<>5
+ OR (SELECT coalesce(sum(CASE WHEN movement_type='adjustment_in' THEN quantity ELSE -quantity END),0) FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND warehouse_id=1 AND item_id=$item)<>5
+ OR (SELECT sum(total_cost_amount) FROM public.inventory_stock_movements WHERE tenant_id=10 AND site_id=100 AND item_id=$item AND movement_type='fuel_consumption') IS DISTINCT FROM 40::numeric
+ OR (SELECT count(*) FROM public.generator_fuel_readings WHERE tenant_id=10 AND site_id=100 AND generator_id IN (31001,31002))<>3
+ OR (SELECT count(*) FROM public.generator_fuel_readings WHERE tenant_id=10 AND site_id=100 AND generator_id=31001 AND reading_type='tank_level' AND tank_warehouse_id=$tank_a AND ((operation_key='pr359-fuel-deadlock-measured-replay:level-before' AND reading_value=2) OR (operation_key='pr359-fuel-deadlock-measured-replay:level-after' AND reading_value=3)))<>2
+ OR (SELECT count(*) FROM public.generator_fuel_readings WHERE tenant_id=10 AND site_id=100 AND generator_id=31001 AND reading_type='operating_hours' AND tank_warehouse_id IS NULL AND reading_value=10 AND operation_key='pr359-fuel-deadlock-measured-replay:operating-hours')<>1
+ OR (SELECT count(*) FROM public.generators WHERE tenant_id=10 AND site_id=100 AND id=31001 AND operating_hours=10 AND fuel_level_liters=3)<>1
+ OR (SELECT count(*) FROM public.audit_logs WHERE tenant_id=10 AND site_id=100 AND entity_type='generator_fuel_event' AND action='create' AND metadata->>'operationKey'='pr359-fuel-deadlock-measured-replay')<>1
+ OR (SELECT count(*) FROM public.powerhub_sync_changes WHERE tenant_id=10 AND site_id=100 AND entity_type='fuel_events' AND entity_id='$id' AND change_type='upsert' AND row_data=public.powerhub_project_fuel_event_delta_row(10,100,$id))<>1
+ THEN RAISE EXCEPTION 'PR359_MEASURED_FUEL_REPLAY_EFFECT_MISMATCH'; END IF;
+END \$measured\$;
+SQL
+}
+verify_measured
+echo PR359_REAL_FUEL_RPC_CONCURRENT_MEASURED_REPLAY_PASS
+[[ "$(printf '%s\n' "$sql" | run_sql)" == "$id|true" ]] || exit 1
+verify_measured
+echo PR359_REAL_FUEL_RPC_MEASURED_REPLAY_STABLE_EFFECTS_PASS
+
 echo PR359_REAL_FUEL_GLOBAL_LOCK_ORDER_APPROVED=FALSE
