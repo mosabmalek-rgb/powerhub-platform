@@ -1,0 +1,56 @@
+{
+  "format": "PR359_CB_A_THREE_DEFINER_ATTACHMENTS_STAGING_CATALOG_V1",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "captured_on": "2026-11-23",
+  "capture_mode": "read-only pg_catalog SELECT",
+  "warning": "Forensic attachment and role privilege evidence only. NOT source ownership, executable baseline, complete trigger graph, security approval or hosted action.",
+  "code_review_head": "109862b935f0cec4f1907a24816c881125baf4ee",
+  "sql_path": "scripts/pr359-canonical/staging-definer-trigger-attachments.sql",
+  "entries": [
+    {
+      "function_identity": "powerhub_ensure_owner_main_site()",
+      "security_definer": true,
+      "configured_search_path": "search_path=public, pg_temp",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true,
+      "trigger_name": "trg_powerhub_owner_subscription_main_site",
+      "trigger_enabled": "O",
+      "trigger_relation": "tenant_subscriptions",
+      "trigger_definition": "CREATE TRIGGER trg_powerhub_owner_subscription_main_site AFTER INSERT ON tenant_subscriptions FOR EACH ROW EXECUTE FUNCTION powerhub_ensure_owner_main_site()"
+    },
+    {
+      "function_identity": "powerhub_mobile_touch_session(bigint,bigint,bigint,timestamp with time zone)",
+      "security_definer": true,
+      "configured_search_path": "search_path=\"\"",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true,
+      "trigger_name": null,
+      "trigger_enabled": null,
+      "trigger_relation": null,
+      "trigger_definition": null
+    },
+    {
+      "function_identity": "powerhub_refresh_fuel_maintenance_delta_after_generator_name_up()",
+      "security_definer": true,
+      "configured_search_path": "search_path=pg_catalog, public, pg_temp",
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_execute": true,
+      "trigger_name": "powerhub_delta_fuel_maintenance_generator_name",
+      "trigger_enabled": "O",
+      "trigger_relation": "generators",
+      "trigger_definition": "CREATE TRIGGER powerhub_delta_fuel_maintenance_generator_name AFTER UPDATE OF name ON generators FOR EACH ROW EXECUTE FUNCTION powerhub_refresh_fuel_maintenance_delta_after_generator_name_up()"
+    }
+  ],
+  "schema_object_approvals": 0,
+  "complete_runtime_graph_approved": false,
+  "function_security_signoff_complete": false,
+  "canonical_baseline_approved": false,
+  "executable_sql_approved": false,
+  "destructive_allowlist": [],
+  "staging_inplace_go": false,
+  "production_inplace_go": false,
+  "pr359_merge_go": false
+}

@@ -1,0 +1,701 @@
+# PowerHub PR359 — Staging isolated restoration experiment, no remote mutation
+
+Date: 2026-11-20. Initial source: `eadb8ed206868a500eb0cdf0ed49dbd016d5418c`.
+
+## Why a separate workflow
+
+The existing protected Docker Shadow job uses **Production** and contains
+Finance migration rehearsal. Re-pointing that job to Staging is unsafe.
+A new standalone `workflow_dispatch` job runs only when the selected ref is
+`feat/auth-local-first-single-pr` and the opt-in repository variable
+`PR359_ENABLE_STAGING_DOCKER_SHADOW=true`; it uses its own environment
+`pr359-staging-shadow` and *only* the environment secret
+`PR359_STAGING_SHADOW_SOURCE_DB_URL`.
+
+The source guard rejects Production credentials when `SHADOW_SOURCE_KIND=staging`,
+requires a Staging project-specific Postgres URI (TLS required; 5432;
+Session Pooler for GitHub-hosted IPv4), and never emits source passwords.
+The job uses the same temporary Supabase Local Stack and provider-managed
+compatibility crosswalk as the prior successful R0-R3 Production shadow.
+Only the **local** stack's superuser performs COPY for provider-managed
+metadata. No SQL mutation is executed on hosted Staging/Production.
+
+## Read-only Source History Gate
+
+Pinned observed Staging migration history (2026-11-20):
+- Count: 553
+- Minimum version: `20260905170000`
+- Maximum version: `20261116231000`
+- Whole-row SHA-256 (six columns including statements/rollback):
+  `52b3006440effe431299a2a58b2150c18acd02ab78ffc79ffcb13075538bb613`
+
+The flow:
+1. verifies host, TLS, read-only count and the pinned SHA;
+2. compares provider-managed source against fresh isolated Supabase Local Stack;
+3. exports logical schema/data/roles/history to ephemeral runner files;
+4. reads the source SHA/count again under explicit read-only TLS and fails on drift;
+5. restores inside Local Stack, compares restored history SHA, and checks
+   application/managed counts;
+6. destroys/recreates the Local Stack, restores a second time, and requires
+   the two restored history fingerprints to match;
+7. exits **before** any Production-only finance migration replay.
+
+No dump artifact is uploaded, and the existing cleanup trap deletes local
+copies. These source SELECTs and independent logical exports are not one
+transactionally consistent database snapshot. A source write freeze remains
+a separate prerequisite to an in-place rebaseline.
+
+## Activation and acceptance
+
+This is code-ready, **not automatically run**. A repository owner must
+configure the protected environment with explicit review, store the
+Staging-only URI in its GitHub environment secret (do not paste credentials
+in chat), set the separate opt-in repository variable, and manually dispatch
+the workflow from the PR head. Do not reuse the Production secret.
+
+A successful run will prove Staging logical export/restoration and history
+fidelity at the captured point. It will NOT demonstrate a canonical
+application baseline built from zero, an actual Epoch v2 switchover,
+a durable encrypted off-runner backup, a safe app-owned removal plan, or
+permission for destructive Staging commands.
+
+`STAGING_REAL_RESTORE=NOT_YET_EXECUTED`
+`CANONICAL_EMPTY_STACK_BASELINE=NOT_ACCEPTED`
+`STAGING_INPLACE_GO=false`
+`PRODUCTION_INPLACE_GO=false`
+`PR359_MERGE_GO=false`
+
+## GitHub workflow registration requirement and protected opt-in
+
+GitHub's `workflow_dispatch` event only triggers when a workflow exists on
+the repository's default branch. This brand-new workflow exists solely in
+PR #359, which is deliberately Draft; it cannot yet be manually dispatched
+by the standard GitHub Actions button. Therefore it ALSO has a restricted
+`push` trigger matching only the purpose-built file:
+
+`docs/security/pr359-r4-staging-shadow-run-request.json`
+
+The checked-in file has `requested=false` and an unusable approval token,
+so it **cannot execute any restore**. To request a protected isolated run,
+an authorized operator must edit this request to `requested=true` with a
+fresh `STAGING-SHADOW-...` token, enable the opt-in repository variable,
+and have a trusted reviewer approve the `pr359-staging-shadow` environment.
+The workflow invokes the request validator before source authentication.
+An ordinary push modifying unrelated PR files does not trigger this Staging
+job. The Workflow Dispatch entry remains available only after default-branch
+registration; no merge is being performed now.
+
+These checks are separate from the long-standing Production release
+protection. The test-only Staging request never grants database modification.
+
+## Full application table row-count consistency (additional gate)
+
+The read-only source metadata inventory contains **183 Staging application tables**
+(173 in public, 10 in private, zero partitions). The new
+`scripts/pr359-r4/staging-table-counts.sql` performs quote-safe catalog
+enumeration and individual `COUNT(*)` queries inside one
+`REPEATABLE READ, READ ONLY` snapshot. The table count collector
+stores no individual user or financial rows and uses no hosted DML.
+
+`scripts/pr359-r4/check-staging-table-counts.mjs` verifies exact names,
+uniqueness, nonnegative safe integer counts, and complete coverage against
+the R0 inventory. Before export, after export, and after each independent
+local restore, it compares **each** table's counts, not just the payments/
+invoices aggregates; a single missing or changed table fails closed.
+
+Each invocation is a consistent row-count snapshot; cross-invocation or
+cross-database equality does NOT prove unchanged row contents or globally
+atomic source+restore snapshots. Additional row-level or WAL-consistent
+backups remain a separate production-grade acceptance gate.
+
+`R4_STAGING_183_TABLE_COUNT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_STAGING_INPLACE_GO=false`
+
+## Equal-count row-content mutation guard (source and disposable restore)
+
+An additional Staging-only `staging-table-content.sql` gate calculates deterministic
+SHA-256 fingerprints over SHA-256 hashes of all rows in each of the **183**
+application tables. It canonicalizes timezone, float and bytea output, sorts
+row digests so row ordering is irrelevant, and emits only schema/table names,
+row counts and hashes. The source is queried read-only before and after export,
+and compared with **each** independent disposable restore. Differences in
+row values fail even if the table counts are unchanged. `node --test`
+regressions cover equal-count mutation, omitted/unknown/duplicate tables and
+invalid digests. This is defense in depth, **not** snapshot atomicity.
+
+**Remaining hard blocker:** `supabase db dump` invokes separate `pg_dump`
+transactions for roles/schema/data/history. Matching before/after fingerprints
+is not a proof that those independent dumps imported one MVCC snapshot; a
+write that is reverted between checks is still possible. Before granting R4,
+implement and verify a shared `pg_export_snapshot()`/`pg_dump --snapshot`
+protocol (or a separately reviewed, operationally enforced source write-freeze)
+with content integrity, and run the protected real-Staging restore. No claim
+of successful source snapshot is made by these changes.
+
+`R4_STAGING_183_TABLE_CONTENT_SHA256=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_CROSS_EXPORT_ATOMIC_SNAPSHOT=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
+
+## Shared-snapshot Staging-only export implementation
+
+The protected staging-restore path now starts an exported read-only REPEATABLE READ PostgreSQL transaction with `pg_export_snapshot()`. A pinned PostgreSQL 17.6 client imports the exact ID through `pg_dump --snapshot` for application schema, application data, migration schema and migration data. SQL filters are pinned to Supabase CLI v3.2.0. The 183 table counts/content, finance counts and historical migration row fingerprints use this same snapshot. A SHA-256 file manifest is verified before both disposable restores. Production shadow remains unchanged. Role metadata is generated by the original Supabase CLI role-only step outside the snapshot and is **not** claimed as transactionally atomic. The external pre/post source checks may conservatively reject concurrent live changes. Code readiness does not prove successful real Staging restore or a Canonical Baseline.
+
+`R4_STAGING_SHARED_PG_SNAPSHOT=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_STAGING_ROLES_SNAPSHOT=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
+
+## Fail-closed data-export pipeline regression
+
+An independent Bash execution regression now simulates `pg_dump` exiting nonzero after emitting partial SQL. `dump_data()` checks the actual `pgdump | sed` pipeline status before appending `RESET ALL`, so a successful trailing printf cannot mask a failed export. The test also verifies the successful path produces the expected SQL envelope. The tests run in Docker Shadow smoke and require no hosted database.
+
+`R4_STAGING_DATA_DUMP_PIPELINE_FAILURE_GUARD=CODE_READY_PENDING_CI`
+`STAGING_INPLACE_GO=false`
+
+## Staging Auth/Storage managed-row fidelity guard
+
+A read-only SHA-256 content attestation now covers the four exact tables:
+auth.users, auth.identities, storage.buckets and storage.objects.
+The source fingerprints are generated from the same exported snapshot as the
+schema, data and migration ledger dumps, then compared after export and after
+each of the two separate disposable Local Stack restores. It outputs only
+table identities, row counts and hashes. Missing, unexpected, duplicate or
+equal-count changed contents fail closed.
+
+Scope limitation: storage.objects holds object metadata, not the actual blob
+bytes. Physical Storage bytes, Auth signing secrets, provider configuration,
+and the role-only dump outside the snapshot need separate evidence.
+
+R4_STAGING_AUTH_STORAGE_ROW_PARITY=CODE_READY_PENDING_PROTECTED_RUN
+R4_STORAGE_EXTERNAL_BLOB_BYTES=NOT_PROVEN
+STAGING_INPLACE_GO=false
+
+## 2026-11-20 — seven-category schema digest parity
+
+Live hosted Staging was queried READ-ONLY on PostgreSQL 17.6 and all seven
+application-namespace catalog categories matched the R0 counts:
+functions 641, relations/sequences 337, columns 2723, indexes 688,
+constraints 1437, policies 129, triggers 202. The SQL produces SHA-256
+digests over canonically ordered category metadata (including ACL, owner,
+SECURITY DEFINER, RLS, definitions, and trigger enablement), without returning
+object source definitions or business rows. The source query now shares the
+same MVCC snapshot as the Staging SQL exports. Each disposable restoration
+compares the seven category digests **before application data import** and
+again after the restore. Any drift fails closed.
+
+The live read-only Staging metadata verification is not an independent real
+Staging Docker restoration, signed APP_OWNED list, or a new Canonical Baseline
+generated from reviewed SQL. No in-place reset is authorized.
+
+R4_STAGING_SCHEMA_SEVEN_CATEGORY_LIVE_READ_ONLY=PASS
+R4_STAGING_SCHEMA_RESTORE_COMPARISON=CODE_READY_PENDING_PROTECTED_RUN
+CANONICAL_BASELINE_APPROVED=false
+APP_OWNED_SIGNED=false
+STAGING_INPLACE_GO=false
+
+## R4 disposable catalog fingerprint sensitivity proof
+
+An independent PostgreSQL 17.6 container with `--network none` executes the exact
+seven-category schema fingerprint SQL against a synthetic table, index,
+constraint, function, trigger and RLS policy. It modifies a function body,
+policy predicate and trigger enablement while keeping all category object counts
+identical. The test requires only the function, policy and trigger SHA-256
+digests to change, demonstrating that row counts alone cannot mask those
+schema/security changes. No hosted source or test-user credentials are used.
+
+`R4_DISPOSABLE_SCHEMA_SHA_SENSITIVITY=CODE_READY_PENDING_CI`
+`R4_STAGING_REAL_RESTORE=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
+
+## R4 provider-managed source metadata bound to shared MVCC snapshot
+
+The three source-managed crosswalks (managed-catalog.sql, managed-migrations.sql,
+and managed-relations.sql) were originally captured in independent pre-export
+transactions. The Staging-only atomic exporter now re-runs all three inside
+the same exported read-only MVCC snapshot used by the application, Auth/Storage
+content and legacy migration ledger, and compares their metadata to preflight.
+Any drift fails closed before a SQL dump. Subsequent Local Stack compatibility
+checks still use the source-managed catalogs whose equality was established.
+
+This does not make global roles atomically backed up, nor Storage blob bytes,
+nor grant Staging in-place rebaseline. A protected real Staging run remains pending.
+
+R4_STAGING_MANAGED_CATALOG_SNAPSHOT=CODE_READY_PENDING_PROTECTED_RUN
+R4_STAGING_PROVIDER_ROLES_ATOMIC=NOT_PROVEN
+STAGING_INPLACE_GO=false
+
+## Protected Staging global-role re-export drift guard
+
+Global PostgreSQL role definitions cannot be included in an exported per-database
+MVCC snapshot using `pg_dumpall --roles-only`. The Staging-only workflow now
+re-exports role metadata after the shared-snapshot schema/data/history dumps,
+compares both CLI-transformed SQL files byte-for-byte, and fails closed before
+local restoration if the role graph changed during the export window. A Node
+regression executes the exact Bash guard with identical, altered, and missing
+role SQL fixtures. The second role dump remains runner-ephemeral; neither role
+data nor credentials are logged. This is a drift-detection gate, **not** an
+atomic role snapshot or evidence of a durable recovery backup.
+
+`R4_STAGING_GLOBAL_ROLE_DRIFT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`
+`R4_STAGING_ROLE_ATOMICITY=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
+
+## R4 end-to-end Staging exporter SQL filters and restore (disposable)
+
+A networkless PostgreSQL 17.6 integration test now extracts the exact
+`schema_filter`, `dump_schema`, `dump_data`, internal exclusion and data
+inclusion definitions from the protected Staging exporter. It runs actual
+`pg_dump` against a synthetic app table and provider-managed Auth table,
+ensures the schema export excludes the managed Auth DDL while the data export
+includes the existing Auth row, then restores the resulting SQL files to a
+second database in the same networkless container. Acceptance requires the
+app rows, numeric amount, provider row, and index to survive. There are no
+hosted credentials, hosted connections, or destructive hosted operations.
+
+The test proves the application/provider filter semantics but does NOT
+prove the real Supabase Local Stack managed-catalog parity or hosted Staging
+restore. Those remain protected run requirements.
+
+`R4_ACTUAL_PGDUMP_FILTER_RESTORE=CODE_READY_PENDING_CI`
+`R4_STAGING_REAL_RESTORE=NOT_PROVEN`
+`STAGING_INPLACE_GO=false`
+
+## Native pg_dump exclusions fixed after executable fixture failure
+
+PostgreSQL `--exclude-schema` accepts a single pattern per occurrence, not a pipe-separated collection. The Staging-only exporter now expands each reviewed pattern into a separate pg_dump argument, retaining glob wildcards. The integration fixture also checks the transformed `CREATE TABLE IF NOT EXISTS` syntax and rejects managed Auth DDL, missing provider row data, and incomplete application/index restoration. No hosted database writes are authorized.
+
+R4_NATIVE_SCHEMA_EXCLUSION=FIXED_PENDING_CI
+STAGING_INPLACE_GO=false
+
+## R4 combined native export filters and one MVCC snapshot
+
+The existing networkless PostgreSQL 17.6 real pg_dump filter-and-restore
+integration now holds an exported REPEATABLE READ snapshot across application
+schema and managed-inclusive data dumps. A separate source connection inserts
+an app row and updates an Auth row between the two dumps; a fresh negative
+control confirms the writes committed, but the snapshot-bound SQL must restore
+only pre-write records, indexes, and financial totals. The test exercises
+native pg_dump --snapshot together with all reviewed schema exclude options.
+This is an isolated model, not real-Staging restore or an approved baseline.
+
+R4_COMBINED_NATIVE_FILTER_MVCC_SNAPSHOT=CODE_READY_PENDING_CI
+STAGING_INPLACE_GO=false
+
+## R4 cross-schema Auth foreign key definition parity
+
+A read-only Staging catalog inspection on 2026-11-20 confirmed exactly three
+application foreign keys to `auth.users`:
+`powerhub_user_device_locks_user_id_fkey`,
+`staff_password_reset_intents_auth_user_id_fkey`, and
+`users_auth_user_id_fkey`. All were VALIDATED, not deferrable, and
+owned by application tables in public. The guard computes SHA-256 over
+`pg_get_constraintdef`, captures the three exact relationships in the SAME
+exported MVCC snapshot as application schema and migration history, and
+compares them again after export, after schema import before data, and after
+each of the two independent disposable restores. Unknown/missing/duplicate
+references and even equal-count changes in FK definitions fail closed.
+
+This classification evidence is NOT a destructive allowlist. `auth.users`
+remains Supabase-managed and is never approved for app-owned deletion.
+
+R4_MANAGED_AUTH_FK_PARITY=CODE_READY_PENDING_PROTECTED_RUN
+APP_OWNED_APPROVED=false
+STAGING_INPLACE_GO=false
+
+## R4 ownership-boundary cross-schema FK visibility hardening
+
+The preliminary `APP_OWNED` register examines 978 candidate relations/functions,
+but the earlier generic `pg_depend` edge query inspected only `pg_class` and
+`pg_proc` members and could not represent foreign keys whose owning object
+is `pg_constraint`. A read-only Staging query confirmed three application
+foreign keys into the managed `auth.users` table. The ownership inventory
+now emits those FK identities, sources, targets, validation and deferral
+properties explicitly, rejecting absent/unknown/duplicated/drifted edges.
+Generic dependency enumeration is also restricted to the actual object class
+to prevent unrelated OID matches. This is a completeness guard, **not** an
+approval of `APP_OWNED`, a complete dynamic-SQL dependency analysis, or
+authorization to remove any application/provider object.
+
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
+
+## R4 post-COPY FK row-integrity gate (2026-11-20)
+
+The Staging restore wraps application and managed data import in
+`session_replication_role=replica`, which suppresses foreign-key
+enforcement triggers during import. Restoring a `VALIDATED` constraint
+definition, and matching the constraint SHA-256, cannot by themselves prove
+that imported rows satisfy its reference to managed `auth.users`.
+
+Added `staging-managed-fk-orphans.sql` and a strict three-edge JSONL
+comparator. The read-only source scan runs under the same exported MVCC
+snapshot as application/auth data and is checked again after export.
+**Every** independent local restore counts unmatched, non-null FK values
+in the three exact application tables and fails on any nonzero, missing,
+unexpected, duplicated or drifted count. The SQL outputs aggregate counts
+only, never user identifiers. A networkless PostgreSQL integration
+injects an orphan with triggers disabled and proves the guard rejects it.
+The live Staging read-only observation was 0/0/0 orphans on 2026-11-20.
+This does not certify all intra-application FKs or grant a destructive action.
+
+`R4_AUTH_FK_ORPHAN_GATE=CODE_READY_PENDING_PROTECTED_RESTORE`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
+
+## R4 post-COPY all-application-FK integrity (2026-11-20)
+
+Read-only Staging catalog inspection identified **561** application foreign-key
+constraints (455 single-column and 106 composite); all were VALIDATED,
+all use MATCH SIMPLE and built-in equality, and three reference managed
+Auth tables. COPY during the isolated restore disables constraint triggers,
+so a clean schema fingerprint alone cannot certify restored FK row integrity.
+
+The Staging shared-snapshot exporter now runs a PostgreSQL catalog-driven,
+read-only `psql \gexec` integrity audit over every application FK, using
+MATCH SIMPLE null semantics and multi-column equality. Only schema/table/FK
+identities, validation/operator flags and aggregate orphan counts are returned.
+The strict verifier requires all 561 unique relationships, accepted operator
+semantics, zero source violations, zero restore violations, and identical
+identities. Each of the **two** independent isolated restores runs the audit
+after data import; a networkless PostgreSQL regression exercises both a
+clean state and an intentionally injected orphan with FK triggers disabled.
+This is independent of the exact-three managed Auth FK guard and the
+constraint-definition SHA-256 parity guard.
+
+Caveats: SQL/catalog coverage and tests do not replace real Staging restore,
+cannot prove external dynamic SQL or provider blob bytes, and do not approve
+a destructive action. The 561-count reference is intentionally fail-closed
+on a changed Staging schema and must be reviewed before updating.
+
+`R4_ALL_561_APP_FK_INTEGRITY=CODE_READY_PENDING_PROTECTED_RESTORE`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
+
+## R4 verified live Staging FK integrity and composite negative control (2026-11-20)
+
+On source head `f7348fc0b754debcf72b69ac439ac579ae5c3b42`,
+all six GitHub Actions workflows completed successfully, including
+Docker Smoke with the all-application-FK checker.
+
+A separate actual hosted-Staging **read-only** audit generated 561 FK-specific
+SELECT statements from the checked-in PostgreSQL catalog query and executed
+the resulting checks in **six** bounded `REPEATABLE READ READ ONLY`
+transactions (100, 95, 95, 95, 95, 81 constraints). Results:
+`checked=561`, `total_fk_violations=0`,
+`constraints_with_violations=0`, `invalid_metadata_flags=0`.
+This is **not** one source-wide MVCC snapshot across all six live batches;
+each statement batch was transactionally consistent. It does not show any
+restored Staging dataset or prove recoverability.
+
+The isolated PostgreSQL fixture now includes a composite two-column FK,
+verifies MATCH SIMPLE accepts source rows with a partially NULL key, and
+injects an invalid fully populated two-column reference with
+`session_replication_role=replica`. The post-import check must detect
+both that composite orphan and the existing managed-Auth orphan, preserving
+fail-closed recovery behavior even if FK DDL is VALIDATED.
+
+`R4_LIVE_STAGING_561_FK_ROW_INTEGRITY=PASS_READ_ONLY`
+`R4_COMPOSITE_FK_NEGATIVE_CONTROL=CODE_READY_PENDING_CI`
+`R4_STAGING_REAL_RESTORED_561_FK_ROW_INTEGRITY=NOT_PROVEN`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
+
+## R4 protected Staging request commit-binding hardening
+
+The isolated staging workflow remains opt-in and does **not** run on normal
+PR commits. Its request validator now requires all of the following on an
+activation commit: a reviewed 40-character parent SHA recorded as
+`approved_parent_sha`, a checked-out HEAD that matches the GitHub
+`SHADOW_APPROVED_HEAD`, exactly one Git parent, the exact PR branch ref,
+and a Git diff containing **only** the run-request JSON file. Checkout
+fetches two commits so the actual parent can be checked. A request cannot
+be silently reused after unrelated code changes; a fresh request-only
+activation commit and environment review are needed on the new head.
+
+The checked-in request remains `requested=false`, its token and parent
+are `UNSET`, and the repository opt-in variable, protected environment
+approval and Staging-only secret are still separate prerequisites. The
+approval token is a non-secret review marker, not a substitute for GitHub
+environment protection. The code guards authorize *isolated read-only
+source restore* only, not destruction, rebaseline or a merge.
+
+`R4_STAGING_REQUEST_PARENT_SHA_BOUND=CODE_READY_PENDING_CI`
+`R4_STAGING_PROTECTED_RESTORE=NOT_EXECUTED`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
+
+## R4 source schema drift pin — reviewed observations (2026-11-20)
+
+A second direct hosted-Staging `REPEATABLE READ READ ONLY` catalog audit
+returned the exact same seven category counts and SHA-256 fingerprints as
+the preceding direct read-only observation. The independent reviewed-source
+hashes are now pinned in `check-staging-schema-fingerprint.mjs` and checked
+by `staging-atomic-export.sh` **before** any application/schema/managed
+data `pg_dump`. Previously, only source-to-restored SHA equality and
+catalog counts were required. A changed function body, trigger, policy,
+constraint, index or ACL with identical object counts could otherwise
+match source and restore, despite differing from reviewed Staging.
+
+This gate refuses drift and reports changed category names only. It does
+not reveal definitions, credentials or business data. Intentional schema
+changes require a new approved source review and an explicit update of the
+pinned reference, not an automatic fallback or destructive action.
+This is a drift detector, **not** an approval of the app-owned allowlist
+or canonical migration baseline.
+
+`R4_PINNED_STAGING_SCHEMA=CODE_READY_PENDING_CI`
+`R4_REAL_STAGING_RESTORE=NOT_EXECUTED`
+`APP_OWNED_APPROVED=false`
+`CANONICAL_BASELINE_APPROVED=false`
+`STAGING_INPLACE_GO=false`
+
+## R4 bounded PostgreSQL snapshot keeper (2026-11-20)
+
+The Staging-only source exporter previously set
+`idle_in_transaction_session_timeout=0`, explicitly disabling protection
+against an abandoned long-lived MVCC snapshot. A stranded read-only
+snapshot can retain dead tuples and contribute to vacuum bloat.
+
+The source snapshot keeper now sets **transaction-local** PostgreSQL 17
+limits: `idle_in_transaction_session_timeout='20min'` and
+`transaction_timeout='40min'` before calling `pg_export_snapshot()`.
+Timeout or connection loss invalidates that snapshot; the downstream
+attestation or `pg_dump --snapshot` fails closed. The controls are not
+database-wide settings and do not touch Production. A read-only
+transaction on hosted Staging PostgreSQL 17.6 confirmed both SET LOCAL
+values are accepted, and was rolled back.
+
+The Docker Smoke MVCC regression now also exercises a networkless PG17
+negative control with a deliberately short idle deadline and verifies
+the server terminates the abandoned transaction, without touching
+Staging. It is not proof that a real Staging restore has executed.
+
+`R4_SOURCE_SNAPSHOT_LIFETIME_BOUNDED=CODE_READY_PENDING_CI`
+`STAGING_INPLACE_GO=false`
+`PRODUCTION_INPLACE_GO=false`
+`CANONICAL_BASELINE_APPROVED=false`
+
+
+## R4 shared-snapshot ownership subobject attestation (2026-11-20 follow-up)
+
+The reviewed `APP_OWNED` inventory now includes catalog dependencies on
+application-owned constraints, RLS policies, rewrite rules, triggers and
+column-default objects (in addition to tables/functions). A read-only Staging
+inspection found 6 `pg_constraint -> pg_class` edges into managed `auth`
+(two references per existing Auth FK) and 1 `pg_policy -> pg_proc` edge:
+`public.users / users_self_read -> auth.uid()`.
+
+The protected **Staging-only** shared-snapshot exporter now executes
+`ownership-boundary.sql` through the same imported `pg_export_snapshot()`
+snapshot used by schema/data/history. The `check-staging-ownership-source.mjs`
+validator rejects missing/new/drifted provider dependency edges before
+`pg_dump`; the export reads the metadata again under the same snapshot and
+requires byte-for-byte parity. These are catalog-only, read-only checks.
+Existing negative regression tests cover exact record counts, function identity,
+unexpected dependencies, and exporter sequencing. The existing Production
+shadow workflow is unaffected.
+
+This is a **code gate**, not a signed deletion allowlist. The environment
+requires a separately reviewed, manual Staging request; the real hosted-source
+two-restore run has **not** been authorized or executed by this change.
+
+`R4_STAGING_OWNERSHIP_SNAPSHOT_GUARD=CODE_READY_PENDING_PROTECTED_RUN`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
+
+
+## R4 managed-to-APP_OWNED incoming dependencies (2026-11-20)
+
+A second, independent read-only Staging catalog inspection uncovered a
+provider-to-application dependency direction that the prior outgoing-only
+ownership checks did not attest. PostgreSQL `pg_depend` identified **48**
+incoming edges: `realtime` policy dependencies on PowerHub relations (32)
+and functions (11), plus `storage` policy dependencies on relations (4)
+and a function (1). Examples: Realtime conversation and Delta policies, and
+Storage chat attachment read policy. This discovery **does not** establish an
+existing runtime security failure; it is a blocker to approving a destructive
+APP_OWNED rebaseline without reviewed handling of dependent managed policies.
+
+New `staging-managed-reverse-dependencies.sql` checks provider-owned functions,
+relations, types, constraints, policies, triggers, rewrite rules and defaults
+for dependencies into PowerHub's public/private/powerhub_private objects.
+It uses an identity-sensitive SHA-256 and grouped edge counts observed twice
+in READ ONLY transactions. The exact reviewed fingerprint is pinned in
+`check-staging-managed-reverse-dependencies.mjs`. Both snapshots are queried
+inside the SAME exported Staging MVCC snapshot before and after pg_dump, with
+fail-closed comparison. Synthetic tests reject equal-count but different
+object identities, missing/extra groups and malformed inventories.
+
+The check detects source drift. It **does not** prove that the managed
+Realtime/Storage policies are present and functional in the disposable target;
+that needs separate managed-policy restoration/acceptance evidence. Do not
+declare `APP_OWNED` approved based solely on a matching source fingerprint.
+
+`R4_MANAGED_REVERSE_DEPENDENCY_INVENTORY=PASS_READ_ONLY_SOURCE`  
+`R4_MANAGED_REVERSE_DEPENDENCY_GUARD=CODE_READY_PENDING_PROTECTED_RUN`  
+`R4_MANAGED_POLICY_TARGET_REPLAY=NOT_PROVEN`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
+
+
+## R4 restored managed-policy dependency parity gate (2026-11-20)
+
+The Staging-only disposable `restore()` path now compares the **target**
+provider-managed incoming dependency graph against the exact exported source
+graph immediately after application-schema replay and **before business data
+COPY**. If restored Realtime/Storage managed RLS policies are absent or refer
+to different PowerHub functions/tables, the target verification fails closed.
+The same check is repeated on the second independent disposable restore.
+Production Docker shadow remains unchanged.
+
+The source dependency guard alone was not sufficient: a logically consistent
+application schema could still coexist with missing provider-managed RLS
+policies in the target. No provider-managed policy is modified on hosted
+Staging, and this change does not authorize recreating or replacing policies
+on the hosted database.
+
+`R4_MANAGED_REVERSE_TARGET_PARITY=CODE_READY_PENDING_PROTECTED_RUN`  
+`R4_PROTECTED_STAGING_RESTORE=NOT_PROVEN`  
+`APP_OWNED_APPROVED=false`  
+`PR359_MERGE_GO=false`
+
+
+## R4 JSONB serialization order regression (2026-11-20)
+
+An independent READ ONLY execution of the exact committed reverse-dependency
+SQL returned the expected 48 edges and SHA-256, but exposed a bug in the JS
+checker: comparing serialized `JSON.stringify(groups)` is sensitive to
+object key insertion order. PostgreSQL `jsonb` reorders object keys, so this
+comparison would reject a valid Staging inventory. The checker now uses
+key-order-independent deep equality for objects while preserving the ordered
+group array, strict expected fields, edge count and fingerprint. A regression
+passes a PostgreSQL-like reordered-key fixture and rejects changed counts and
+reordered groups. This is a source verification fix, not a restore approval.
+
+`R4_MANAGED_REVERSE_JSONB_ORDER_GUARD=CODE_READY_PENDING_CI`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`
+
+
+## R4 — two genuinely independent Staging source exports and disposable restores
+
+Earlier code exported one hosted PostgreSQL MVCC snapshot then restored the
+same SQL dump twice. That proved repeatable restore but did **not** satisfy
+independent-source export coverage. The Staging-only protected path now creates
+**two** separate exports with distinct PostgreSQL snapshot keeper transactions
+and snapshot IDs (only SHA-256 digests of IDs are retained), independent
+`pg_dump --snapshot` schema/data/history artifacts and separate role-only
+exports. Both run the full source catalog, ledger, Auth/Storage content, schema,
+foreign-key, ownership, and reverse dependency attestations. The second source
+export is accepted only if all these reviewed evidence files equal the first
+and the keeper snapshot digests differ. Source SQL manifests are checked for
+each export; raw SQL bytes are not required to match because pg_dump may emit
+non-semantic randomized restriction markers. Each export is then restored to
+its **own freshly started** isolated Supabase Local Stack. Every restored
+table-content, 561-FK, Auth/Storage and schema fingerprint is compared to its
+corresponding source evidence, and final restore-to-restore attestations
+must match. Any drift fails closed before in-place operations (which remain
+forbidden).
+
+The global-role dump is outside any MVCC snapshot: it is generated for each
+export and independently checked before/after; no claim of role transaction
+atomicity is made. Hosted-source credentials are unset before local restores.
+No protected hosted Staging run is claimed based solely on these code changes.
+
+`R4_TWO_INDEPENDENT_STAGING_SOURCE_EXPORTS=CODE_READY_PENDING_CI_AND_PROTECTED_RUN`  
+`R4_TWO_INDEPENDENT_DISPOSABLE_STAGING_RESTORES=CODE_READY_PENDING_CI_AND_PROTECTED_RUN`  
+`R4_PROTECTED_HOSTED_STAGING_EXECUTION=NOT_PROVEN`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
+
+
+## R4 restore-side daily Realtime evidence (2026-11-20)
+
+Protected hosted Staging run [#44813482042](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44813482042) **proved two separate MVCC source exports** and full source parity, including 183 table hashes, 561 app FK integrity checks, APP_OWNED inventory (978 candidates) and 48 reverse managed dependencies. It failed during the FIRST disposable restore, at `verify-managed-migrations-pre-application`: the two restore-side managed compatibility checker calls had not been passed the already-proven zero-row Realtime lifecycle gate, producing `blockedMissing=33` on the source's three historic daily partitions. This was not a successful pair of restores.
+
+`check_restore_managed_compatibility` now validates the zero-row Realtime source evidence **inside the current independent export directory**, on each pre/post-application check. The Staging-only flag is applied exclusively to these checker invocations when the source proof is exactly `0` and the source kind is `staging`. Missing/nonzero evidence fails closed. The Production/full path retains its original strict validator behavior. Regression enforces both restore-side calls and distinct export selection.
+
+This is code remediation only; a fresh protected request, reviewer approval and real Staging-to-disposable-restore acceptance are still required. No hosted schema/data writes, destructive reset, PR merge or Production deployment are authorized.
+
+`R4_TWO_INDEPENDENT_SOURCE_EXPORTS=PROVEN_RUN_44813482042`  
+`R4_FIRST_LOCAL_RESTORE=FAILED_MANAGED_LIFECYCLE_GUARD`  
+`R4_TWO_RESTORES=NOT_PROVEN`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
+
+
+## R4 schema parity diagnostics — protected run 44819760433 (2026-11-20)
+
+The protected two-source export and first isolated restore reached
+`staging-schema-before-data` and failed closed. Source and target had
+matching seven-category object counts, but the SHA-256 categories
+`columns`, `functions`, and `relations` differed after restoring the
+application schema. No business data COPY occurred and no hosted write was
+performed. Docker showed no OOM (around 121.5 MiB used).
+
+New `staging-schema-object-digests.sql` derives the **exact SAME seven-category
+inventory and attribute expression** as the reviewed aggregate fingerprint
+query and emits only catalog category, qualified object identity, and SHA-256.
+Source fingerprints are collected within EACH independently exported snapshot.
+`diagnose-staging-schema-object-drift.mjs` compares individual hashes,
+lists bounded changed/missing/extra **object identities only**, and never
+prints function bodies, ACL values, source rows, SQL statements, URLs or
+secrets. Upon aggregate mismatch, the protected restore runs the diagnostic
+before exiting **nonzero**, so no mismatch can be treated as success.
+Independent source export parity includes the new evidence file and regression
+tests validate negative cases. This is a diagnostic gate, not a permission to
+normalize or bypass mismatches. A fresh protected run is required to identify
+the exact differences and then apply a minimally scoped fix.
+
+The failed request has been reset to `requested=false`. PR remains Draft;
+`R4_TWO_SOURCE_EXPORTS=PASS_PRIOR_RUN`,
+`R4_BOTH_DISPOSABLE_RESTORES=NOT_PROVEN`,
+`STAGING_INPLACE_GO=false`, `PRODUCTION_INPLACE_GO=false`,
+`APP_OWNED_APPROVED=false`, `PR359_MERGE_GO=false`.
+
+
+## 2026-11-21 — confirmed per-object schema drift and field-level diagnostic
+
+Protected [run 44872103604](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44872103604) completed **FAILURE** after ~30 minutes. It re-proved two independent source MVCC dumps, 183 app table content hashes, 561 source FK checks, 978 APP_OWNED candidate identities and 48 incoming managed dependencies. First disposable restore imported application schema, then failed closed before any data COPY at `staging-schema-object-drift-diagnostics`. Source and restored object counts both 6,157. Exact object drift: 5 changed and 1 missing/1 extra column identity, 579 function hashes changed, and 216 relation hashes changed. Not OOM. Source `public.tenant_invoice_message_templates` contains a **dropped attribute at attnum 3** with subsequent active attributes numbered 4–9; native pg_dump rebuilds live columns with fresh numbers. This physical attnum renumbering needs a separately reviewed semantic column gate; it is not evidence that any source data was lost.
+
+To identify the likely systematic ACL/owner/definition differences without logging function definitions or privilege text, an additional catalog query now emits only `category,identity,field,sha256` for the SAME 7-category source inventory, restricted to columns/functions/relations. Each export captures this inside its own MVCC snapshot, twin-source export parity pins the evidence, and the failed disposable restore reports bounded field-level hash/count differences before EXIT 2. This **never relaxes** full schema parity. The request was disabled; a fresh protected reviewer-gated run is needed after CI. No hosted writes or in-place operations.
+
+`R4_TWO_SOURCE_EXPORTS=PASS`  
+`R4_TWO_RESTORED_TARGETS=NOT_PROVEN`  
+`APP_OWNED_APPROVED=false`  
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`PR359_MERGE_GO=false`
+
+
+## R4 2026-11-21 — per-field result and strictly canonical semantic schema parity
+
+Protected [run 44903864944](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44903864944) finished **FAILURE** at the first disposable restore after **two independent source exports PASS**. Per-field diagnosis showed exactly 579 **function ACL only** mismatches and 216 **relation ACL only** mismatches. Source and target function definitions, function SECURITY DEFINER flags, owners, relation RLS, relation options, 1437 constraints, 688 indexes, 129 policies, 202 triggers all matched. The one dropped-attribute table had only physically reordered attnum identities. Docker memory: 122.5MiB; not OOM; no data imported.
+
+A new fail-closed **semantic** seven-category fingerprint is captured within BOTH independent source MVCC snapshots and compared at pre-data AND post-data restore gates. Canonicalization includes every ACL privilege's **grantor role name, grantee role name (including PUBLIC), privilege type and is_grantable flag**, with defaults for NULL ACLs; sequences have correct 's' ACL default. Columns are keyed by qualified **live name**, not internal attnum; definition, type, default, not-null, identity, generated, RLS, indexes, policies, triggers and owners remain fully hashed. The original pinned source **raw** fingerprint and per-attribute diagnostics remain unchanged and continue to run. An otherwise raw-mismatched restore passes only when (a) all seven semantic category hashes are exactly equal and (b) the raw object/field differences are exactly the previously documented 579 function ACL, 216 relation ACL and 1 dropped-column attnum renumbering. Any changed effective privilege, grantor, grant option, function definition, RLS, unexpected object or metadata still FAILS before data COPY. Neither this logical compatibility nor the 978 APP_OWNED candidate inventory authorizes any hosted reset or baseline.
+
+This is implemented code, not yet protected-run proof. The failed protected request was disabled. Re-run six CI gates on the new SHA before a request-only protected activation.
+
+`STAGING_INPLACE_GO=false`  
+`PRODUCTION_INPLACE_GO=false`  
+`APP_OWNED_APPROVED=false`  
+`PR359_MERGE_GO=false`
+
+
+## 2026-11-21 — protected Staging failure: semantic schema parity not established
+
+[Run 44908964463](https://github.com/mosabmalek-rgb/powerhub-platform/actions/runs/44908964463) **FAILED** after two independent source exports and 183 table content and 561 FK source checks passed. First isolated restore imported application schema, but the **seven-category semantic fingerprint did not match**. The earlier raw diagnosis still showed 579 function ACL, 216 relation ACL and the known physical column-ordinal changes. The failure occurred at `staging-semantic-security-parity-pre-data`, before business data import. Docker was not OOM, and no hosted data were modified. **Do not treat the ACL differences as only textual/ordering differences:** source-to-target effective privileges or grant provenance may actually differ; the logs did not isolate the semantic category or field yet.
+
+Diagnostic-only remediation: capture per-field semantic SHA-256 evidence, from the **same source MVCC snapshot** for each of two independent exports, and compare against each isolated target before the existing strict reviewer. Logs only bounded object identities and field mismatch counts, never ACL grants, function definitions, SQL, or user records. It remains fail-closed: diagnostics CANNOT authorize accepting semantic drift, skipping RLS checks, or importing data. No permission for Staging/Production in-place action or PR merge. Disabled the failed request.
+
+`R4_SOURCE_TWIN_EXPORTS=PROVEN`; `R4_TWO_DISPOSABLE_RESTORES=NOT_PROVEN`; `APP_OWNED_APPROVED=FALSE`; `CANONICAL_BASELINE_APPROVED=FALSE`; `STAGING_INPLACE_GO=FALSE`; `PRODUCTION_INPLACE_GO=FALSE`; `PR359_MERGE_GO=FALSE`.

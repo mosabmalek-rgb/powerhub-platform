@@ -1,0 +1,1379 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const serviceRecognitionA37 = readFileSync(
+  "docs/security/sql/pr359-financial-a37-service-recognition-rollback-smoke.sql", "utf8",
+);
+const payrollAdvanceA38 = readFileSync(
+  "supabase/migrations/20261110141819_powerhub_payroll_disbursed_advance_integrity.sql", "utf8",
+);
+const payrollRegressionA38 = readFileSync(
+  "docs/security/sql/pr359-financial-a38-advance-integrity-rollback.sql", "utf8",
+);
+const payrollPositiveA38 = readFileSync(
+  "docs/security/sql/pr359-financial-a38-positive-disbursement-rollback.sql", "utf8",
+);
+const engineeringAcceptanceA39 = readFileSync(
+  "docs/security/sql/pr359-financial-a39-engineering-acceptance-rollback.sql", "utf8",
+);
+const payrollAdvanceCashDateA40 = readFileSync(
+  "docs/security/sql/pr359-financial-a40-advance-cash-date-rollback.sql", "utf8",
+);
+const payrollAdvanceGuardA40 = readFileSync(
+  "supabase/migrations/20261110145822_powerhub_payroll_advance_cash_date_crosscheck.sql", "utf8",
+);
+const glActorGuardA41 = readFileSync(
+  "supabase/migrations/20261110152142_powerhub_financial_gl_actor_membership_guards.sql","utf8",
+);
+const glActorScopeA41 = readFileSync(
+  "docs/security/sql/pr359-financial-a41-actor-scope-rollback.sql","utf8",
+);
+const zeroOpeningMigrationA42 = readFileSync(
+  "supabase/migrations/20261110154921_powerhub_financial_gl_zero_opening_no_fictitious_cents.sql","utf8",
+);
+const zeroOpeningAcceptanceA42 = readFileSync(
+  "docs/security/sql/pr359-financial-a42-zero-opening-full-rollback.sql","utf8",
+);
+const fixtureFastPreflightA43 = readFileSync(
+  "supabase/migrations/20261110160749_powerhub_financial_gl_verified_fixture_fast_zero_preflight.sql", "utf8",
+);
+const fixtureFastAcceptanceA43 = readFileSync(
+  "docs/security/sql/pr359-financial-a43-verified-fixture-fast-preflight-rollback.sql", "utf8",
+);
+const technicalBootstrapMigrationA44 = readFileSync(
+  "supabase/migrations/20261110165044_powerhub_financial_gl_prelaunch_technical_bootstrap.sql","utf8",
+);
+const technicalBootstrapRollbackA44 = readFileSync(
+  "docs/security/sql/pr359-financial-a44-prelaunch-bootstrap-rollback.sql","utf8",
+);
+const prelaunchAcceptanceA45 = readFileSync("supabase/migrations/20261110170636_powerhub_financial_gl_prelaunch_engineering_acceptance_status.sql", "utf8");
+const durableAcceptanceCheckA45 = readFileSync("docs/security/sql/pr359-financial-a45-durable-acceptance-readonly.sql", "utf8");
+const glAuditUiA45 = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
+const bootstrapExpiryMigrationA46 = readFileSync("supabase/migrations/20261110172614_powerhub_financial_gl_prelaunch_authorization_expiry_visibility.sql","utf8");
+const bootstrapExpiryAcceptanceA46 = readFileSync("docs/security/sql/pr359-financial-a46-bootstrap-expiry-readonly.sql","utf8");
+const phaseA47FinalEngineering = readFileSync("docs/security/sql/pr359-financial-a47-engineering-closeout.sql", "utf8");
+const phaseA47AcceptanceReport = readFileSync("docs/roadmaps/powerhub-finance-phase-a-engineering-acceptance-20261110.md", "utf8");
+const financialStatementsB1Sql = readFileSync("supabase/migrations/20261110180332_powerhub_financial_gl_site_statements_b1.sql", "utf8");
+const financialStatementsB1Acceptance = readFileSync("docs/security/sql/pr359-financial-b1-gl-statements-rollback.sql", "utf8");
+const financialStatementsB1Ui = readFileSync("client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8");
+const phaseB2CentralPolicySql = readFileSync("supabase/migrations/20261110182702_powerhub_financial_gl_central_policy_management_b2.sql","utf8");
+const phaseB2CentralPolicyAcceptance = readFileSync("docs/security/sql/pr359-financial-b2-central-allocation-rollback.sql","utf8");
+const b3TenantRollupSql = readFileSync("supabase/migrations/20261110201500_powerhub_financial_gl_tenant_preliminary_rollup_b3.sql","utf8");
+const b51FastProofSql = readFileSync(
+  "supabase/migrations/20261110223326_powerhub_financial_b5_fast_staging_fixture_coverage.sql","utf8",
+);
+const b51FailClosedSql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-fast-proof-negative-rollback.sql","utf8",
+);
+const b53FastPriorSql = readFileSync(
+  "supabase/migrations/20261112093106_powerhub_financial_b5_fast_prior_coverage_without_250k_rescan.sql","utf8",
+);
+const b54AuditSql = readFileSync(
+  "supabase/migrations/20261112104342_powerhub_financial_b54_fast_cash_audit_fixture_proof.sql","utf8",
+);
+const b54GuardTestSql = readFileSync(
+  "docs/security/sql/pr359-financial-b54-audit-fixture-guard-rollback.sql","utf8",
+);
+const b53NonfixtureSql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-nonfixture-visibility-rollback.sql","utf8",
+);
+const b53FallbackSql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-fast-prior-fallback-rollback.sql","utf8",
+);
+const b52RepeatabilitySql = readFileSync(
+  "docs/security/sql/pr359-financial-b5-repeat-read-consistency-rollback.sql","utf8",
+);
+const b5EngineeringGate = readFileSync(
+  "docs/security/sql/pr359-financial-b5-staging-engineering-gate.sql","utf8",
+);
+const b45LinkedIndexSql = readFileSync(
+  "supabase/migrations/20261110220123_powerhub_financial_gl_b4_linked_movement_index.sql","utf8",
+);
+const b45IndexRegression = readFileSync(
+  "docs/security/sql/pr359-financial-b4-linked-index-readonly.sql","utf8",
+);
+const b43FastFixtureSql = readFileSync(
+  "supabase/migrations/20261110214103_powerhub_financial_gl_b4_fast_fixture_guard.sql", "utf8",
+);
+const companyMovementB42Sql = readFileSync(
+  "supabase/migrations/20261110213320_powerhub_financial_gl_b4_company_movement_provenance.sql","utf8",
+);
+const companyMovementB42Acceptance = readFileSync(
+  "docs/security/sql/pr359-financial-b4-company-movement-rollback.sql","utf8",
+);
+const b4DocumentSourceSql = readFileSync(
+  "supabase/migrations/20261110211645_powerhub_financial_gl_b4_document_source_audit.sql", "utf8",
+);
+const b4DocumentSourceRegression = readFileSync(
+  "docs/security/sql/pr359-financial-b4-document-source-audit-rollback.sql", "utf8",
+);
+const b33SourceTransferSql = readFileSync(
+  "supabase/migrations/20261112083854_powerhub_financial_gl_b3_inter_site_source_visibility.sql","utf8",
+);
+const b34TransferAlignmentSql = readFileSync(
+  "supabase/migrations/20261112091332_powerhub_financial_b3_transfer_type_alignment.sql","utf8",
+);
+const b35TransferProvenanceSql = readFileSync("supabase/migrations/20261112111111_powerhub_financial_b35_transfer_source_provenance_hardening.sql","utf8");
+const b35ForgedPayloadSql = readFileSync("docs/security/sql/pr359-financial-b35-forged-transfer-payload-rollback.sql","utf8");
+const b34RealTransferSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-real-transfer-rpc-rollback.sql","utf8",
+);
+const b311LedgerSql = readFileSync(
+ "supabase/migrations/20261112122842_powerhub_financial_b311_independent_elimination_ledger.sql","utf8",
+);
+const b3111LinesSql = readFileSync(
+ "supabase/migrations/20261112123206_powerhub_financial_b3111_balanced_elimination_lines_and_audit.sql","utf8",
+);
+const b3112AliasFixSql = readFileSync(
+ "supabase/migrations/20261112124134_powerhub_financial_b3112_elimination_line_alias_fix.sql","utf8",
+);
+const b411CorrectionReadinessSql = readFileSync(
+ "supabase/migrations/20261112133754_powerhub_financial_b411_source_backed_correction_readiness.sql","utf8",
+);
+const b411CorrectionReadinessTest = readFileSync(
+ "docs/security/sql/pr359-financial-b411-correction-readiness-rollback.sql","utf8",
+);
+const b411CorrectionUi = readFileSync(
+ "client/src/components/finance/FinancialGLCorrectionReadinessWorkspace.tsx","utf8",
+);
+const b56ReferenceIndexSql = readFileSync(
+ "supabase/migrations/20261112132131_powerhub_financial_b56_company_account_reference_prefix_index.sql","utf8",
+);
+const b56SourceGuardSql = readFileSync(
+ "docs/security/sql/pr359-financial-b56-staging-reference-index-source-guard-rollback.sql","utf8",
+);
+const b395OrphanGuardSql = readFileSync(
+ "supabase/migrations/20261112130226_powerhub_financial_b395_orphan_elimination_fail_closed.sql","utf8",
+);
+const b395OrphanNegativeSql = readFileSync(
+ "docs/security/sql/pr359-financial-b395-orphan-elimination-fail-closed-rollback.sql","utf8",
+);
+const b394ApprovedPreviewSql = readFileSync(
+ "supabase/migrations/20261112124448_powerhub_financial_b394_elimination_review_visibility.sql","utf8",
+);
+const b3111SecuritySql = readFileSync(
+ "docs/security/sql/pr359-financial-b3111-immutable-elimination-security-rollback.sql","utf8",
+);
+const b311ReviewSql = readFileSync(
+ "docs/security/sql/pr359-financial-b311-independent-elimination-rollback.sql","utf8",
+);
+const b394ApprovedReviewSql = readFileSync(
+ "docs/security/sql/pr359-financial-b394-approved-elimination-report-rollback.sql","utf8",
+);
+const b3WorkspaceUi = readFileSync(
+ "client/src/components/finance/FinancialInterSiteTransferWorkspace.tsx","utf8",
+);
+const b39AuditSql = readFileSync(
+ "supabase/migrations/20261112120914_powerhub_financial_b39_inter_site_posting_proof_audit.sql","utf8",
+);
+const b391AuditFixSql = readFileSync(
+ "supabase/migrations/20261112121003_powerhub_financial_b391_audit_alias_scope_fix.sql","utf8",
+);
+const b392IntraSiteFixSql = readFileSync(
+ "supabase/migrations/20261112121237_powerhub_financial_b392_exclude_intra_site_from_inter_site_preview.sql","utf8",
+);
+const b39PositiveAuditSql = readFileSync(
+ "docs/security/sql/pr359-financial-b39-positive-gl-audit-rollback.sql","utf8",
+);
+const b38PostingSql = readFileSync(
+ "supabase/migrations/20261112115946_powerhub_financial_b38_source_paired_inter_site_double_entry.sql","utf8",
+);
+const b381ExtensionSql = readFileSync(
+ "supabase/migrations/20261112120316_powerhub_financial_b381_qualified_digest_in_inter_site_posting.sql","utf8",
+);
+const b38PositiveSql = readFileSync(
+ "docs/security/sql/pr359-financial-b38-cross-site-post-and-replay-rollback.sql","utf8",
+);
+const b38NegativeSql = readFileSync(
+ "docs/security/sql/pr359-financial-b38-negative-source-scope-rollback.sql","utf8",
+);
+const b37EliminationMathSql = readFileSync(
+ "docs/security/sql/pr359-financial-b37-cross-site-elimination-math-rollback.sql","utf8",
+);
+const b36SameSiteBlockSql = readFileSync(
+  "docs/security/sql/pr359-financial-b36-cross-site-same-site-post-denied-rollback.sql","utf8",
+);
+const b33PositiveSourceSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-positive-cross-site-source-rollback.sql","utf8",
+);
+const b33TransferFaultSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-source-transfer-fault-rollback.sql","utf8",
+);
+const b31TransferProofSql = readFileSync(
+  "supabase/migrations/20261110225954_powerhub_financial_b3_warehouse_transfer_source_proof.sql","utf8",
+);
+const b32TransferFaultSql = readFileSync(
+  "docs/security/sql/pr359-financial-b3-transfer-pair-fault-injection-rollback.sql","utf8",
+);
+const b3TenantRollupCheck = readFileSync("docs/security/sql/pr359-financial-b3-preliminary-rollup-rollback.sql","utf8");
+const b410TechnicalCorrectionSql = readFileSync(
+  "docs/security/sql/pr359-financial-b410-staging-only-technical-opening-correction.sql","utf8",
+);
+const b48ReversalSimulationSql = readFileSync(
+  "docs/security/sql/pr359-financial-b4-posted-opening-reversal-simulation-rollback.sql","utf8",
+);
+const b493JawwalSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-jawwal-pay-transfer-rollback.sql","utf8",
+);
+const b493TypesSql = readFileSync(
+  "supabase/migrations/20261112103607_powerhub_financial_b49_all_company_account_types.sql","utf8",
+);
+const b492CandidatesSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-candidates-rollback.sql","utf8",
+);
+const b492MigrationSql = readFileSync(
+  "supabase/migrations/20261112102934_powerhub_financial_b49_transfer_decimal_scale_and_candidates.sql","utf8",
+);
+const b49Ui = readFileSync(
+  "client/src/components/finance/FinancialCashTransferPostingWorkspace.tsx","utf8",
+);
+const b49PostSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-account-transfer-posting-rollback.sql","utf8",
+);
+const b49ForgedSql = readFileSync(
+  "docs/security/sql/pr359-financial-b49-forged-transfer-negative-rollback.sql","utf8",
+);
+const b49MigrationSql = readFileSync(
+  "supabase/migrations/20261112101831_powerhub_financial_b49_source_paired_cash_transfer_posting.sql","utf8",
+);
+const b491GuardSql = readFileSync(
+  "supabase/migrations/20261112102257_powerhub_financial_b49_transfer_source_payload_guard.sql","utf8",
+);
+const b47CashTransferSql = readFileSync(
+  "docs/security/sql/pr359-financial-b4-transfer-source-not-posted-rollback.sql","utf8",
+);
+const b47TransferMigrationSql = readFileSync(
+  "supabase/migrations/20261112095117_powerhub_financial_b4_cash_transfer_source_classification.sql","utf8",
+);
+const b46MarkedOpeningSql = readFileSync(
+  "docs/security/sql/pr359-financial-b4-marked-opening-fail-closed-rollback.sql","utf8",
+);
+const b21TwoActorNegative = readFileSync(
+  "docs/security/sql/pr359-financial-b2-two-actor-negative-rollback.sql","utf8",
+);
+const financialCentralB2Ui = readFileSync("client/src/components/finance/FinancialCentralAllocationWorkspace.tsx","utf8");
+const technicalFixtureA35 = readFileSync(
+  "supabase/migrations/20261110133317_powerhub_financial_gl_prelaunch_technical_fixture_exclusion.sql", "utf8",
+);
+const technicalAcceptanceA35 = readFileSync(
+  "docs/security/sql/pr359-financial-a35-technical-acceptance-readonly.sql", "utf8",
+);
+const sourceDateA32 = readFileSync(
+  "docs/security/sql/pr359-financial-a32-opening-source-dates-readonly.sql", "utf8",
+);
+const closureA31 = readFileSync(
+  "docs/security/sql/pr359-financial-a31-staging-closure-readonly.sql", "utf8",
+);
+const openingA29 = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a29-opening-custody-rollback.sql", "utf8",
+);
+const openingCustody = readFileSync(
+  "supabase/migrations/20261110133500_powerhub_financial_gl_opening_document_custody.sql", "utf8",
+);
+const openingSetupUi = readFileSync(
+  "client/src/components/finance/FinancialOpeningSetupPanel.tsx", "utf8",
+);
+const openingEvidenceUi = readFileSync(
+  "client/src/components/finance/FinancialOpeningEvidenceWorkspace.tsx", "utf8",
+);
+const privateStorage = readFileSync("server/storage.ts", "utf8");
+const openingEvidenceRuntime = readFileSync(
+  "server/financial-opening-evidence.ts", "utf8",
+);
+const cashFlowAcceptance = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a26-cash-flow-rollback-acceptance.sql", "utf8",
+);
+const unifiedAcceptance = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a27-unified-acceptance-assertions.sql", "utf8",
+);
+const stagedManifestAcceptance = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a25-manifest-rollback-acceptance.sql", "utf8",
+);
+const installedSourceChain = readFileSync(
+  "docs/security/sql/pr359-financial-gl-a24-rollback-source-chain.sql", "utf8",
+);
+const sourcePreflight = readFileSync(
+  "docs/security/sql/pr359-financial-gl-backfill-source-preflight.sql", "utf8",
+);
+const provenance = readFileSync(
+  "docs/security/sql/pr359-staging-performance-fixture-provenance-audit.sql", "utf8",
+);
+const acceptance = readFileSync(
+  "docs/security/sql/pr359-financial-phase-a-final-readonly-acceptance.sql", "utf8",
+);
+const dashboard = readFileSync(
+  "client/src/components/finance/FinancialGLAuditPanel.tsx", "utf8",
+);
+const quarantine = readFileSync(
+  "supabase/migrations/20261110026000_powerhub_financial_staging_fixture_quarantine.sql", "utf8",
+);
+const auditedCashFlow = readFileSync(
+  "supabase/migrations/20261110027000_powerhub_financial_cash_flow_fixture_guard.sql", "utf8",
+);
+const runtime = readFileSync("server/powerhub.ts", "utf8");
+const financePage = readFileSync("client/src/pages/FinancialDashboardPage.tsx", "utf8");
+const sources = readFileSync(
+  "supabase/tests/financial_gl_operational_sources_integration.sql", "utf8",
+);
+
+describe("Phase A financial acceptance evidence", () => {
+  it("requires source-dated opening evidence, not a zero-net performance fixture shortcut", () => {
+    for(const marker of [
+      "READ_ONLY_TEST_DATA_NOT_CERTIFIED",
+      "STG-PERF-%",
+      "Asia/Gaza",
+      "accounts_created_after_opening",
+      "synthetic_before_opening",
+      "other_before_opening",
+      "requiresIndependentOpeningReconciliation",
+    ]) expect(sourceDateA32).toContain(marker);
+    expect(sourceDateA32).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
+    expect(sourceDateA32).not.toContain("SECURITY DEFINER");
+  });
+  it("keeps opening custody uploads independent of URL signing", () => {
+    expect(privateStorage).toContain("export async function storagePutPrivate(");
+    expect(privateStorage).toContain("const uploaded = await storagePutPrivate(relKey, data, contentType);");
+    const privateUpload = privateStorage.split("export async function storagePutPrivate(")[1]
+      ?.split("export async function storagePut(")[0] ?? "";
+    expect(privateUpload).toContain(".upload(");
+    expect(privateUpload).not.toContain("storageGetSignedUrl(");
+    expect(runtime).toContain("uploaded=await storagePutPrivate(fileKey,parsed.bytes,input.mimeType)");
+  });
+  it("recovers ambiguous evidence custody writes only with persisted byte hash proof", () => {
+    for(const marker of [
+      "recoveredAfterAmbiguousWrite:true",
+      "recoveredAfterAmbiguousWrite:false",
+      "openingDocumentDetails(",
+      "openingDocumentHashMatches(",
+      "committed.storage_key",
+      "if(!recoveryError && committed",
+    ]) expect(runtime).toContain(marker);
+    expect(runtime).not.toContain("if(insertError) return {evidenceId");
+  });
+
+  it("reports remaining Staging acceptance blockers without altering data or fabricating approval", () => {
+    for(const marker of [
+      "READ_ONLY_NOT_CERTIFICATION",
+      "qualifiedReviewers",
+      "verifiedFixtureManifests",
+      "postedOpenings",
+      "postedGLEntries",
+      "unreconciledSources",
+      "openingEvidenceAudit",
+      "sourceIntegrity",
+      "FIXTURE_VERIFICATION_PENDING",
+      "fixtureExclusionResolved",
+      "fixtureTechnicalVerification",
+      "OPENING_NOT_POSTED",
+      "SOURCE_GL_INCOMPLETE",
+      "OPENING_SUBLEDGER_RECONCILIATION_PENDING",
+    ]) expect(closureA31).toContain(marker);
+    expect(closureA31).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
+    expect(closureA31).not.toContain("SECURITY DEFINER");
+  });
+
+  it("retains executed A29 Staging custody and independent checker regression", () => {
+    for(const phrase of [
+      "BEGIN;", "ROLLBACK;", "powerhub_financial_gl_opening_create",
+      "powerhub_financial_gl_opening_post", "powerhub_financial_gl_opening_evidence_submit",
+      "powerhub_financial_gl_opening_evidence_review",
+      "GL_OPENING_DOCUMENT_CUSTODY_REQUIRED",
+      "GL_OPENING_DOCUMENT_CUSTODY_HASH_MISMATCH",
+      "GL_OPENING_EVIDENCE_REVIEW_NOT_INDEPENDENT",
+      "sourceSubledgersIndependentlyVerified",
+      "A29_FALSE_ACCOUNTING_CERTIFICATION",
+    ]) expect(openingA29).toContain(phrase);
+    expect(openingA29).not.toContain("COMMIT;");
+    expect(openingA29).not.toContain("DISABLE TRIGGER");
+  });
+  it("exposes scoped opening draft, independent post and void workflows without certification", () => {
+    for(const route of [
+      "financialGLChartInitialize",
+      "financialGLChartAccounts",
+      "financialGLOpeningEvidenceWorkspace",
+      "financialGLChartInitialize",
+      "financialGLOpeningCreate",
+      "financialGLOpeningPost",
+      "financialGLOpeningVoid",
+      "createdByCurrentUser",
+    ]) expect(runtime).toContain(route);
+    for(const signal of [
+      "financialGLOpeningCreate",
+      "financialGLOpeningPost",
+      "financialGLOpeningVoid",
+      "createdByCurrentUser",
+      "accountCode",
+      "opening-ui-",
+      "Math.abs(debit-credit)",
+    ]) expect(openingSetupUi).toContain(signal);
+    expect(openingEvidenceUi).toContain("FinancialOpeningSetupPanel");
+    expect(openingEvidenceUi).toContain('opening?.status==="posted"');
+    expect(openingSetupUi).not.toContain("CERTIFIED");
+  });
+  it("makes uploaded opening custody immutable, server byte-verified and independently reviewed", () => {
+    for(const signal of [
+      "financial_gl_opening_document_custody",
+      "GL_OPENING_DOCUMENT_CUSTODY_HASH_MISMATCH",
+      "GL_OPENING_DOCUMENT_CUSTODY_REQUIRED",
+      "GL_OPENING_DOCUMENT_CUSTODY_IMMUTABLE",
+      "zzz_gl_opening_document_custody_review_gate",
+      "financial-opening-evidence/",
+      "ENABLE ROW LEVEL SECURITY",
+      "NOT_CERTIFIED",
+    ]) {
+      if(signal==="NOT_CERTIFIED") expect(runtime).toContain(signal);
+      else expect(openingCustody).toContain(signal);
+    }
+    for(const signal of [
+      "financialGLOpeningEvidenceUpload",
+      "financialGLOpeningEvidenceReview",
+      "financialGLOpeningEvidenceFileUrl",
+      "financialGLOpeningEvidenceWorkspace",
+      "parseOpeningDocumentBase64",
+      "openingDocumentHashMatches",
+      "openingDocumentDetails",
+      "storagePut",
+      ".download(",
+      "requireSupabaseSiteRole",
+      "accountingCertification:\"NOT_CERTIFIED\"",
+    ]) expect(runtime).toContain(signal);
+    expect(openingEvidenceRuntime).toContain('timingSafeEqual');
+    expect(openingEvidenceUi).toContain("financialGLOpeningEvidenceUpload");
+    expect(openingEvidenceUi).toContain("financialGLOpeningEvidenceReview");
+    expect(openingEvidenceUi).toContain("reviewEvidenceId===ev.id");
+    expect(dashboard).toContain("FinancialOpeningEvidenceWorkspace");
+    expect(sources).toContain("20261110133500_powerhub_financial_gl_opening_document_custody.sql");
+    expect(sources).toContain("GL_CI_A28_DOCUMENTLESS_APPROVAL");
+    expect(sources).toContain("GL_CI_A28_CUSTODY_HASH_BYPASS");
+    expect(openingCustody).not.toMatch(/\\bDELETE\\s+FROM\\s+public\\./i);
+    expect(openingCustody).not.toContain("DISABLE TRIGGER");
+    expect(openingCustody).not.toContain("CERTIFIED' AS");
+  });
+
+  it("validates exact full-month, partial-day, and clean-period cash flows under rollback", () => {
+    for (const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "A26_UNREVIEWED_CASH_FLOW_ALLOWED",
+      "A26_REVIEW_REPLAY_FAILED",
+      "A26_FULL_MONTH_FIXTURE_NOT_EXCLUDED",
+      "A26_PARTIAL_DAY_EXCLUSION_DRIFT",
+      "A26_NO_FIXTURE_MONTH_CHANGED",
+      "powerhub_financial_period_cash_flow_raw",
+      "powerhub_financial_period_cash_flow",
+      "powerhub_financial_gl_verify_staging_fixture",
+      "fixtureEvidenceSha256",
+      "fixtureExcludedMovements",
+      "NOT_CERTIFIED",
+    ]) expect(cashFlowAcceptance).toContain(signal);
+    expect(cashFlowAcceptance).not.toContain("COMMIT;");
+    expect(cashFlowAcceptance).not.toContain("DISABLE TRIGGER");
+    expect(cashFlowAcceptance).not.toMatch(/\\b(?:DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+  });
+  it("pins complete operational GL coverage while refusing fabricated opening certification", () => {
+    for(const signal of [
+      "A27_SOURCE_COVERAGE_OR_GL_INTEGRITY_DRIFT",
+      "A27_FALSE_ACCOUNTING_CERTIFICATION",
+      "unreconciledSourceCount",
+      "isSourceCoverageComplete",
+      "sourceIntegrity",
+      "driftedEntries",
+      "unauditedEntries",
+      "quarantinedTestMovements",
+      "isOpeningReconciled",
+      "sourceSubledgersIndependentlyVerified",
+      "INDEPENDENT_SUBLEDGER_RECONCILIATION_REQUIRED",
+      "NOT_CERTIFIED",
+      "trialDifference",
+    ]) expect(unifiedAcceptance).toContain(signal);
+    expect(unifiedAcceptance).not.toMatch(/\\b(?:INSERT|UPDATE|DELETE|TRUNCATE|COMMIT)\\b/i);
+    expect(unifiedAcceptance).not.toContain("DISABLE TRIGGER");
+  });
+  it("keeps exact fixture maker-checker and 27-source evidence rollback-only", () => {
+    for(const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "A25_SELF_REVIEW_ACCEPTED",
+      "A25_EXPIRED_REVIEWER_ACCEPTED",
+      "powerhub_financial_gl_fixture_manifest_prepare",
+      "powerhub_financial_gl_fixture_manifest_review",
+      "powerhub_financial_gl_verify_staging_fixture",
+      "quarantinedTestMovements",
+      "unreconciledSourceCount",
+      "NOT_CERTIFIED",
+      "250000",
+      "27",
+    ]) expect(stagedManifestAcceptance).toContain(signal);
+    expect(stagedManifestAcceptance).not.toContain("TRUNCATE");
+    expect(stagedManifestAcceptance).not.toContain("COMMIT;");
+    expect(stagedManifestAcceptance).not.toContain("DISABLE TRIGGER");
+  });
+  it("proves source posting and earned-service recognition on installed Staging with rollback", () => {
+    for(const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "A24_SOURCE_SITE_ALREADY_POSTED",
+      "powerhub_financial_gl_opening_create",
+      "powerhub_financial_gl_opening_post",
+      "powerhub_financial_gl_post_source",
+      "powerhub_financial_gl_recognize_billed_service",
+      "A24_DUPLICATE_SOURCE_POST",
+      "A24_SERVICE_REPLAY_INVALID",
+      "A24_OUT_OF_CYCLE_RECOGNITION_ACCEPTED",
+      "A24_INCOMPLETE_SERVICE_MONTH_ACCEPTED",
+      "GL_SERVICE_MONTH_OUTSIDE_CYCLE",
+      "GL_SERVICE_MONTH_NOT_COMPLETED",
+      "A24_FALSE_ACCOUNTING_CERTIFICATION_OR_TRIAL_DRIFT",
+      "STG-A24-TEST-NOT-CERTIFIED",
+      "BALANCED_NOT_CERTIFIED",
+    ]) expect(installedSourceChain).toContain(signal);
+    expect(installedSourceChain).not.toMatch(/\\b(?:UPDATE|DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+    expect(installedSourceChain).toContain("public.powerhub_financial_gl_trial_balance");
+    expect(installedSourceChain).toContain("accountingCertification");
+    expect(installedSourceChain).toContain("auth.users");
+  });
+  it("preflights GL sources by dependency without mutating historical entries", () => {
+    for (const signal of [
+      "BEGIN;",
+      "ROLLBACK;",
+      "pg_temp.powerhub_gl_preflight_probe",
+      "powerhub_financial_gl_source_plan",
+      "SOURCE_PLAN_VALID_NOT_POSTED",
+      "WAITING_FOR_PREREQUISITE_GL",
+      "INTERNAL_TRANSFER_NOT_DIRECT_GL",
+      "STOCK_REQUIRES_SUPPLIER_COVERAGE_CHECK",
+      "REQUIRES_SOURCE_REVIEW",
+      "NO_PERSISTENT_CHANGES_ALL_STATEMENTS_ROLLED_BACK",
+      "NOT_CERTIFIED",
+    ]) expect(sourcePreflight).toContain(signal);
+    expect(sourcePreflight).not.toMatch(/\\b(?:UPDATE|DELETE|TRUNCATE)\\s+(?:FROM\\s+)?public\\./i);
+    expect(sourcePreflight).not.toContain("powerhub_financial_gl_post_source(");
+    expect(sourcePreflight).not.toContain("powerhub_financial_gl_opening_create(");
+    expect(sourcePreflight).not.toContain("powerhub_financial_gl_fixture_manifest_review(");
+  });
+
+  it("qualifies but never silently removes or relabels synthetic bank movements", () => {
+    for (const evidence of [
+      "d.count=250000",
+      "d.unknown_reference=0",
+      "d.unknown_description=0",
+      "d.attributed_to_user=0",
+      "d.non_fixture_type=0",
+      "d.unexpected_amount=0",
+      "d.linked_business_sources=0",
+      "d.outside_fixture_dates=0",
+      "x.other_table_references=0",
+      "p.collections<>62500",
+      "p.withdrawals<>62500",
+      "p.signed_amount<>0",
+      "BLOCKED_MANUAL_REVIEW_REQUIRED",
+      "ARCHIVE_CANDIDATE_VERIFIED_NOT_ARCHIVED",
+    ]) expect(provenance).toContain(evidence);
+    expect(provenance).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(provenance).not.toMatch(/\bUPDATE\s+public\./i);
+    expect(provenance).not.toMatch(/\bTRUNCATE\b/i);
+    expect(provenance).not.toContain("DISABLE TRIGGER");
+  });
+
+  it("requires independent opening evidence, non-zero GL and complete sources", () => {
+    for (const signal of [
+      "gl_entries>0",
+      "opening_reconciled IS TRUE",
+      "matched_opening IS TRUE",
+      "verified_subledgers IS TRUE",
+      "source_clean IS TRUE",
+      "unresolved=0",
+      "performance_fixtures=0",
+      "balance_difference=0",
+      "phase_a_accounting_acceptance",
+    ]) expect(acceptance).toContain(signal);
+    expect(acceptance).toContain("BLOCKED");
+    expect(acceptance).not.toMatch(/\bDELETE\s+FROM\b/i);
+    expect(acceptance).not.toMatch(/\bUPDATE\s+public\./i);
+  });
+
+  it("quarantines only the exact dual-reviewed unchanged 250k Staging cohort", () => {
+    for (const proof of [
+      "NO_APPROVED_MANIFEST",
+      "v_manifest.sha256",
+      "extensions.digest(",
+      "v_count<>250000",
+      "v_good_accounts<>2",
+      "v_external<>0",
+      "GL_FIXTURE_SELF_REVIEW",
+      "GL_FIXTURE_REVIEW_CONTENT_MISMATCH",
+      "retainedRawRows",
+      "quarantinedTestMovements",
+      "financialCertification','NOT_CERTIFIED'",
+      "powerhub_financial_gl_prior_operational_gaps_raw",
+      "sourceSubledgersIndependentlyVerified",
+    ]) {
+      if (proof === "sourceSubledgersIndependentlyVerified") {
+        expect(acceptance).toContain(proof);
+      } else {
+        expect(quarantine).toContain(proof);
+      }
+    }
+    expect(sources).toContain(
+      "20261110026000_powerhub_financial_staging_fixture_quarantine.sql",
+    );
+    expect(quarantine).not.toMatch(/DELETE\s+FROM\s+public\.account_transactions/i);
+    expect(quarantine).not.toContain("DISABLE TRIGGER");
+  });
+  it("never renders balanced GL or synthetic archive eligibility as certification", () => {
+    expect(dashboard).toContain("غير معتمدة محاسبيًا");
+    expect(dashboard).toContain("isOpeningReconciled");
+    expect(dashboard).toContain("sourceSubledgersIndependentlyVerified");
+    expect(dashboard).toContain("performanceFixtureTagged");
+  });
+  it("requires independent signed-in actors for the Staging fixture workflow", () => {
+    for (const contract of [
+      "financialGLFixtureStatus",
+      "financialGLFixturePrepare",
+      "financialGLFixtureReview",
+      "ctx.user.id",
+      "acknowledgedIndependentReview:z.literal(true)",
+      "powerhub_financial_gl_fixture_manifest_prepare",
+      "powerhub_financial_gl_fixture_manifest_review",
+      "GL_FIXTURE_SELF_REVIEW",
+    ]) expect(runtime).toContain(contract);
+    expect(runtime).toContain("https://iyuryuhaylhisjfcrwkz.supabase.co");
+    expect(runtime).toContain("financialCertification");
+    expect(dashboard).toContain("financialGLFixtureStatus");
+    expect(dashboard).toContain("financialGLFixturePrepare");
+    expect(dashboard).toContain("financialGLFixtureReview");
+    expect(dashboard).toContain("preparerIsCurrentUser");
+    expect(dashboard).toContain("مراجع آخر");
+    expect(dashboard).toContain("لا تزال القوائم المالية غير معتمدة");
+  });
+  it("never presents a Staging performance fixture as operational cash flow without dual review", () => {
+    for (const signal of [
+      "GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED",
+      "powerhub_financial_gl_verify_staging_fixture",
+      "GL_CASHFLOW_FIXTURE_SUBTRACTION_INVALID",
+      "GL_CASHFLOW_RAW_TOTALS_INVALID",
+      "powerhub_financial_period_cash_flow_raw",
+      "v_has_fixture",
+      "v_fixture_in",
+      "v_fixture_out",
+      "v_fixture_count",
+      "EXACT_REVIEWED_COHORT_EXCLUDED",
+      "NO_FIXTURE_IN_SCOPED_PERIOD",
+      "NOT_CERTIFIED",
+      "p_period_start >= p_period_end_exclusive",
+    ]) expect(auditedCashFlow).toContain(signal);
+    expect(auditedCashFlow).not.toMatch(/\\bDELETE\\s+FROM\\b/i);
+    expect(auditedCashFlow).not.toMatch(/\\bTRUNCATE\\b/i);
+    expect(auditedCashFlow).not.toContain("DISABLE TRIGGER");
+    expect(auditedCashFlow).toContain("REVOKE ALL ON FUNCTION public.powerhub_financial_period_cash_flow(");
+    expect(auditedCashFlow).toContain("REVOKE ALL ON FUNCTION public.powerhub_financial_period_cash_flow_raw(");
+  });
+
+  it("surfaces fixture restrictions to the browser without partial or false cash-flow success", () => {
+    expect(runtime).toContain("GL_CASHFLOW_FIXTURE_REVIEW_REQUIRED");
+    expect(runtime).toContain("تحتوي الفترة على حركات أداء تجريبية");
+    expect(runtime).toContain("fixtureExcludedMovements:excluded");
+    expect(runtime).toContain("EXACT_REVIEWED_COHORT_EXCLUDED");
+    expect(runtime).toContain("تقرير الاتجاه النقدي يفتقر إلى إثبات تصنيف حركات الأداء");
+    expect(financePage).toContain("cashFlow.data.fixtureExcludedMovements");
+    expect(financePage).toContain("موافقة مراجعة مستقلة");
+    expect(financePage).toContain("ليس شهادة محاسبية نهائية");
+  });
+
+  it("distinguishes A35 technical prelaunch quarantine from human certification", () => {
+    expect(technicalFixtureA35).toContain("STAGING_PRELAUNCH_TECHNICAL");
+    expect(technicalFixtureA35).toContain("'humanReviewed'");
+    expect(technicalFixtureA35).toContain("'NOT_CERTIFIED'");
+    expect(technicalFixtureA35).toContain("powerhub_financial_gl_verify_staging_fixture");
+    expect(technicalFixtureA35).toContain("GL_STAGING_TECHNICAL_FULL_SHA_OR_BALANCE_INVALID");
+    expect(technicalFixtureA35).not.toMatch(/\\bDELETE\\s+FROM\\s+public[.]account_transactions\\b/i);
+    expect(technicalAcceptanceA35).toContain("remainingOperationalGaps");
+    expect(runtime).toContain('verificationMode:"technical"');
+    expect(runtime).toContain('proof.humanReviewed===false');
+    expect(dashboard).toContain('fixture.data.verificationMode === "technical"');
+  });
+
+  it("requires A37 full source reconciliation and October-only earned service on rollback", () => {
+    expect(serviceRecognitionA37).toContain("A37_SERVICE_RECOGNITION_REPLAY_NOT_IDEMPOTENT");
+    expect(serviceRecognitionA37).toContain("powerhub_financial_gl_recognize_billed_service");
+    expect(serviceRecognitionA37).toContain("'2026-10'");
+    expect(serviceRecognitionA37).toContain("'octoberServiceRecognitions',3");
+    expect(serviceRecognitionA37).toContain("unreconciledSourceCount')::bigint<>0");
+    expect(serviceRecognitionA37).toContain("ROLLBACK;");
+    expect(serviceRecognitionA37).toContain("'NOT_CERTIFIED'");
+    expect(serviceRecognitionA37).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("rejects unsupported payroll salary-advance deductions at draft, approval and GL", () => {
+    expect(payrollAdvanceA38).toContain("powerhub_payroll_advance_allocations_valid");
+    expect(payrollAdvanceA38).toContain("PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID");
+    expect(payrollAdvanceA38).toContain("GL_PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID");
+    expect(payrollAdvanceA38).toContain("tx.amount=adj.amount");
+    expect(payrollAdvanceA38).toContain("tx.transaction_type='withdrawal'");
+    expect(payrollRegressionA38).toContain("PASS_ROLLBACK_ONLY");
+    expect(runtime).toContain('errorText.includes("PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID")');
+    expect(runtime).toContain('GL_PAYROLL_ADVANCE_DISBURSEMENT_OR_ALLOCATION_INVALID');
+    expect(runtime).toContain('لا يمكن ترحيل الرواتب: خصم السلفة غير مدعوم');
+    expect(payrollRegressionA38).toContain("ROLLBACK;");
+    expect(payrollRegressionA38).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(serviceRecognitionA37).not.toContain('"accountCode":"1700","side":"debit","amount":100');
+    expect(serviceRecognitionA37).toContain('"accountCode":"1010","side":"debit","amount":0.01');
+  });
+
+  it("accepts an advance only when a matched withdrawal is evidenced before payroll", () => {
+    expect(payrollPositiveA38).toContain("disbursement_transaction_id=v_tx");
+    expect(payrollPositiveA38).toContain("A38_VALID_DISBURSEMENT_FALSELY_REJECTED");
+    expect(payrollPositiveA38).toContain("powerhub_financial_gl_source_plan");
+    expect(payrollPositiveA38).toContain("'PASS_ROLLBACK_ONLY'");
+    expect(payrollPositiveA38).toContain("ROLLBACK;");
+    expect(payrollPositiveA38).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("keeps engineering rollback acceptance separate from financial certification", () => {
+    expect(engineeringAcceptanceA39).toContain("ENGINEERING_PASS_ROLLBACK_ONLY");
+    expect(engineeringAcceptanceA39).toContain("A39_FALSE_FINANCIAL_CERTIFICATION");
+    expect(engineeringAcceptanceA39).toContain("A39_DETERMINISTIC_SUBLEDGER_ACCOUNT_MISMATCH");
+    expect(engineeringAcceptanceA39).toContain("powerhub_financial_gl_source_integrity");
+    expect(engineeringAcceptanceA39).toContain("sourceSubledgersIndependentlyVerified");
+    expect(engineeringAcceptanceA39).toContain("'financialCertification','NOT_CERTIFIED'");
+    expect(engineeringAcceptanceA39).toContain("'humanApproved',false");
+    expect(engineeringAcceptanceA39).toContain("ROLLBACK;");
+    expect(engineeringAcceptanceA39).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("enforces real cash chronology for payroll advance deduction and blocks backdating", () => {
+    expect(payrollAdvanceGuardA40).toContain("tx.occurred_at AT TIME ZONE 'Asia/Gaza'");
+    expect(payrollAdvanceGuardA40).toContain("adj.disbursed_at AT TIME ZONE 'Asia/Gaza'");
+    expect(payrollAdvanceGuardA40).toContain("tx.related_expense_id IS NULL");
+    expect(payrollAdvanceCashDateA40).toContain("A40_LATE_CASH_POSTING_BACKDATED_AS_ADVANCE_ACCEPTED");
+    expect(payrollAdvanceCashDateA40).toContain("A40_FUTURE_DISBURSEMENT_ACCEPTED");
+    expect(payrollAdvanceCashDateA40).toContain("A40_VALID_CASH_DISBURSEMENT_REJECTED");
+    expect(payrollAdvanceCashDateA40).toContain("PASS_ROLLBACK_ONLY");
+    expect(payrollAdvanceCashDateA40).toContain("ROLLBACK;");
+    expect(payrollAdvanceCashDateA40).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("rejects outsider and expired actor IDs at all five financial GL RPC boundaries", () => {
+    expect(glActorGuardA41).toContain("powerhub_financial_gl_authorized_actor");
+    expect(glActorGuardA41).toContain("GL_OPENING_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_OPENING_APPROVER_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_OPENING_VOID_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_SOURCE_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("GL_SERVICE_ACTOR_FORBIDDEN");
+    expect(glActorGuardA41).toContain("m.membership_status='active'");
+    expect(glActorGuardA41).toContain("m.expires_at>statement_timestamp()");
+    expect(glActorScopeA41).toContain("A41_REVOKED_POST_ACCEPTED");
+    expect(glActorScopeA41).toContain("A41_EXPIRED_ACCEPTED");
+    expect(glActorScopeA41).toContain("A41_REPLAY_BYPASS_ACCEPTED");
+    expect(glActorScopeA41).toContain("PASS_ROLLBACK_ONLY");
+    expect(glActorScopeA41).toContain("ROLLBACK;");
+    expect(glActorScopeA41).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("accepts source-backed zero opening without invented 0.01 and never certifies it", () => {
+    expect(zeroOpeningMigrationA42).toContain("powerhub_financial_gl_zero_opening_preflight");
+    expect(zeroOpeningMigrationA42).toContain("ZERO_OPENING_TECHNICAL_NOT_CERTIFIED");
+    expect(zeroOpeningMigrationA42).toContain("documented-zero-opening-v1");
+    expect(zeroOpeningMigrationA42).toContain("expected_line_count=0");
+    expect(zeroOpeningMigrationA42).toContain("v_count=0");
+    expect(zeroOpeningAcceptanceA42).toContain("'[]'::jsonb");
+    expect(zeroOpeningAcceptanceA42).toContain("'openingIsZero',true");
+    expect(zeroOpeningAcceptanceA42).toContain("A42_FALSE_FINANCIAL_CERTIFICATION");
+    expect(zeroOpeningAcceptanceA42).toContain("'financialCertification','NOT_CERTIFIED'");
+    expect(zeroOpeningAcceptanceA42).toContain("ROLLBACK;");
+    expect(zeroOpeningAcceptanceA42).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(runtime).toContain("input.lines.length === 0");
+    expect(runtime).toContain('input.evidenceReference.startsWith("ZERO-OPENING:")');
+  });
+
+  it("keeps A43 zero-opening preflight fast without weakening synthetic SHA custody", () => {
+    expect(fixtureFastPreflightA43).toContain("A43_STAGING_FIXTURE_SHA_MISMATCH");
+    expect(fixtureFastPreflightA43).toContain("GL_VERIFIED_FIXTURE_COHORT_IMMUTABLE");
+    expect(fixtureFastPreflightA43).toContain("BEFORE TRUNCATE");
+    expect(fixtureFastPreflightA43).toContain("account_transactions_nonfixture_opening_idx");
+    expect(fixtureFastPreflightA43).toContain("financial_gl_staging_technical_exclusions");
+    expect(fixtureFastAcceptanceA43).toContain("A43_NONFIXTURE_PRIOR_ACTIVITY_IGNORED");
+    expect(fixtureFastAcceptanceA43).toContain("A43_NEW_FIXTURE_INSERT_ALLOWED");
+    expect(fixtureFastAcceptanceA43).toContain("PASS_ROLLBACK_ONLY");
+    expect(fixtureFastAcceptanceA43).toContain("ROLLBACK;");
+    expect(fixtureFastAcceptanceA43).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("requires tightly scoped prelaunch source projection without claimed certification", () => {
+    expect(technicalBootstrapMigrationA44).toContain("A44");
+    expect(technicalBootstrapMigrationA44).toContain("powerhub_financial_gl_prelaunch_tech_valid");
+    expect(technicalBootstrapMigrationA44).toContain("GL_PRELAUNCH_TECHNICAL_BOOTSTRAP_IMMUTABLE");
+    expect(technicalBootstrapMigrationA44).toContain("NOT_CERTIFIED");
+    expect(technicalBootstrapMigrationA44).toContain("ENABLE ROW LEVEL SECURITY");
+    expect(technicalBootstrapRollbackA44).toContain("A44_BOOTSTRAP_SCOPE_BYPASS");
+    expect(technicalBootstrapRollbackA44).toContain("A44_ENGINEERING_NOT_CLEAN");
+    expect(technicalBootstrapRollbackA44).toContain("ROLLBACK;");
+    expect(technicalBootstrapRollbackA44).not.toMatch(/\\bCOMMIT\\s*;/i);
+  });
+
+  it("shows durable engineering acceptance without ever certifying accounts", () => {
+    expect(prelaunchAcceptanceA45).toContain("PASS_PRELAUNCH_ENGINEERING_ONLY");
+    expect(prelaunchAcceptanceA45).toContain("STAGING_PRELAUNCH_GL_TECHNICAL_POSTING_A44");
+    expect(prelaunchAcceptanceA45).toContain("'NOT_CERTIFIED'");
+    expect(prelaunchAcceptanceA45).toContain("'isFinalFinancialAcceptance',false");
+    expect(durableAcceptanceCheckA45).toContain("A45_ACCEPTANCE_FAILED_CLOSED");
+    expect(durableAcceptanceCheckA45).toContain("'2026-11'");
+    expect(durableAcceptanceCheckA45).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(glAuditUiA45).toContain("القبول الهندسي لبيانات ما قبل الإطلاق");
+    expect(glAuditUiA45).toContain("وليس افتتاحية معتمدة");
+    expect(glAuditUiA45).toContain("isFinalFinancialAcceptance === false");
+  });
+
+  it("separates historical prelaunch engineering success from expiring posting authority", () => {
+    expect(bootstrapExpiryMigrationA46).toContain("technicalBootstrapActive");
+    expect(bootstrapExpiryMigrationA46).toContain("technicalBootstrapExpiresAt");
+    expect(bootstrapExpiryMigrationA46).toContain("newPostingRequiresDocumentaryOpening");
+    expect(bootstrapExpiryMigrationA46).toContain("powerhub_financial_gl_prelaunch_tech_valid");
+    expect(bootstrapExpiryAcceptanceA46).toContain("A46_EXPIRY_OR_CERTIFICATION_CONTRACT_FAILED");
+    expect(bootstrapExpiryAcceptanceA46).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(glAuditUiA45).toContain("صلاحية الترحيل التقني الجديد");
+    expect(glAuditUiA45).toContain("يلزم اعتماد افتتاحية موثقة");
+  });
+
+  it("retains stage-A final engineering evidence and blocks false certification", () => {
+    expect(phaseA47FinalEngineering).toContain("PASS_STAGING_ENGINEERING_ONLY");
+    expect(phaseA47FinalEngineering).toContain("A47_UNBALANCED_OR_INCOMPLETE_ENTRY");
+    expect(phaseA47FinalEngineering).toContain("A47_DUPLICATE_OPERATION_KEY");
+    expect(phaseA47FinalEngineering).toContain("A47_GL_RPC_EXPOSED_TO_CLIENT_ROLE");
+    expect(phaseA47FinalEngineering).toContain("A47_STAGING_SCOPE_BYPASS");
+    expect(phaseA47FinalEngineering).toContain("A47_BOOTSTRAP_NOT_BOUNDED");
+    expect(phaseA47FinalEngineering).toContain("NOT_CERTIFIED");
+    expect(phaseA47FinalEngineering).toContain("ROLLBACK;");
+    expect(phaseA47FinalEngineering).not.toMatch(/\\bCOMMIT\\s*;/i);
+    expect(phaseA47AcceptanceReport).toContain("not a financial attestation");
+    expect(phaseA47AcceptanceReport).toContain("READ ONLY");
+    expect(phaseA47AcceptanceReport).toContain("21 committed GL entries");
+  });
+
+  it("builds phase-B1 GL statement projection with strict non-certified site scoping", () => {
+    expect(financialStatementsB1Sql).toContain("powerhub_financial_gl_site_statements");
+    expect(financialStatementsB1Sql).toContain("GL_B1_UNMAPPED_INCOME_OR_EXPENSE");
+    expect(financialStatementsB1Sql).toContain("GL_B1_FINANCIAL_EQUATION_UNBALANCED");
+    expect(financialStatementsB1Sql).toContain("NOT_CONFIGURED_OR_APPROVED");
+    expect(financialStatementsB1Sql).toContain("NOT_CONSOLIDATED");
+    expect(financialStatementsB1Acceptance).toContain("B1_CROSS_TENANT_BYPASS");
+    expect(financialStatementsB1Acceptance).toContain("B1_RPC_EXPOSED_TO_PUBLIC");
+    expect(financialStatementsB1Acceptance).toContain("PASS_ROLLBACK_ONLY");
+    expect(financialStatementsB1Ui).toContain("B1 — قائمة الدخل والمركز المالي الأوليان");
+    expect(financialStatementsB1Ui).toContain("enabled:enabled && showB1");
+    expect(runtime).toContain("financialGLSiteStatements: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_site_statements");
+    expect(runtime).toContain("viewFinancialReports");
+  });
+
+  it("safeguards B2 central policy preparation, independent review and management-only reporting", () => {
+    expect(phaseB2CentralPolicySql).toContain("powerhub_financial_gl_central_pool_check");
+    expect(phaseB2CentralPolicySql).toContain("B2_WEIGHTS_NOT_100_PERCENT");
+    expect(phaseB2CentralPolicySql).toContain("B2_SELF_APPROVAL_DENIED");
+    expect(phaseB2CentralPolicySql).toContain("B2_IMMUTABLE");
+    expect(phaseB2CentralPolicySql).toContain("doesNotPostGL");
+    expect(phaseB2CentralPolicyAcceptance).toContain("B2_PASS_ROLLBACK_ONLY");
+    expect(phaseB2CentralPolicyAcceptance).toContain("B2_TENANT_BYPASS");
+    expect(phaseB2CentralPolicyAcceptance).toContain("B2_PUBLIC_EXECUTE");
+    expect(phaseB2CentralPolicyAcceptance).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCentralPolicyPreview: protectedProcedure");
+    expect(runtime).toContain("financialGLCentralPolicyPrepare: protectedProcedure");
+    expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
+  });
+
+  it("keeps B3 preliminary tenant rollup distinct from certified consolidation", () => {
+    expect(b3TenantRollupSql).toContain("PRELIMINARY_MULTI_SITE_ROLLUP");
+    expect(b3TenantRollupSql).toContain("GL_B3_AGGREGATE_UNBALANCED");
+    expect(b3TenantRollupSql).toContain("NOT_INDEPENDENTLY_RECONCILED");
+    expect(b3TenantRollupCheck).toContain("B3_PASS_ROLLBACK_ONLY");
+    expect(b3TenantRollupCheck).toContain("B3_EXPOSED_TO_PUBLIC");
+    expect(b3TenantRollupCheck).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLTenantRollup: protectedProcedure");
+    expect(runtime).toContain('v.companyAccountsIncluded!==false');
+  });
+
+  it("requires B3.5 independently validated transfer provenance and rejects forged source payloads", () => {
+    expect(b35TransferProvenanceSql).toContain("src.created_by_user_id IS DISTINCT FROM op.created_by_user_id");
+    expect(b35TransferProvenanceSql).toContain("dst.created_by_user_id IS DISTINCT FROM op.created_by_user_id");
+    expect(b35TransferProvenanceSql).toContain("company_account_sites");
+    expect(b35TransferProvenanceSql).toContain("op.payload_hash=md5");
+    expect(b35TransferProvenanceSql).toContain("NOT_CERTIFIED");
+    expect(b35ForgedPayloadSql).toContain("B3_5_FORGED_TRANSFER_SOURCE_BLOCKED_PASS_ROLLBACK");
+    expect(b35ForgedPayloadSql).toContain("INVALID_OPERATIONAL_PAIR_BLOCKS_ELIMINATION");
+    expect(b35ForgedPayloadSql).toContain("ROLLBACK;");
+  });
+
+  it("accepts actual transfer_out/in movement types without false financial certification", () => {
+    expect(b34TransferAlignmentSql).toContain("src.transaction_type IS DISTINCT FROM 'transfer_out'");
+    expect(b34TransferAlignmentSql).toContain("dst.transaction_type IS DISTINCT FROM 'transfer_in'");
+    expect(b34RealTransferSql).toContain("powerhub_transfer_company_accounts_idempotent");
+    expect(b34RealTransferSql).toContain("B3_4_REAL_RPC_TRANSFER_TYPES_PASS_ROLLBACK");
+    expect(b34RealTransferSql).toContain("B3_4_VALID_TRANSFER_REJECTED");
+    expect(b34RealTransferSql).toContain("NOT_CERTIFIED");
+    expect(b34RealTransferSql).toContain("ROLLBACK;");
+    expect(b33PositiveSourceSql).toContain("'transfer_out',20");
+    expect(b33PositiveSourceSql).toContain("'transfer_in',20");
+  });
+
+  it("keeps B4.11 correction readiness read-only, source-first and tenant-site scoped", () => {
+    expect(b411CorrectionReadinessSql).toContain("powerhub_financial_gl_correction_readiness");
+    expect(b411CorrectionReadinessSql).toContain("ACCRUAL_SOURCE_OR_GL_INTEGRITY_BLOCKED");
+    expect(b411CorrectionReadinessSql).toContain("ALREADY_REVERSED");
+    expect(b411CorrectionReadinessSql).toContain("canReverseGLDirectly");
+    expect(b411CorrectionReadinessSql).toContain("REVOKE ALL");
+    expect(b411CorrectionReadinessTest).toContain("B411_SOURCE_FIRST_CORRECTION_READINESS_PASS_ROLLBACK");
+    expect(b411CorrectionReadinessTest).toContain("B411_READONLY_AUDIT_MUTATED_GL");
+    expect(b411CorrectionReadinessTest).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCorrectionReadiness: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_correction_readiness");
+    expect(b411CorrectionUi).toContain("financialGLCorrectionReadiness.useQuery");
+    expect(b411CorrectionUi).toContain("canPrepareAccrualSourceReversal");
+    expect(glAuditUiA45).toContain("FinancialGLCorrectionReadinessWorkspace");
+  });
+
+  it("keeps the B5.6 indexed fixture coverage exact and explicitly non-certified", () => {
+    expect(b56ReferenceIndexSql).toContain("account_transactions_tenant_site_reference_prefix_idx");
+    expect(b56ReferenceIndexSql).toContain("text_pattern_ops");
+    expect(b56SourceGuardSql).toContain("B56_INDEXED_STAGING_SOURCE_GUARD_PASS_ROLLBACK");
+    expect(b56SourceGuardSql).toContain("250000");
+    expect(b56SourceGuardSql).toContain("fast_staging_fixture_proof");
+    expect(b56SourceGuardSql).toContain("NOT_CERTIFIED");
+    expect(b56SourceGuardSql).toContain("ROLLBACK;");
+  });
+
+  it("guards the independent B3.11 consolidation-only elimination ledger and UI", () => {
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_eliminations");
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_elimination_prepare");
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_elimination_approve");
+    expect(b311LedgerSql).toContain("financial_gl_inter_site_approval_independent");
+    expect(b3111LinesSql).toContain("financial_gl_inter_site_elimination_lines");
+    expect(b3111LinesSql).toContain("GL_B311_ELIMINATION_LINES_UNBALANCED");
+    expect(b3111LinesSql).toContain("GL_B311_ELIMINATION_LINE_IMMUTABLE");
+    expect(b3112AliasFixSql).toContain("eli.elimination_id=d.id");
+    expect(b394ApprovedPreviewSql).toContain("matchedSources");
+    expect(b394ApprovedPreviewSql).toContain("approvedEliminationAmount");
+    expect(b395OrphanGuardSql).toContain("v_orphan_eliminations");
+    expect(b395OrphanGuardSql).toContain("orphanEliminationCount");
+    expect(b395OrphanGuardSql).toContain("BLOCKED_INTEGRITY");
+    expect(b395OrphanNegativeSql).toContain("B395_ORPHAN_APPROVED_ELIMINATION_FAIL_CLOSED_PASS_ROLLBACK");
+    expect(b395OrphanNegativeSql).toContain("approvedEliminationAmount");
+    expect(b395OrphanNegativeSql).toContain("ROLLBACK;");
+    expect(glAuditUiA45).toContain('value===null || value===undefined || value===""');
+    expect(glAuditUiA45).toContain("orphanEliminationCount");
+    expect(glAuditUiA45).toContain("approvedEliminationAmount");
+    expect(glAuditUiA45).toContain('b3InterSiteProof.status==="BLOCKED_INTEGRITY"');
+    expect(b3WorkspaceUi).toContain('proof.status !== "BLOCKED_INTEGRITY"');
+    expect(b3WorkspaceUi).toContain('proof.orphanEliminationCount');
+    expect(b3WorkspaceUi).toContain("عُلّقت إجراءات الترحيل والاعتماد");
+    expect(b311ReviewSql).toContain("B311_INDEPENDENT_ELIMINATION_APPROVAL_PASS_ROLLBACK");
+    expect(b3111SecuritySql).toContain("B3111_IMMUTABLE_ELIMINATION_AND_RBAC_PASS_ROLLBACK");
+    expect(b3111SecuritySql).toContain("B3111_ELIMINATION_LINE_DELETE_ALLOWED");
+    expect(b3111SecuritySql).toContain("B3111_APPROVED_HEADER_MUTATED");
+    expect(b3111SecuritySql).toContain("B3111_UNAUTHORIZED_CHECKER_ACCEPTED");
+    expect(b3111SecuritySql).toContain("ROLLBACK;");
+    expect(b394ApprovedReviewSql).toContain("B394_APPROVED_ELIMINATION_VISIBILITY_INVALID");
+    expect(b394ApprovedReviewSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLPrepareInterSiteElimination: protectedProcedure");
+    expect(runtime).toContain("financialGLApproveInterSiteElimination: protectedProcedure");
+    expect(runtime).toContain('requireSupabaseSiteRole(ctx.user.id,Number(draft.to_site_id)');
+    expect(b3WorkspaceUi).toContain("financialGLPrepareInterSiteElimination.useMutation");
+    expect(b3WorkspaceUi).toContain("financialGLApproveInterSiteElimination.useMutation");
+    expect(b3WorkspaceUi).toContain("confirmIndependentReview:true");
+    expect(b3WorkspaceUi).toContain("NOT_CERTIFIED");
+  });
+
+  it("keeps B3.9 elimination preview source-backed, read-only and non-certified", () => {
+    expect(b39AuditSql).toContain("powerhub_financial_gl_inter_site_posting_audit");
+    expect(b39AuditSql).toContain("MATCHED_DUE_FROM_TO_PRELIMINARY_ONLY");
+    expect(b39AuditSql).toContain("GL_PAIR_MISSING_OR_MISMATCHED");
+    expect(b391AuditFixSql).toContain("op2.counterpart_transaction_id");
+    expect(b392IntraSiteFixSql).toContain("CONTINUE");
+    expect(b39PositiveAuditSql).toContain("B39_INTER_SITE_POSTING_AUDIT_PASS_ROLLBACK");
+    expect(b39PositiveAuditSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLPostInterSiteTransfer: protectedProcedure");
+    expect(runtime).toContain('powerhub_financial_gl_post_inter_site_source');
+    expect(runtime).toContain('powerhub_financial_gl_inter_site_posting_audit');
+    expect(runtime).toContain("confirmSourceReview:z.literal(true)");
+    expect(runtime).toContain('requireSupabaseSiteRole(ctx.user.id,toSiteId');
+    expect(glAuditUiA45).toContain("b3InterSiteProof");
+    expect(glAuditUiA45).toContain("B3.9 — إثبات مستحق من/مستحق لفرع");
+  });
+
+  it("enforces B3.8 source provenance, two-site reviewer and atomic paired GL entries", () => {
+    expect(b38PostingSql).toContain("powerhub_financial_gl_post_inter_site_source");
+    expect(b38PostingSql).toContain("GL_B38_SOURCE_PAIR_OR_FINGERPRINT_INVALID");
+    expect(b38PostingSql).toContain("GL_B38_SITE_ACCOUNT_MAPPING_AMBIGUOUS");
+    expect(b38PostingSql).toContain("GL_B38_PARTIAL_OR_TAMPERED_REPLAY");
+    expect(b38PostingSql).toContain("powerhub_financial_gl_authorized_actor");
+    expect(b381ExtensionSql).toContain("extensions.digest(");
+    expect(b381ExtensionSql).toContain("REVOKE ALL");
+    expect(b38PositiveSql).toContain("B38_POSITIVE_AND_REPLAY_PASS_ROLLBACK");
+    expect(b38NegativeSql).toContain("B38_NEGATIVE_SOURCE_SCOPE_AND_REPLAY_PASS_ROLLBACK");
+    expect(b38NegativeSql).toContain("B38_FORGED_SOURCE_ACCEPTED");
+    expect(b38NegativeSql).toContain("B38_WRONG_SITE_ACCOUNT_ACCEPTED");
+    expect(b38PositiveSql).toContain("ROLLBACK;");
+    expect(b38NegativeSql).toContain("ROLLBACK;");
+  });
+
+  it("proves B3.7 inter-site due-to/due-from journal arithmetic only under rollback", () => {
+    expect(b37EliminationMathSql).toContain("B3_7_CROSS_SITE_DUE_FROM_TO_ELIMINATION_MATH_PASS_ROLLBACK");
+    expect(b37EliminationMathSql).toContain("'1350'");
+    expect(b37EliminationMathSql).toContain("'2350'");
+    expect(b37EliminationMathSql).toContain("v_due_asset");
+    expect(b37EliminationMathSql).toContain("v_due_liability");
+    expect(b37EliminationMathSql).toContain("NOT_CERTIFIED");
+    expect(b37EliminationMathSql).toContain("ROLLBACK;");
+    expect(b37EliminationMathSql).not.toContain("COMMIT;");
+  });
+
+  it("rejects cross-site operational sources from same-site GL posting until a dedicated elimination model exists", () => {
+    expect(b36SameSiteBlockSql).toContain("powerhub_financial_gl_source_plan");
+    expect(b36SameSiteBlockSql).toContain("GL_COMPANY_TRANSFER_PAIR_INVALID_OR_CROSS_SITE");
+    expect(b36SameSiteBlockSql).toContain("B3_6_CROSS_SITE_SAME_SITE_POST_DENIED_PASS_ROLLBACK");
+    expect(b36SameSiteBlockSql).toContain("NOT_CERTIFIED");
+    expect(b36SameSiteBlockSql).toContain("ROLLBACK;");
+  });
+
+  it("requires independent GL proof even for correctly paired two-site transfers", () => {
+    expect(b33PositiveSourceSql).toContain("CROSS_SITE_TRANSFER_REQUIRES_GL_ELIMINATION_PROOF");
+    expect(b33PositiveSourceSql).toContain("B3_3_POSITIVE_CROSS_SITE_SOURCE_BLOCKED_PASS_ROLLBACK");
+    expect(b33PositiveSourceSql).toContain("B3_3_POSITIVE_SOURCE_NOT_CLASSIFIED");
+    expect(b33PositiveSourceSql).toContain("canBeCertifiedConsolidation");
+    expect(b33PositiveSourceSql).toContain("ROLLBACK;");
+  });
+
+  it("guards operational cross-site source transfers without falsely certifying GL eliminations", () => {
+    expect(b33SourceTransferSql).toContain("company_account_movement_operations");
+    expect(b33SourceTransferSql).toContain("invalidOperationalTransferPairCount");
+    expect(b33SourceTransferSql).toContain("NO_CROSS_SITE_SOURCE_OBSERVED_NOT_CERTIFIED");
+    expect(b33SourceTransferSql).toContain("CROSS_SITE_TRANSFER_REQUIRES_GL_ELIMINATION_PROOF");
+    expect(b33SourceTransferSql).toContain("INVALID_OPERATIONAL_PAIR_BLOCKS_ELIMINATION");
+    expect(b33TransferFaultSql).toContain("B3_3_INVALID_TRANSFER_PAIR_PASS_ROLLBACK");
+    expect(b33TransferFaultSql).toContain("B3_3_BROKEN_TRANSFER_NOT_DETECTED");
+    expect(b33TransferFaultSql).toContain("ROLLBACK;");
+    expect(glAuditUiA45).toContain("أزواج غير متطابقة");
+    expect(glAuditUiA45).toContain("هذا لا يعني اعتماد التسويات");
+  });
+
+  it("classifies paired warehouse transfers separately from inter-site GL eliminations", () => {
+    expect(b31TransferProofSql).toContain("intraSiteWarehouseTransferMismatchCount");
+    expect(b31TransferProofSql).toContain("INTRA_SITE_STOCK_TRANSFER_NOT_GL_ELIMINATION");
+    expect(b31TransferProofSql).toContain("warehouseTransfersPaired");
+    expect(b31TransferProofSql).toContain("interSiteTransfersReviewed',false");
+    expect(b3TenantRollupCheck).toContain("intraSiteWarehouseTransferMismatchCount");
+    expect(b3TenantRollupCheck).toContain("B3_PASS_ROLLBACK_ONLY");
+    expect(b32TransferFaultSql).toContain("B3_2_MISMATCH_NOT_DETECTED");
+    expect(b32TransferFaultSql).toContain("B3_2_FAULT_INJECTION_PASS_ROLLBACK");
+    expect(b32TransferFaultSql).toContain("ROLLBACK;");
+    expect(b5EngineeringGate).toContain("intraSiteWarehouseTransferMismatchCount");
+    expect(b5EngineeringGate).toContain("warehouseTransfersPaired");
+    expect(glAuditUiA45).toContain("فروقات اقتران الخروج/الدخول");
+    expect(glAuditUiA45).toContain("عدم وجود مرشحات لا يُثبت إجراء تسويات مستقلة");
+  });
+
+  it("renders B3 rollup only on demand with explicit non-certification", () => {
+    expect(glAuditUiA45).toContain("financialGLTenantRollup.useQuery");
+    expect(glAuditUiA45).toContain("enabled:enabled && hasMultipleSites && showB3");
+    expect(glAuditUiA45).toContain("financialGLSiteScope.useQuery({siteId}");
+    expect(glAuditUiA45).toContain("{hasMultipleSites ? <>");
+    expect(glAuditUiA45).toContain("B3 — إجمالي الفروع الأولي قبل التسويات");
+    expect(glAuditUiA45).toContain("b3Visible");
+    expect(glAuditUiA45).toContain("rollup.isError");
+  });
+
+  it("keeps B5.1 performance optimization tied to fail-closed immutable Staging proof", () => {
+    expect(b51FastProofSql).toContain("powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b51FastProofSql).toContain("powerhub_financial_gl_fixture_freeze_write");
+    expect(b51FastProofSql).toContain("powerhub_financial_gl_fixture_freeze_truncate");
+    expect(b51FastProofSql).toContain("zz_financial_gl_staging_technical_immutable");
+    expect(b51FastProofSql).toContain("v_audit:=public.powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b51FastProofSql).toContain("NOT_CERTIFIED");
+    expect(b51FastProofSql).toContain("TO service_role");
+    expect(b51FailClosedSql).toContain("B5_1_PROOF_NOT_BLOCKED_WITH_DISABLED_FREEZE");
+    expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_FAILURE_CLOSED_PASS");
+    expect(b51FailClosedSql).toContain("B5_1_FAST_PROOF_BROWSER_EXECUTE_EXPOSED");
+    expect(b51FailClosedSql).toContain("ROLLBACK;");
+  });
+
+  it("guards B5.4 fast cash audit against losing immutable test cohort proof", () => {
+    expect(b54AuditSql).toContain("powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b54AuditSql).toContain("v_fixture_unreviewed:=250000");
+    expect(b54AuditSql).toContain("v_fixture_verified:=false");
+    expect(b54AuditSql).toContain("v_fixture_rows:=0");
+    expect(b54AuditSql).toContain("TO service_role");
+    expect(b54GuardTestSql).toContain("B54_AUDIT_FIXTURE_FAIL_CLOSED_PASS_ROLLBACK");
+    expect(b54GuardTestSql).toContain("B54_DISABLED_GUARD_NOT_BLOCKED");
+    expect(b54GuardTestSql).toContain("UNVERIFIED_COHORT_BLOCKS_RECONCILIATION");
+    expect(b54GuardTestSql).toContain("ROLLBACK;");
+  });
+
+  it("keeps new unlinked, non-fixture historical cash sources visible", () => {
+    expect(b53NonfixtureSql).toContain("B5_3_NONFIXTURE_MOVEMENT_VISIBLE_PASS_ROLLBACK");
+    expect(b53NonfixtureSql).toContain("B5_3_NONFIXTURE_HIDDEN_OR_MUTATED");
+    expect(b53NonfixtureSql).toContain("unclassifiedAccountMovements");
+    expect(b53NonfixtureSql).toContain("ROLLBACK;");
+  });
+
+  it("never excludes unsupported fixtures when B5.3 fast proof is unavailable", () => {
+    expect(b53FastPriorSql).toContain("powerhub_financial_gl_fast_staging_fixture_proof");
+    expect(b53FastPriorSql).toContain("v_fixture_proof");
+    expect(b53FastPriorSql).toContain("v_prior_cash:=v_prior_cash+250000");
+    expect(b53FastPriorSql).toContain("Unproven, altered or out-of-window cohorts are never excluded");
+    expect(b53FallbackSql).toContain("B5_3_FAST_PROOF_FAILED_TO_CLOSE");
+    expect(b53FallbackSql).toContain("B5_3_RAW_FALLBACK_PRESERVES_UNRESOLVED_PASS_ROLLBACK");
+    expect(b53FallbackSql).toContain("DISABLE TRIGGER powerhub_financial_gl_fixture_freeze_write");
+    expect(b53FallbackSql).toContain("ROLLBACK;");
+  });
+
+  it("guards B5.2 read repeatability and no false consolidation under reexecution", () => {
+    expect(b52RepeatabilitySql).toContain("B5_2_REPEAT_READ_CONSISTENCY_PASS_NOT_CERTIFIED");
+    expect(b52RepeatabilitySql).toContain("B5_2_INCONSISTENT_REPEAT_READ");
+    expect(b52RepeatabilitySql).toContain("B5_2_UNJUSTIFIED_ACCOUNTING_CERTIFICATION");
+    expect(b52RepeatabilitySql).toContain("B5_2_READ_CHANGED_FINANCIAL_LEDGER");
+    expect(b52RepeatabilitySql).toContain("PRELIMINARY_MULTI_SITE_ROLLUP");
+    expect(b52RepeatabilitySql).toContain("ROLLBACK;");
+    expect(b52RepeatabilitySql).not.toContain("COMMIT;");
+  });
+
+  it("runs B5 as read-only Staging engineering acceptance without certifying financial statements", () => {
+    expect(b5EngineeringGate).toContain("B5_STAGING_ENGINEERING_GATE_PASS_NOT_CERTIFIED");
+    expect(b5EngineeringGate).toContain("B5_UNTRUTHFUL_CONSOLIDATION");
+    expect(b5EngineeringGate).toContain("B5_SYNTHETIC_OPENING_DISPOSITION_INTEGRITY_FAILURE");
+    expect(b5EngineeringGate).toContain("STAGING_PRELAUNCH_TEST_OPENING_TECHNICAL_REVERSAL");
+    expect(b5EngineeringGate).toContain("B5_TECHNICAL_VS_FINANCIAL_ACCEPTANCE_CONFUSED");
+    expect(b5EngineeringGate).toContain("B5_GL_RPC_PERMISSION_DRIFT");
+    expect(b5EngineeringGate).toContain("LINKED_ACCOUNT_MOVEMENTS_MATCH_NOT_CERTIFIED");
+    expect(b5EngineeringGate).toContain("staging-prelaunch-technical-disposition-v1");
+    expect(b5EngineeringGate).toContain("NOT_INDEPENDENTLY_RECONCILED");
+    expect(b5EngineeringGate).toContain("NOT_CERTIFIED");
+    expect(b5EngineeringGate).toContain("BEGIN;");
+    expect(b5EngineeringGate).toContain("ROLLBACK;");
+    expect(b5EngineeringGate).not.toContain("COMMIT;");
+  });
+
+  it("ensures B4.5 selective index excludes unlinked synthetic rows without changing ledger results", () => {
+    expect(b45LinkedIndexSql).toContain("account_transactions_b4_linked_site_time_idx");
+    expect(b45LinkedIndexSql).toContain("related_payment_id IS NOT NULL");
+    expect(b45LinkedIndexSql).toContain("related_supplier_payment_id IS NOT NULL");
+    expect(b45LinkedIndexSql).toContain("related_expense_id IS NOT NULL");
+    expect(b45IndexRegression).toContain("B4_5_INDEX_AND_LEDGER_PASS");
+    expect(b45IndexRegression).toContain("B4_5_RECONCILIATION_CHANGED");
+    expect(b45IndexRegression).toContain("ROLLBACK;");
+  });
+
+  it("keeps B4.3 fast fixture skip tied to immutable hash proof and active guards", () => {
+    expect(b43FastFixtureSql).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
+    expect(b43FastFixtureSql).toContain("powerhub_financial_gl_fixture_freeze_write");
+    expect(b43FastFixtureSql).toContain("powerhub_financial_gl_fixture_freeze_truncate");
+    expect(b43FastFixtureSql).toContain("zz_financial_gl_staging_technical_immutable");
+    expect(b43FastFixtureSql).toContain("f1b25e8562328a0f6e916beb4d54b2ee88366e78b4459c5d0ebc444616997df9");
+    expect(b43FastFixtureSql).toContain("v_fixture_unreviewed=250000");
+    expect(b43FastFixtureSql).toContain("UNVERIFIED_COHORT_BLOCKS_RECONCILIATION");
+    expect(companyMovementB42Acceptance).toContain("B4_2_FIXTURE_FREEZE_GUARD_MISSING");
+    expect(companyMovementB42Acceptance).toContain("HASH_ANCHORED_IMMUTABLE_TEST_COHORT");
+  });
+
+  it("omits trailing decimal zeros in finance displays while retaining up to two real decimal places", () => {
+    // Display only: avoid changing source values, GL precision or B2 percentage basis points.
+    expect(glAuditUiA45).toContain('minimumFractionDigits:0,maximumFractionDigits:2');
+    expect(financialCentralB2Ui).toContain('minimumFractionDigits: 0, maximumFractionDigits: 2');
+    expect(openingEvidenceUi).toContain('minimumFractionDigits: 0, maximumFractionDigits: 2');
+    expect(financialCentralB2Ui).toContain('weight.basisPoints / 100).toFixed(2)');
+    expect(financialCentralB2Ui).toContain('totalPoints / 100).toFixed(2)');
+    expect(glAuditUiA45).not.toContain('minimumFractionDigits:2,maximumFractionDigits:2');
+    expect(openingEvidenceUi).not.toContain('toFixed(2)');
+  });
+
+  it("guards site switches and stale finance query states before financial actions", () => {
+    expect(glAuditUiA45).toContain("<FinancialOpeningEvidenceWorkspace key={siteId}");
+    expect(glAuditUiA45).toContain('key={`${siteId}:${period}`} siteId={siteId}');
+    expect(openingEvidenceUi).toContain("const workspaceReady = active && siteId>0");
+    expect(openingEvidenceUi).toContain("const selected=workspaceReady ?");
+    expect(openingEvidenceUi).toContain('workspaceReady && workspace.data?.opening?.status==="posted"');
+    expect(openingEvidenceUi).toContain("!workspaceReady || !selected || !documentFile");
+    expect(financialCentralB2Ui).toContain("const workspaceReady = enabled && !workspace.isLoading");
+    expect(financialCentralB2Ui).toContain("const policy = workspaceReady && workspace.data");
+    expect(financialCentralB2Ui).toContain("const sites = workspaceReady && workspace.data");
+    expect(financialCentralB2Ui).toContain("const isReady = workspaceReady;");
+  });
+
+  it("reports per-line opening custody gaps without asserting financial certification", () => {
+    expect(openingEvidenceUi).toContain("missingOpeningEvidenceLines");
+    expect(openingEvidenceUi).toContain("lineEvidenceStatus");
+    expect(openingEvidenceUi).toContain("ev.reviewStatus===\"verified\" && ev.custodyRecorded");
+    expect(openingEvidenceUi).toContain("مستندات محفوظة ومراجعة بالمبلغ المطلوب");
+    expect(openingEvidenceUi).toContain("لا تعني إثبات رصيد الدفتر المساعد");
+    expect(openingEvidenceUi).toContain("&& !workspace.isLoading && !workspace.isFetching && workspace.data !== undefined");
+    expect(openingEvidenceUi).toContain("const evidence = workspaceReady");
+    expect(openingEvidenceUi).toContain("const openingLines = workspaceReady");
+  });
+
+  it("validates opening evidence date input without double escaping the regex", () => {
+    const route=runtime.slice(
+      runtime.indexOf("financialGLOpeningEvidenceUpload: protectedProcedure"),
+      runtime.indexOf("financialGLOpeningEvidenceFileUrl: protectedProcedure"),
+    );
+    expect(route).toContain(String.raw`sourceAsOfDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)`);
+    expect(route).not.toContain(String.raw`sourceAsOfDate:z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/)`);
+    expect(/^\d{4}-\d{2}-\d{2}$/.test("2026-01-01")).toBe(true);
+    expect(/^\d{4}-\d{2}-\d{2}$/.test("2026/01/01")).toBe(false);
+  });
+
+  it("guards B4.2 movement provenance and never silently excludes unverified fixture rows", () => {
+    expect(companyMovementB42Sql).toContain("powerhub_financial_gl_company_movement_audit");
+    expect(companyMovementB42Sql).toContain("powerhub_financial_gl_verify_staging_fixture");
+    expect(companyMovementB42Sql).toContain("UNVERIFIED_COHORT_BLOCKS_RECONCILIATION");
+    expect(companyMovementB42Sql).toContain("MISSING_OR_DUPLICATE_GL_ENTRY");
+    expect(companyMovementB42Sql).toContain("GL_CASH_SIDE_AMOUNT_OR_PERIOD_MISMATCH");
+    expect(companyMovementB42Sql).toContain("NOT_CERTIFIED");
+    expect(companyMovementB42Sql).toContain("TO service_role");
+    expect(companyMovementB42Acceptance).toContain("B4_2_PASS_ROLLBACK_ONLY");
+    expect(companyMovementB42Acceptance).toContain("B4_2_TENANT_BYPASS");
+    expect(companyMovementB42Acceptance).toContain("B4_2_RPC_EXECUTE_EXPOSURE");
+    expect(companyMovementB42Acceptance).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCompanyMovementAudit: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_company_movement_audit");
+    expect(glAuditUiA45).toContain("financialGLCompanyMovementAudit.useQuery");
+    expect(glAuditUiA45).toContain("enabled:enabled && showB4Cash");
+    expect(glAuditUiA45).toContain("B4 — مطابقة حركات حسابات الشركة ومستنداتها");
+    expect(glAuditUiA45).toContain("b4Cash.isError");
+  });
+
+  it("guards B4.1 document-source auditing and never labels it certified", () => {
+    expect(b4DocumentSourceSql).toContain("powerhub_financial_gl_subledger_document_audit");
+    expect(b4DocumentSourceSql).toContain("GL_B4_DOCUMENT_INVALID_SCOPE");
+    expect(b4DocumentSourceSql).toContain("BLOCKED_DOCUMENT_RECONCILIATION");
+    expect(b4DocumentSourceSql).toContain("NOT_CERTIFIED");
+    expect(b4DocumentSourceSql).toContain("REVOKE ALL");
+    expect(b4DocumentSourceSql).toContain("TO service_role");
+    expect(b4DocumentSourceRegression).toContain("B4_1_PASS_ROLLBACK_ONLY");
+    expect(b4DocumentSourceRegression).toContain("B4_1_CROSS_TENANT_BYPASS");
+    expect(b4DocumentSourceRegression).toContain("B4_1_RPC_EXECUTE_EXPOSURE");
+    expect(b4DocumentSourceRegression).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLSubledgerDocumentAudit: protectedProcedure");
+    expect(runtime).toContain("powerhub_financial_gl_subledger_document_audit");
+    expect(runtime).toContain('"viewFinancialReports"');
+    expect(glAuditUiA45).toContain("financialGLSubledgerDocumentAudit.useQuery");
+    expect(glAuditUiA45).toContain("enabled:enabled && showB4Documents");
+    expect(glAuditUiA45).toContain("B4 — تدقيق مصادر القيود والمستندات");
+    expect(glAuditUiA45).toContain("b4Documents.isError");
+  });
+
+  it("keeps B4.9 financial postings valid for Jawwal Pay and bank-style accounts", () => {
+    expect(b493TypesSql).toContain("'jawwal_pay'");
+    expect(b493TypesSql).toContain("'bank_of_palestine'");
+    expect(b493TypesSql).toContain("'other'");
+    expect(b493JawwalSql).toContain("B49_JAWWAL_PAY_TRANSFER_MATCHED_PASS_ROLLBACK");
+    expect(b493JawwalSql).toContain("B49_JAWWAL_TRANSFER_NOT_RECONCILED");
+    expect(b493JawwalSql).toContain("ROLLBACK;");
+  });
+
+  it("presents only verified site-scoped B4.9 transfer candidates before GL posting", () => {
+    expect(b492MigrationSql).toContain("generate_series(0,6)");
+    expect(b492MigrationSql).toContain("powerhub_financial_gl_cash_transfer_candidates");
+    expect(b492MigrationSql).toContain("p_before_source_id");
+    expect(b492MigrationSql).toContain("TO service_role");
+    expect(b492CandidatesSql).toContain("B49_CANDIDATES_PENDING_POSTED_PASS_ROLLBACK");
+    expect(b492CandidatesSql).toContain("B49_CANDIDATE_LIST_POSTED_INVALID");
+    expect(b492CandidatesSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCashTransferCandidates: protectedProcedure");
+    expect(runtime).toContain('"viewFinancialReports"');
+    expect(runtime).toContain('"manageExpenses"');
+    expect(b49Ui).toContain("financialGLCashTransferCandidates.useQuery");
+    expect(b49Ui).toContain("financialGLPostSource.useMutation");
+    expect(b49Ui).toContain('sourceType: "account_movement"');
+    expect(b49Ui).toContain("const ready = enabled && !candidates.isLoading");
+    expect(b49Ui).toContain("confirmedSourceId === item.sourceId");
+    expect(b49Ui).toContain("!acknowledged || post.isPending");
+    expect(glAuditUiA45).toContain("<FinancialCashTransferPostingWorkspace");
+  });
+
+  it("posts real company transfers once, then reconciles B4 with strict source proof", () => {
+    expect(b49MigrationSql).toContain("powerhub_financial_gl_source_plan");
+    expect(b49MigrationSql).toContain("company-transfer-paired-no-income-or-expense-v1");
+    expect(b49MigrationSql).toContain("glVerifiedTransferPairs");
+    expect(b491GuardSql).toContain("op.payload_hash=md5(");
+    expect(b491GuardSql).toContain("source_fingerprint=encode(sha256(");
+    expect(b49PostSql).toContain("powerhub_transfer_company_accounts_idempotent");
+    expect(b49PostSql).toContain("B49_TRANSFER_GL_RECONCILIATION_PASS_ROLLBACK");
+    expect(b49PostSql).toContain("B49_MISSING_GL_NOT_BLOCKED");
+    expect(b49PostSql).toContain("alreadyPosted");
+    expect(b49ForgedSql).toContain("B49_FORGED_TRANSFER_BLOCKED_PASS_ROLLBACK");
+    expect(b49ForgedSql).toContain("ROLLBACK;");
+    expect(runtime).toContain('"payroll_payment","account_movement"');
+    expect(runtime).toContain('input.sourceType==="account_movement"?"manageExpenses"');
+  });
+
+  it("recognizes actual B4 cash transfer types but refuses to certify unposted GL", () => {
+    expect(b47TransferMigrationSql).toContain("BLOCKED_UNPOSTED_ACCOUNT_TRANSFER");
+    expect(b47TransferMigrationSql).toContain("unpostedTransferMovements");
+    expect(b47TransferMigrationSql).toContain("'transfer_in'");
+    expect(b47TransferMigrationSql).toContain("'transfer_out'");
+    expect(b47CashTransferSql).toContain("powerhub_transfer_company_accounts_idempotent");
+    expect(b47CashTransferSql).toContain("B4_7_TRANSFER_RECOGNIZED_BUT_GL_BLOCKED_ROLLBACK_PASS");
+    expect(b47CashTransferSql).toContain("B4_7_TRANSFER_CLASSIFICATION_FAIL");
+    expect(b47CashTransferSql).toContain("ROLLBACK;");
+  });
+
+  it("checks B4.10 prelaunch fixture correction as immutable, idempotent and explicitly non-certified", () => {
+    expect(b410TechnicalCorrectionSql).toContain("STAGING_ONLY_ENVIRONMENT_GUARD");
+    expect(b410TechnicalCorrectionSql).toContain("STAGING_PRELAUNCH_TEST_OPENING_TECHNICAL_REVERSAL");
+    expect(b410TechnicalCorrectionSql).toContain("humanApproved',false");
+    expect(b410TechnicalCorrectionSql).toContain("reverses_entry_id");
+    expect(b410TechnicalCorrectionSql).toContain("STAGING_REVERSAL_OR_AUDIT_INTEGRITY_FAILURE");
+    expect(b410TechnicalCorrectionSql).toContain("NOT_CERTIFIED");
+    expect(b410TechnicalCorrectionSql).toContain("ROLLBACK;");
+    expect(b410TechnicalCorrectionSql).not.toContain("\\nCOMMIT;");
+  });
+
+  it("proves a posted test opening can only be offset with auditable balanced reversal", () => {
+    expect(b48ReversalSimulationSql).toContain("reverses_entry_id");
+    expect(b48ReversalSimulationSql).toContain("B4_8_POSTED_TEST_OPENING_REVERSAL_SIMULATION_PASS");
+    expect(b48ReversalSimulationSql).toContain("B4_8_FALSE_REVERSAL_ACCEPTANCE");
+    expect(b48ReversalSimulationSql).toContain("isIndependentlyReconciled");
+    expect(b48ReversalSimulationSql).toContain("NOT_CERTIFIED");
+    expect(b48ReversalSimulationSql).toContain("ROLLBACK;");
+  });
+
+  it("blocks fake accounting evidence for a NOT-CERTIFIED synthetic opening", () => {
+    expect(b46MarkedOpeningSql).toContain("B4_6_FALSE_EVIDENCE_ACCEPTED");
+    expect(b46MarkedOpeningSql).toContain("GL_OPENING_EVIDENCE_SOURCE_OR_SCOPE_INVALID");
+    expect(b46MarkedOpeningSql).toContain("B4_6_UNDOCUMENTED_OPENING_WAS_CERTIFIED");
+    expect(b46MarkedOpeningSql).toContain("B4_6_MARKED_OPENING_FAIL_CLOSED_PASS_ROLLBACK");
+    expect(b46MarkedOpeningSql).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLOpeningEvidenceUpload: protectedProcedure");
+    expect(runtime).toContain("financialGLOpeningEvidenceReview: protectedProcedure");
+    expect(openingEvidenceUi).toContain("const workspaceReady = active && siteId>0");
+  });
+
+  it("proves B2 independent actor, idempotency and no-GL-posting negative cases", () => {
+    expect(b21TwoActorNegative).toContain("B2_1_UNAUTHORIZED_PREPARE_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_IDEMPOTENCY_PAYLOAD_DRIFT_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_SELF_APPROVAL_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_UNAUTHORIZED_APPROVAL_ACCEPTED");
+    expect(b21TwoActorNegative).toContain("B2_1_DRAFT_LEAKED_INTO_REPORT");
+    expect(b21TwoActorNegative).toContain("B2_1_DISTINCT_REVIEWER_FAILED");
+    expect(b21TwoActorNegative).toContain("B2_1_GL_MUTATED_BY_MANAGERIAL_POLICY");
+    expect(b21TwoActorNegative).toContain("B2_1_TWO_ACTOR_NEGATIVE_PASS_ROLLBACK");
+    expect(b21TwoActorNegative).toContain("ROLLBACK;");
+    expect(runtime).toContain("financialGLCentralPolicyPrepare: protectedProcedure");
+    expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
+    expect(runtime).toContain("requireSupabaseSiteRole(ctx.user.id");
+  });
+
+  it("gates B2 allocation workflow on scoped server permissions and independent approval", () => {
+    expect(runtime).toContain("financialGLCentralPolicyWorkspace: protectedProcedure");
+    expect(runtime).toContain("financial_gl_central_allocation_policies");
+    expect(runtime).toContain("financialGLCentralPolicyApprove: protectedProcedure");
+    expect(runtime).toContain("policyError || !rows || rows.length!==1");
+    expect(financialCentralB2Ui).toContain("toBasisPoints");
+    expect(financialCentralB2Ui).toContain("totalPoints === 10000");
+    expect(financialCentralB2Ui).toContain("sourceCandidatesTruncated");
+    expect(financialCentralB2Ui).toContain("preparedAcknowledged");
+    expect(financialCentralB2Ui).toContain("reviewAcknowledged");
+    expect(financialCentralB2Ui).toContain("operationKey");
+    expect(financialCentralB2Ui).toContain("workspace.refetch()");
+    expect(glAuditUiA45).toContain("<FinancialCentralAllocationWorkspace");
+  });
+
+});

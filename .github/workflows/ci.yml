@@ -3,7 +3,7 @@ name: PowerHub CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, p4-production-excellence, p6-scale-operations]
+    branches: [main, p4-production-excellence, p6-scale-operations, feat/auth-local-first-single-pr]
   pull_request:
     branches: [main, p5-6-commercial-launch, refactor/admin-supabase-migration]
 
@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify minimatch 11 compatibility with legacy glob consumers
+        run: node scripts/check-minimatch-compatibility.mjs
+
       - name: Validate versioned Supabase migration release tooling
         run: |
           node --check scripts/check-supabase-migration-files.mjs
@@ -52,7 +55,68 @@ jobs:
             git fetch --no-tags origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
           fi
           node scripts/check-supabase-migration-files.mjs
-          pnpm exec vitest run --maxWorkers=1 --minWorkers=1 server/supabase-migration-target.test.ts
+          node scripts/check-supabase-default-privileges.mjs
+          pnpm exec vitest run --maxWorkers=1 server/supabase-migration-target.test.ts
+
+      - name: Audit PR359 migration evidence (source only; not release acceptance)
+        run: |
+          node --check scripts/pr359-migration-evidence.mjs
+          node --test scripts/pr359-migration-evidence.test.mjs
+          node --test scripts/pr359-production-three-catalog-evidence.test.mjs
+          node --test scripts/pr359-full-ledger-crosswalk.test.mjs
+          node scripts/pr359-full-ledger-crosswalk.mjs --out pr359-full-ledger-crosswalk.json
+          node --check scripts/pr359-financial-shadow-preflight.mjs
+          node --test scripts/pr359-financial-shadow-preflight.test.mjs
+          node scripts/pr359-financial-shadow-preflight.mjs --out pr359-financial-shadow-preflight.json
+          node scripts/pr359-migration-evidence.mjs --out pr359-migration-evidence-resolved.json
+          node --test scripts/pr359-historical-review-matrix.test.mjs
+          node scripts/pr359-historical-review-matrix.mjs --out pr359-historical-review-matrix.json
+          node --check scripts/pr359-p0-live-catalog-review.mjs
+          node --test scripts/pr359-p0-live-catalog-review.test.mjs
+          node scripts/pr359-p0-live-catalog-review.mjs --out pr359-p0-live-catalog-review.json
+          node --check scripts/pr359-finance-live-cash-proof.mjs
+          node --test scripts/pr359-finance-live-cash-proof.test.mjs
+          node scripts/pr359-finance-live-cash-proof.mjs --out pr359-finance-live-cash-proof.json
+
+      - name: Upload historical migration source-hash evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr359-migration-source-evidence
+          path: |
+            pr359-migration-evidence-resolved.json
+            pr359-full-ledger-crosswalk.json
+            pr359-financial-shadow-preflight.json
+            pr359-historical-review-matrix.json
+            pr359-p0-live-catalog-review.json
+            pr359-finance-live-cash-proof.json
+          if-no-files-found: error
+
+      - name: CB-A writer inventory (source candidates only)
+        run: |
+          node --check scripts/pr359-canonical/cb-a-writer-inventory.mjs
+          node scripts/pr359-canonical/cb-a-writer-inventory.mjs --out pr359-cb-a-writer-inventory.json
+
+      - name: Upload CB-A writer candidate inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr359-cb-a-writer-inventory
+          path: pr359-cb-a-writer-inventory.json
+          if-no-files-found: error
+
+      - name: CB-A P0 ownership review queue (archived metadata only)
+        run: |
+          node --test scripts/pr359-r4/verify-root-dependency-digests.test.mjs
+          node --test scripts/pr359-canonical/source-index.test.mjs
+          node --test scripts/pr359-canonical/cb-a-definer-attachments.test.mjs
+          node --test scripts/pr359-canonical/cb-a-p0-review-queue.test.mjs
+          node scripts/pr359-canonical/cb-a-p0-review-queue.mjs --out pr359-cb-a-p0-review-queue.json
+
+      - name: Upload CB-A P0 review queue
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr359-cb-a-p0-review-queue
+          path: pr359-cb-a-p0-review-queue.json
+          if-no-files-found: error
 
       - name: Supabase runtime boundary
         run: node scripts/check-supabase-runtime-boundary.mjs
@@ -72,6 +136,12 @@ jobs:
           path: tsc-errors.log
           if-no-files-found: warn
 
+      - name: D36 authenticated financial isolation harness (mock-transport regression)
+        run: node --test scripts/d36-financial-tenant-isolation-http.test.mjs
+
+      - name: E44 authenticated non-owner financial role matrix (mock-transport regression)
+        run: node --test scripts/e44-financial-role-matrix-http.test.mjs
+
       - name: Run tests
         run: pnpm test > test-errors.log 2>&1
 
@@ -89,3 +159,17 @@ jobs:
 
       - name: Build production artifacts
         run: pnpm build
+
+  native-indexeddb-repair:
+    name: Native Chromium IndexedDB repair and Outbox isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --global pnpm@10.34.5
+      - run: pnpm install --frozen-lockfile
+      - name: Run isolated native browser recovery fixture
+        run: node scripts/pr359-canonical/run-browser-repair.mjs

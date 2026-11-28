@@ -1,0 +1,7 @@
+# CB-A — scoped reset regression and native cross-context repair (2026-11-28)
+
+Parent `df6ce06791d6a1ccd0698341a0269a8df1c412c1`: five workflows passed; PowerHub CI run 46131642744 job 140937887538 failed in the general test suite. The old retention-reset fixture supplied a subscriber without tenant/site identity. The new strict scope validation correctly rejected it. Correct the fixture to include tenantId/siteId and add an explicit negative test; no production validation weakened. TypeScript and native IndexedDB fixture already passed on the parent; build was skipped.
+
+The P0 artifact (15257489413) and CI marker establish 293/296 lexical historical candidates and 3 missing at checkout 0a0376893ad02da6b07773a8c58b052eb03b31b7. The report now joins the existing SHA-validated forensic CB-B gap bundle by exact registered identity and definition digest. Missing identities and coverage are explicit; no forensic body is selected for execution and approvals remain false.
+
+The native Chromium fixture now uses a second same-origin document under a disposable loopback profile, verifies actual held/pending Web Locks for the same user, independent lock acquisition for another user, and observes the repaired IndexedDB checkpoint from the peer after release. This is cross-document native evidence, not two top-level tabs or hosted session/query-cache race acceptance. New-head execution is required. No hosted mutation or merge.

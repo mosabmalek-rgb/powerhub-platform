@@ -1,0 +1,525 @@
+{
+  "capture_date": "2026-11-28",
+  "environment": "staging",
+  "read_only": true,
+  "scope": "targeted catalog and guard source screening; not runtime authorization or ownership approval",
+  "public_count": 15,
+  "private_count": 14,
+  "functions": [
+    {
+      "schema_name": "private",
+      "proname": "chat_assign_support",
+      "args": "p_conversation_id bigint, p_assigned_user_id bigint",
+      "definition_sha256": "6f5e61b10bf8f1a38368e1d5b7c5fb5f1c1fd7a111752e6d253bec08583d67e5",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_actor := private.chat_current_user_id();",
+        "  if v_actor is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;",
+        "    conversation_id,tenant_id,assigned_user_id,assigned_by_user_id,status,assigned_at,accepted_at",
+        "    v_conversation.id,v_conversation.tenant_id,p_assigned_user_id,v_actor,'active',now(),now()",
+        "  insert into public.chat_participants(conversation_id,tenant_id,user_id,participant_role)",
+        "  values(v_conversation.id,v_conversation.tenant_id,p_assigned_user_id,'support')",
+        "    user_id,tenant_id,conversation_id,message_id,notification_type,title,body",
+        "    p_assigned_user_id,v_conversation.tenant_id,v_conversation.id,null,'support_update',"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_create_conversation",
+      "args": "p_tenant_id bigint, p_conversation_type text, p_subject text, p_priority text",
+      "definition_sha256": "b50079e2c5e5711a4e2f0bc9a15fedf263f2c4fecb1972a22b7c937a15ebf902",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        "CREATE OR REPLACE FUNCTION private.chat_create_conversation(p_tenant_id bigint, p_conversation_type text DEFAULT 'assistant'::text, p_subject text DEFAULT NULL::text, p_priority text DEFAULT 'normal'::text)",
+        " SECURITY DEFINER",
+        "  v_user_id:=private.chat_current_user_id();",
+        "  IF v_user_id IS NULL THEN RAISE EXCEPTION 'UNAUTHORIZED'; END IF;",
+        "  IF NOT (p_tenant_id=ANY(powerhub_private.current_tenant_ids())) THEN RAISE EXCEPTION 'FORBIDDEN'; END IF;",
+        "  IF NOT private.chat_feature_enabled_for_tenant(p_tenant_id,p_conversation_type) THEN",
+        "  INSERT INTO public.chat_conversations(tenant_id,conversation_type,status,subject,priority,created_by_user_id,last_message_at)",
+        "  VALUES(p_tenant_id,p_conversation_type,",
+        "  INSERT INTO public.chat_participants(conversation_id,tenant_id,user_id,participant_role)",
+        "  VALUES(v_row.id,v_row.tenant_id,v_user_id,'owner');"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_rate_support",
+      "args": "p_conversation_id bigint, p_rating smallint, p_comment text",
+      "definition_sha256": "ae359dcdaadff9579f6b16afd4f8f57c609f53adb553b665768281afe74bf3b7",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_user := private.chat_current_user_id();",
+        "  if v_user is null then raise exception 'UNAUTHORIZED'; end if;",
+        "      on tm.tenant_id=v_conv.tenant_id and tm.user_id=cp.user_id",
+        "    raise exception 'FORBIDDEN';",
+        "  if not private.chat_feature_enabled_for_tenant(v_conv.tenant_id,'support') then",
+        "  insert into public.chat_support_feedback(conversation_id,tenant_id,user_id,rating,comment)",
+        "  values(p_conversation_id,v_conv.tenant_id,v_user,p_rating,nullif(btrim(p_comment),''))"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_release_support",
+      "args": "p_conversation_id bigint",
+      "definition_sha256": "4dc32b82090f255c4387e76fd65ecb82d8cad0cbd44cb8eba86a8081b2e66445",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_actor := private.chat_current_user_id();",
+        "  if v_actor is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_reopen_support_conversation",
+      "args": "p_conversation_id bigint",
+      "definition_sha256": "2111026affdf5a48b212deb659c4afa9a4319df150967bc51ec0e3c54c218305",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_user := private.chat_current_user_id();",
+        "  if v_user is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  v_is_support := private.powerhub_has_platform_capability('manageSupportChat');",
+        "      on tm.tenant_id = v_conversation.tenant_id",
+        "    raise exception 'FORBIDDEN';",
+        "     and not private.chat_feature_enabled_for_tenant(v_conversation.tenant_id, 'support') then"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_send_internal_note",
+      "args": "p_conversation_id bigint, p_body text, p_client_message_id uuid",
+      "definition_sha256": "d188a13ace2b475b80d5a4879a1f3a38a9159fdf92f196ecd6721b61f279eeed",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_actor := private.chat_current_user_id();",
+        "  if v_actor is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;",
+        "    conversation_id,tenant_id,sender_user_id,sender_type,message_type,visibility,body,client_message_id",
+        "    p_conversation_id,v_conversation.tenant_id,v_actor,'human','text','internal',btrim(p_body),p_client_message_id"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_send_message",
+      "args": "p_conversation_id bigint, p_body text, p_client_message_id uuid, p_reply_to_message_id bigint",
+      "definition_sha256": "53fcc7177691df7b57710c6ec892e4d98ce518b9555efaf127d973e9070eb979",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_user_id := private.chat_current_user_id();",
+        "  if v_user_id is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.chat_can_access_conversation(p_conversation_id) then raise exception 'FORBIDDEN'; end if;",
+        "  v_is_support := private.powerhub_has_platform_capability('manageSupportChat');",
+        "    conversation_id,tenant_id,sender_user_id,sender_type,message_type,visibility,body,reply_to_message_id,client_message_id",
+        "    v_conversation.id,v_conversation.tenant_id,v_user_id,'human','text','public',"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_set_conversation_tags",
+      "args": "p_conversation_id bigint, p_tag_ids bigint[]",
+      "definition_sha256": "c8ce8c18fc9ddcda6c403c321f393464d297523c6400d231ddbcb6c6adce64b9",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_actor := private.chat_current_user_id();",
+        "  if v_actor is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;",
+        "        insert into public.chat_conversation_tags(conversation_id,tag_id,tenant_id,created_by_user_id)",
+        "        values(p_conversation_id,v_tag,v_conv.tenant_id,v_actor)"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_support_metrics",
+      "args": "p_from timestamp with time zone, p_to timestamp with time zone",
+      "definition_sha256": "75d0bdeca8e46f2714cc6b7c12abc2d069c5268f7b87c063f6b425fb20f37431",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " STABLE SECURITY DEFINER",
+        "  if private.chat_current_user_id() is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_support_queue",
+      "args": "p_status text, p_priority text, p_category_code text, p_assigned_user_id bigint, p_search text, p_limit integer, p_offset integer",
+      "definition_sha256": "b0146f531078940052f8a6ddb29d06cb3334cfd36439b039e473cef4d156540f",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " RETURNS TABLE(conversation_id bigint, ticket_number text, tenant_id bigint, tenant_name text, subject text, status text, priority text, category_code text, category_name text, assigned_user_id bigint, assigned_user_name text, requester_user_id bigint, requester_name text, requester_email text, last_message_at timestamp with time zone, first_response_at timestamp with time zone, first_response_due_at timestamp with time zone, resolution_due_at timestamp with time zone, resolved_at timestamp with time zone, closed_at timestamp with time zone, auto_close_at timestamp with time zone, unread_count bigint, sla_state text, created_at timestamp with time zone)",
+        " STABLE SECURITY DEFINER",
+        "  if private.chat_current_user_id() is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;",
+        "    c.id,c.ticket_number,c.tenant_id,t.name,c.subject,c.status,c.priority,c.category_code,sc.name,",
+        "      on cp.conversation_id=c.id and cp.user_id=private.chat_current_user_id() and cp.left_at is null",
+        "        and m.sender_user_id is distinct from private.chat_current_user_id()",
+        "  join public.tenants t on t.id=c.tenant_id"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_support_set_metadata",
+      "args": "p_conversation_id bigint, p_subject text, p_priority text, p_category_code text",
+      "definition_sha256": "3eb5226cd4270c86694b8f31caa790189ed4168416338d3290eb8638b91700bc",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_actor := private.chat_current_user_id();",
+        "  if v_actor is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then raise exception 'FORBIDDEN'; end if;"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_support_users",
+      "args": "",
+      "definition_sha256": "1259e4b41da3a8f93e057c3a309908e018a46442c6aaf126a2c9b3037050fbd3",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " STABLE SECURITY DEFINER",
+        "  join private.platform_capability_policies p on p.platform_role=u.platform_role and p.capability='manageSupportChat' and p.is_allowed=true",
+        "  where u.account_status='active' and private.powerhub_has_platform_capability('manageSupportChat');"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_ticket_timeline",
+      "args": "p_conversation_id bigint",
+      "definition_sha256": "c1ff38f08e3255f72c9a1c5fe4f5c502917a43eb3d6af796bc2dd191886f3d2a",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " STABLE SECURITY DEFINER",
+        "  if private.chat_current_user_id() is null then",
+        "    raise exception 'UNAUTHORIZED';",
+        "  if not private.powerhub_has_platform_capability('manageSupportChat') then",
+        "    raise exception 'FORBIDDEN';"
+      ]
+    },
+    {
+      "schema_name": "private",
+      "proname": "chat_transition_conversation",
+      "args": "p_conversation_id bigint, p_next_status text",
+      "definition_sha256": "2707c406e0099a5b9b09b8e7d226f8dbf15b364c7520217b556dd6447c248f80",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  v_user_id := private.chat_current_user_id();",
+        "  if v_user_id is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  v_is_support := private.powerhub_has_platform_capability('manageSupportChat');",
+        "      on tm.tenant_id = v_conversation.tenant_id",
+        "    raise exception 'FORBIDDEN';",
+        "       v_conversation.tenant_id,",
+        "     and not private.chat_feature_enabled_for_tenant(v_conversation.tenant_id, 'support') then"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_ai_rate_message",
+      "args": "p_message_id bigint, p_rating text, p_feedback_text text",
+      "definition_sha256": "d41d4b84cec403fa84f4f17a624147045a6d197a9f3c58b3c4d740af534e451f",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER",
+        "  where auth_user_id=(select auth.uid())",
+        "  if v_user is null then raise exception 'UNAUTHORIZED'; end if;",
+        "  if not private.chat_can_access_conversation(v_message.conversation_id) then raise exception 'FORBIDDEN'; end if;"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_assign_support",
+      "args": "p_conversation_id bigint, p_assigned_user_id bigint",
+      "definition_sha256": "749247d92d1f09859548a1be0bee65ed9c5d61c33bba4ecc99304132c526046f",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_create_conversation",
+      "args": "p_tenant_id bigint, p_conversation_type text, p_subject text, p_priority text",
+      "definition_sha256": "4439d46335c1bd33a67663ecb97a9fcb815b0e87038719980c139e8bba504d81",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        "CREATE OR REPLACE FUNCTION public.chat_create_conversation(p_tenant_id bigint, p_conversation_type text DEFAULT 'assistant'::text, p_subject text DEFAULT NULL::text, p_priority text DEFAULT 'normal'::text)",
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_rate_support",
+      "args": "p_conversation_id bigint, p_rating smallint, p_comment text",
+      "definition_sha256": "77daaad178f07ad6bc0bd2a0d108592db4e987398c226c014e2e275e52a12d08",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_release_support",
+      "args": "p_conversation_id bigint",
+      "definition_sha256": "418a9372dc53b53f569de91c86bca7cf452be71a9972abbeec1421c1eece85ca",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_reopen_support_conversation",
+      "args": "p_conversation_id bigint",
+      "definition_sha256": "7f1b14e99b82427feb0058bda27fb5800c9df7523b496b5be08df10f9917e804",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_send_internal_note",
+      "args": "p_conversation_id bigint, p_body text, p_client_message_id uuid",
+      "definition_sha256": "54f7dc581889438da970d71417d3f0f69b9f758a99f155da3d4af7658c4b555b",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_send_message",
+      "args": "p_conversation_id bigint, p_body text, p_client_message_id uuid, p_reply_to_message_id bigint",
+      "definition_sha256": "955eeda1dcb1009a7f7bab57c456c916cd0b747fc627a10b8d302598958b6c1c",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_set_conversation_tags",
+      "args": "p_conversation_id bigint, p_tag_ids bigint[]",
+      "definition_sha256": "64b554c65febf882a8d94dae08769451c623e532301376affb1f1e01ba0717c8",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_support_metrics",
+      "args": "p_from timestamp with time zone, p_to timestamp with time zone",
+      "definition_sha256": "848ceb60a2d7129b30985cf64a125fc535bccd5ff307266789a5c2d7b6cd1c22",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_support_queue",
+      "args": "p_status text, p_priority text, p_category_code text, p_assigned_user_id bigint, p_search text, p_limit integer, p_offset integer",
+      "definition_sha256": "843191d2ca8c03d3e59228d54a24bde8cc23375578a1b18b1bcc956d46584d7d",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " RETURNS TABLE(conversation_id bigint, ticket_number text, tenant_id bigint, tenant_name text, subject text, status text, priority text, category_code text, category_name text, assigned_user_id bigint, assigned_user_name text, requester_user_id bigint, requester_name text, requester_email text, last_message_at timestamp with time zone, first_response_at timestamp with time zone, first_response_due_at timestamp with time zone, resolution_due_at timestamp with time zone, resolved_at timestamp with time zone, closed_at timestamp with time zone, auto_close_at timestamp with time zone, unread_count bigint, sla_state text, created_at timestamp with time zone)",
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_support_set_metadata",
+      "args": "p_conversation_id bigint, p_subject text, p_priority text, p_category_code text",
+      "definition_sha256": "157cdb67e16efa29919d7f795fb6f06467d4398c24cef57f6589684abeb40e9e",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_support_users",
+      "args": "",
+      "definition_sha256": "7e0900f70818b23c04e51fdeb5ff6cf6164ad33c9c385b7e3ead9a4d0cbf6e12",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_ticket_timeline",
+      "args": "p_conversation_id bigint",
+      "definition_sha256": "8fce46747b9997db6cc9b2ad4b51a307ff8798c58cfca40bb6b83d227eaa395b",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    },
+    {
+      "schema_name": "public",
+      "proname": "chat_transition_conversation",
+      "args": "p_conversation_id bigint, p_next_status text",
+      "definition_sha256": "d47483ce63fe1e7ec5eaa267ba2e715ff33fd5c2d6cc61c2c36ac5ed9715a778",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=\"\""
+      ],
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "guard_source_lines": [
+        " SECURITY DEFINER"
+      ]
+    }
+  ]
+}

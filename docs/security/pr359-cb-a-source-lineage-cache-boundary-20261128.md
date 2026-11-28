@@ -1,0 +1,7 @@
+# CB-A parallel source lineage and snapshot application boundary (2026-11-28)
+
+Parent `12e8ee345d41643c14b8e8ff527a6baf2a25bc31`. The P0 report now uses the existing validated 700-file historical migration provenance and source index to attach lexical CREATE candidates by exact register identity, with original source path/blob/offset. Overloads still share name-based candidates; none is a verified canonical definition. Missing candidates remain explicit. CI tests the join and uploads the expanded report.
+
+Runtime snapshot fetch/normalization is separated from cache application via a deferred internal callback. Both repair and retention reset validate the watermark and normalized scope before cache writes. Retention reset additionally reads the durable cursor and refuses snapshots older than the maximum of requested, caller and durable cursors. Cache persistence remains before durable cursor advancement to allow replay after interruption; tests cover stale/cross-order data, cache failure and a durable cursor ahead of the server reset. No trusted repair version activation. This does not solve concurrent live query writes or multi-tab cache reconciliation by itself.
+
+The compound concurrency fixture was reviewed: it proves a deliberate opposite-order cycle and rollback but does not prove the global order of single HTTP transactions. No additional runtime concurrency acceptance asserted in this batch. No hosted SQL, migration, ownership promotion or merge.

@@ -1,0 +1,72 @@
+name: PR359 Staging Shadow Restore (isolated, read-only source)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/auth-local-first-single-pr]
+    paths:
+      - docs/security/pr359-r4-staging-shadow-run-request.json
+permissions:
+  contents: read
+concurrency:
+  group: pr359-staging-shadow-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  request_preflight:
+    name: Validate request activation or safely skip disabled request
+    runs-on: ubuntu-latest
+    outputs:
+      requested: ${{ steps.classify.outputs.requested }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - id: classify
+        name: Classify disabled request or validate request-only activation
+        env:
+          SHADOW_APPROVED_HEAD: ${{ github.sha }}
+        run: node scripts/pr359-r4/staging-shadow-request-preflight.mjs >> "$GITHUB_OUTPUT"
+  real-staging-ledger-restore:
+    needs: request_preflight
+    if: >-
+      needs.request_preflight.result == 'success' &&
+      needs.request_preflight.outputs.requested == 'true' &&
+      github.ref == 'refs/heads/feat/auth-local-first-single-pr' &&
+      vars.PR359_ENABLE_STAGING_DOCKER_SHADOW == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment:
+      name: pr359-staging-shadow
+    env:
+      SHADOW_SOURCE_KIND: staging
+      SHADOW_CONFIRM_STAGING_TEST_DATA: YES_STAGING_TEST_DATA
+      SHADOW_REQUIRE_SESSION_POOLER: 'true'
+      SHADOW_SOURCE_DB_URL: ${{ secrets.PR359_STAGING_SHADOW_SOURCE_DB_URL }}
+      SHADOW_APPROVED_HEAD: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Require an explicit reviewed Staging-only run request
+        run: node scripts/pr359-r4/staging-shadow-request.mjs
+      - name: Validate Staging-only source identity and TLS
+        run: node scripts/pr359-shadow/guard.mjs
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 3.2.0
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Two independent disposable Staging history restores
+        run: |
+          bash -n scripts/pr359-shadow/run.sh
+          bash -n scripts/pr359-r4/staging-atomic-export.sh
+          bash scripts/pr359-shadow/run.sh staging-restore

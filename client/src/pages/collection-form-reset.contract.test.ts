@@ -33,7 +33,7 @@ describe("collection and entry form reset contracts", () => {
     const directory = read("client/src/pages/NetworkDirectoryPage.tsx");
     expect(directory).toContain('setSubscriberFormResetKey((key) => key + 1)');
     expect(directory).toContain('key={`${editing?.id ?? "new"}-${subscriberFormResetKey}`}');
-    expect(directory).toContain('onClick={(event) => event.currentTarget.form?.reset()}');
+    expect(directory).toContain('event.currentTarget.form?.reset(); setDepositEnabled(false);');
     expect(directory).toContain('إفراغ الحقول');
   });
 

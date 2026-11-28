@@ -1,0 +1,293 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFileSync,writeFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {pathToFileURL} from 'node:url';
+import path from 'node:path';
+import {auditOwnershipCandidates} from '../pr359-r4/audit-ownership-candidates.mjs';
+import {verifyLiveOwnershipCatalog} from '../pr359-r4/verify-live-ownership-catalog.mjs';
+import {assessRootDependencies} from '../pr359-r4/verify-root-dependency-digests.mjs';
+import {buildIndex} from './source-index.mjs';
+import {buildCbBGapReviewBundle,loadCbBGapReviewInputs} from './cb-b-gap-review-bundle.mjs';
+import {auditDefinerAttachments,loadDefinerAttachmentEvidence} from './cb-a-definer-attachments.mjs';
+import {validateMigrationProvenance} from '../pr359-r4/verify-legacy-migration-provenance.mjs';
+
+const dir='docs/security/';
+export const sources=Object.freeze({
+ register:['pr359-r4-staging-object-register-20261120.json','568dbca50ed5509e4c6f41d08317228ab3ec0480'],
+ functions:['pr359-r0-staging-functions-20261119.json','51c9434f836b761bf67ab3030c5ec709444a30c6'],
+ relations:['pr359-r0-staging-relations-20261119.json','a3639fcd34d6259949daa2f9e1d72326d0ad96b4'],
+ live:['pr359-r4-staging-live-ownership-fingerprints-20261123.json','b0b260cc0d5d5f80ece19d3ce0de80b3880612ba'],
+ dependencies:['pr359-r4-staging-root-dependency-digests-20261123.json','f4bd79d64091ad3095cf618488530540635dd418']
+});
+export function parsePinned(raw,expected){
+ const body=Buffer.from(raw);
+ assert.equal(createHash('sha1').update('blob '+body.length+'\0').update(body).digest('hex'),expected,'source blob drift');
+ return JSON.parse(body.toString('utf8'));
+}
+export function loadSources(){
+ return Object.fromEntries(Object.entries(sources).map(([key,[file,sha]])=>[key,parsePinned(readFileSync(dir+file),sha)]));
+}
+export function buildP0Review(input,commit){
+ assert.match(commit,/^[a-f0-9]{40}$/);
+ const {register,functions,relations,live,dependencies}=input;
+ const audit=auditOwnershipCandidates(register,relations,functions);
+ verifyLiveOwnershipCatalog(live,register,functions,relations);
+ assessRootDependencies(dependencies,register,functions,relations);
+ const fns=new Map(functions.objects.map(x=>[x.signature,x]));
+ const current=new Map(live.objects.map(x=>[x.id,x]));
+ const deps=new Map(dependencies.entries.map(x=>[x.identity,x]));
+ const records=audit.reviewQueue.filter(x=>x.priority==='P0_PUBLIC_SECURITY_DEFINER').map(x=>{
+  const f=fns.get(x.identity),l=current.get(x.identity),d=deps.get(x.identity);
+  assert.ok(f&&l&&d);
+  assert.equal(f.schema,'public');assert.equal(f.security_definer,true);
+  assert.ok(Array.isArray(f.configuration)||f.configuration===null,'unknown historical proconfig shape');
+  const searchPath=(f.configuration??[]).filter(x=>typeof x==='string'&&x.startsWith('search_path='));
+  assert.ok(searchPath.length<=1,'ambiguous historical search_path');
+  return {identity:x.identity,schema:f.schema,owner:l.owner,security_definer:true,
+   definition_sha256:l.definition_sha256,acl_sha256:l.acl_sha256,
+   anon_execute:l.anon_execute,authenticated_execute:l.authenticated_execute,
+   historical_service_execute:f.service_execute,historical_search_path:searchPath[0]??null,
+   incoming_edges:d.incoming_edges,outgoing_edges:d.outgoing_edges,
+   incoming_sha256:d.incoming_sha256,outgoing_sha256:d.outgoing_sha256,
+   review_status:'PENDING',canonical_source:null,executable_sql_reviewed:false,
+   effective_privileges_reviewed:false,runtime_callers_reviewed:false,
+   tenant_isolation_reviewed:false,managed_dependencies_reviewed:false,
+   reviewer_approval:null};
+ });
+ assert.equal(records.length,296);
+ assert.equal(new Set(records.map(x=>x.identity)).size,296);
+ return {format:'PR359_CB_A_P0_REVIEW_QUEUE_V1',report_checkout:commit,
+  capture_dates:['2026-11-19','2026-11-23'],source_blobs:Object.fromEntries(Object.entries(sources).map(([k,[file,sha]])=>[k,{path:dir+file,blob_sha:sha}])),
+  candidate_count:records.length,unresolved:records.length,signed_approvals:0,
+  limitations:['Archived metadata only, not a fresh live capture','Historical search_path and service EXECUTE are review hints, not current effective privilege proof','Root pg_depend hashes exclude some managed subobjects and dynamic/runtime dependencies','No executable DDL or ownership authorization'],
+  app_owned_approved:false,canonical_baseline_approved:false,destructive_allowlist:[],staging_inplace_go:false,production_inplace_go:false,pr359_merge_go:false,records};
+}
+export function attachHistoricalCandidates(report,index){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(index.canonical_baseline_approved,false);
+ assert.equal(index.object_count,978);
+ assert.equal(index.objects.length,978);
+ const byId=new Map(index.objects.map(x=>[x.id,x]));
+ assert.equal(byId.size,978);
+ const records=report.records.map(row=>{
+  const x=byId.get(row.identity);
+  assert.ok(x&&x.kind==='function','missing source index identity: '+row.identity);
+  assert.equal(x.approved,false);
+  assert.equal(x.exact_signature_verified,false);
+  assert.equal(x.current_executable_definition_verified,false);
+  return {...row,historical_source_status:x.source_status,historical_source_candidates:x.source_candidates};
+ });
+ assert.equal(records.length,296);
+ return {...report,records,historical_source_index_files:index.legacy_files,
+  with_lexical_source_candidates:records.filter(x=>x.historical_source_candidates.length>0).length,
+  without_lexical_source_candidates:records.filter(x=>x.historical_source_candidates.length===0).length,
+  historical_source_candidates_only:true};
+}
+export function attachForensicGaps(report,bundle){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(bundle.canonical_baseline_approved,false);
+ assert.equal(bundle.executable_sql_approved,false);
+ const byId=new Map(bundle.records.filter(x=>x.kind==='function').map(x=>[x.identity,x]));
+ const records=report.records.map(row=>{
+  if(row.historical_source_candidates.length) return row;
+  const evidence=byId.get(row.identity);
+  if(!evidence) return {...row,forensic_gap_evidence:null};
+  assert.equal(evidence.exact_catalog_definition_sha256,row.definition_sha256,'forensic DDL drift: '+row.identity);
+  assert.equal(evidence.security_definer,true);
+  assert.equal(evidence.ddl_selected_for_execution,false);
+  assert.equal(evidence.app_owned_approved,false);
+  return {...row,forensic_gap_evidence:{source_blob_sha:bundle.evidence.function_source_blob_sha1,
+   definition_sha256:evidence.exact_catalog_definition_sha256,identity_arguments:evidence.identity_arguments,
+   blockers:evidence.blockers,ddl_selected_for_execution:false}};
+ });
+ const gaps=records.filter(row=>!row.historical_source_candidates.length);
+ return {...report,records,missing_historical_identities:gaps.map(x=>x.identity),
+  with_forensic_gap_evidence:gaps.filter(x=>x.forensic_gap_evidence).length,
+  without_forensic_gap_evidence:gaps.filter(x=>!x.forensic_gap_evidence).length};
+}
+export function attachGapCallerEvidence(report,attachments){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(attachments.full_runtime_call_graph_verified,false);
+ assert.equal(attachments.trigger_runtime_firing_verified,false);
+ assert.equal(attachments.security_definer_signoff_complete,false);
+ assert.equal(attachments.source_ownership_approved,false);
+ assert.equal(attachments.exact_security_definers,3);
+ assert.equal(attachments.attached_direct_triggers,2);
+ const byId=new Map(attachments.direct_trigger_bindings.map(x=>[x.function_identity,x]));
+ assert.equal(byId.size,2);
+ assert.ok(!byId.has(attachments.mobile_session_function_identity));
+ const ids=new Set([...byId.keys(),attachments.mobile_session_function_identity]);
+ assert.equal(ids.size,3);
+ assert.deepEqual([...ids].sort(),[...report.missing_historical_identities].sort(),'gap attachment identity mismatch');
+ assert.equal(attachments.mobile_api_scoped_direct_update_in_pinned_code,true);
+ assert.equal(attachments.mobile_api_direct_touch_rpc_literal_in_pinned_code,false);
+ const records=report.records.map(row=>{
+  if(!ids.has(row.identity)) return row;
+  assert.ok(row.forensic_gap_evidence,'missing forensic definition');
+  const binding=byId.get(row.identity);
+  return {...row,forensic_caller_evidence:{
+   evidence_git_blob_sha:attachments.evidence_git_blob_sha,
+   direct_trigger_binding:binding??null,
+   pinned_mobile_api_source:binding?null:{
+    blob_sha:attachments.inspected_mobile_api_git_blob_sha,
+    scoped_direct_update:true,direct_touch_rpc_literal:false},
+   full_runtime_call_graph_verified:false,trigger_runtime_firing_verified:false
+  }};
+ });
+ return {...report,records,gap_caller_evidence_count:records.filter(x=>x.forensic_caller_evidence).length,
+  gap_runtime_caller_closure_approved:false};
+}
+export function summarizePrivilegeReview(report){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(report.records.length,296);
+ const groups={anon_execute:[],authenticated_only:[],neither_client_role:[],missing_historical_search_path:[]};
+ for(const row of report.records){
+  assert.equal(typeof row.anon_execute,'boolean');
+  assert.equal(typeof row.authenticated_execute,'boolean');
+  assert.equal(row.review_status,'PENDING');
+  if(row.anon_execute) groups.anon_execute.push(row.identity);
+  else if(row.authenticated_execute) groups.authenticated_only.push(row.identity);
+  else groups.neither_client_role.push(row.identity);
+  if(row.historical_search_path===null) groups.missing_historical_search_path.push(row.identity);
+ }
+ assert.equal(groups.anon_execute.length+groups.authenticated_only.length+groups.neither_client_role.length,296);
+ return {...report,privilege_review_summary:{
+  source:'archived_effective_execute_flags_and_historical_proconfig',
+  review_order:['anon_execute','authenticated_only','neither_client_role'],
+  counts:Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,v.length])),
+  identities:groups,security_review_approved:false,
+  caveat:'Client execute exposure or missing explicit search_path is a review signal, not proof of an exploit or current grant state.'
+ }};
+}
+export const recaptureSource=Object.freeze(['pr359-cb-a-p0-staging-recapture-20261128.json','f5297cd9c1608ec4142ca0f44b85ac167884fffa']);
+export function attachReadOnlyRecapture(report,capture){
+ assert.equal(capture.format,'PR359_CB_A_P0_READ_ONLY_RECAPTURE_V1');
+ assert.equal(capture.source_project_ref,'iyuryuhaylhisjfcrwkz');
+ assert.equal(capture.approved,false);
+ assert.equal(capture.signed_approvals,0);
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(report.records.length,296);
+ assert.equal(capture.rows.length,296);
+ const byId=new Map(capture.rows.map(x=>[x.identity,x]));
+ assert.equal(byId.size,296);
+ const records=report.records.map(row=>{
+  const live=byId.get(row.identity);
+  assert.ok(live,'recapture missing identity: '+row.identity);
+  assert.equal(live.security_definer,true);
+  assert.equal(live.definition_sha256,row.definition_sha256,'definition drift: '+row.identity);
+  assert.equal(live.anon_exec,row.anon_execute,'anon EXECUTE drift: '+row.identity);
+  assert.equal(live.authenticated_exec,row.authenticated_execute,'authenticated EXECUTE drift: '+row.identity);
+  assert.ok(Array.isArray(live.config)&&live.config.some(x=>x.startsWith('search_path=')));
+  return {...row,read_only_recapture:{definition_sha256:live.definition_sha256,anon_execute:live.anon_exec,authenticated_execute:live.authenticated_exec,config:live.config},effective_privileges_reviewed:false};
+ });
+ return {...report,records,read_only_recapture_summary:{capture_date:capture.capture_date,matched:records.length,definition_or_client_execute_drift:0,signed_approvals:0,runtime_authorization_verified:false}};
+}
+export const chatGuardSource=Object.freeze(['pr359-cb-a-chat-remaining-guard-screening-20261128.json','b2040b814fab4c8c9246d47878a2daa94af407f2']);
+function guardIdentity(row){
+ const types=row.args ? row.args.split(', ').map(arg=>{
+  const match=/^[a-z_][a-z_0-9]* (.+)$/.exec(arg);
+  assert.ok(match,'unsupported argument shape');
+  return match[1];
+ }).join(',') : '';
+ return row.proname+'('+types+')';
+}
+export function attachChatGuardScreening(report,capture){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(report.signed_approvals,0);
+ assert.equal(capture.environment,'staging');
+ assert.equal(capture.read_only,true);
+ assert.equal(capture.public_count,15);
+ assert.equal(capture.private_count,14);
+ assert.equal(capture.functions.length,29);
+ const seen=new Set();
+ for(const x of capture.functions){
+  assert.ok(x.schema_name==='public'||x.schema_name==='private');
+  const identity=x.schema_name+'.'+guardIdentity(x);
+  assert.ok(!seen.has(identity),'duplicate chat guard identity');
+  seen.add(identity);
+  assert.match(x.definition_sha256,/^[a-f0-9]{64}$/);
+  assert.equal(x.security_definer,true);
+  assert.equal(x.anon_execute,false);
+  assert.equal(x.authenticated_execute,x.schema_name==='public');
+  assert.deepEqual(x.proconfig,['search_path=""']);
+  assert.ok(Array.isArray(x.guard_source_lines)&&x.guard_source_lines.length>0);
+ }
+ const publics=capture.functions.filter(x=>x.schema_name==='public');
+ const privates=capture.functions.filter(x=>x.schema_name==='private');
+ assert.equal(publics.length,15);assert.equal(privates.length,14);
+ const byId=new Map(publics.map(x=>[guardIdentity(x),x]));
+ const privateById=new Map(privates.map(x=>[guardIdentity(x),x]));
+ let matched=0;
+ const records=report.records.map(row=>{
+  const x=byId.get(row.identity);
+  if(!x)return row;
+  matched++;
+  assert.equal(row.review_status,'PENDING');
+  assert.equal(row.reviewer_approval,null);
+  assert.equal(row.definition_sha256,x.definition_sha256,'chat guard definition drift: '+row.identity);
+  assert.ok(row.read_only_recapture,'missing full P0 recapture');
+  assert.equal(row.read_only_recapture.definition_sha256,x.definition_sha256,'chat guard recapture drift');
+  assert.equal(row.read_only_recapture.authenticated_execute,true);
+  assert.equal(row.read_only_recapture.anon_execute,false);
+  assert.deepEqual(row.read_only_recapture.config,x.proconfig);
+  const implementation=privateById.get(row.identity);
+  assert.ok(implementation||row.identity==='chat_ai_rate_message(bigint,text,text)','missing matching private guard');
+  return {...row,chat_guard_screening:{
+   source_blob_sha:chatGuardSource[1],public_definition_sha256:x.definition_sha256,
+   public_guard_source_lines:x.guard_source_lines,
+   private_implementation:implementation?{identity:'private.'+row.identity,definition_sha256:implementation.definition_sha256,
+    anon_execute:false,authenticated_execute:false,guard_source_lines:implementation.guard_source_lines}:null,
+   source_screening_only:true,runtime_authorization_verified:false,caller_closure_approved:false
+  }};
+ });
+ assert.equal(matched,15,'unmatched public chat guard evidence');
+ assert.equal(records.filter(x=>x.chat_guard_screening?.private_implementation).length,14);
+ return {...report,records,chat_guard_screening_summary:{public_matched:15,private_matched:14,
+  source_screening_only:true,runtime_authorization_verified:false,signed_approvals:0}};
+}
+export const managedEdgeDetailSource=Object.freeze(['pr359-cb-a-managed-edge-detail-20261128.json','34fe0506766364c4bf7b77a108ef615c1704eff4']);
+export function assessManagedEdgeDetail(capture){
+ assert.equal(capture.format,'PR359_CB_A_MANAGED_EDGE_DETAIL_V1');
+ assert.equal(capture.read_only,true);
+ assert.equal(capture.ownership_approved,false);
+ assert.deepEqual(capture.destructive_allowlist,[]);
+ assert.equal(capture.edge_count,48);
+ assert.equal(capture.identity_sha256,'86c83659f5781ac140aa6145ba651b8d2d5a6b0042df3305090c02b094f8722f');
+ assert.equal(capture.edges.length,48);
+ const groups={};
+ const targets=new Set();
+ for(const e of capture.edges){
+  assert.equal(e.source_catalog,'pg_policy');
+  assert.ok(['realtime','storage'].includes(e.source_schema));
+  assert.ok(e.source_object.startsWith(e.source_schema+'.'));
+  assert.ok(['pg_class','pg_proc'].includes(e.target_catalog));
+  assert.ok(/^(public|private|powerhub_private)\\./.test(e.target_object));
+  assert.equal(e.deptype,'n');
+  assert.ok(Number.isSafeInteger(e.refobjsubid)&&e.refobjsubid>=0);
+  const group=e.source_schema+':'+e.target_catalog;
+  groups[group]=(groups[group]??0)+1;
+  targets.add(e.target_object);
+ }
+ assert.deepEqual(groups,{'realtime:pg_class':32,'realtime:pg_proc':11,'storage:pg_class':4,'storage:pg_proc':1});
+ assert.equal(targets.size,9);
+ // Digest is server-generated and evidence bytes are independently pinned.
+ // The 48 raw dependency rows may include repeated projected identities.
+ return {edge_count:48,target_count:9,groups,targets:[...targets].sort(),
+  source_blob_sha:managedEdgeDetailSource[1],catalog_only:true,ownership_approved:false,full_dependency_closure_approved:false};
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
+ assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
+ const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+ const input=loadSources();
+ const manifest=JSON.parse(readFileSync(dir+'pr359-r4-legacy-migration-provenance-20261123.json','utf8'));
+ validateMigrationProvenance(manifest);
+ const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
+ const gapInputs=loadCbBGapReviewInputs();
+ const report=attachChatGuardScreening(attachReadOnlyRecapture(summarizePrivilegeReview(attachGapCallerEvidence(
+  attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...gapInputs)),
+  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')))),parsePinned(readFileSync(dir+recaptureSource[0]),recaptureSource[1])),parsePinned(readFileSync(dir+chatGuardSource[0]),chatGuardSource[1]));
+ report.managed_reverse_dependency_detail=assessManagedEdgeDetail(parsePinned(readFileSync(dir+managedEdgeDetailSource[0]),managedEdgeDetailSource[1]));
+ writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,read_only_recapture:report.read_only_recapture_summary,chat_guard_screening:report.chat_guard_screening_summary,managed_reverse_dependency_detail:report.managed_reverse_dependency_detail,app_owned_approved:false}));
+}

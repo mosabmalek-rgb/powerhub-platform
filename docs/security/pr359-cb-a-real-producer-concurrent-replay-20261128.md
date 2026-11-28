@@ -1,0 +1,7 @@
+# CB-A actual producer single-RPC concurrent replay — 2026-11-28
+
+Parent e119bd56f312bdc4fd8fcadb0f75a2bb314ca74d: PostgreSQL job 141037748513 emitted seven chat-send markers, including mixed visibility conflict and rollback recovery. CI job 141037748318 emitted P0 queue with 296 matches, 15 public/14 private guard evidence matches, no approvals. Docker Shadow initially running.
+
+The two existing real maintenance-part and issue-based fuel-fill PostgreSQL fixtures already prove deliberately induced multi-RPC deadlock victim atomicity, whole-transaction retry and sequential replay. Extend each with two independent sessions, one RPC per transaction, identical operation key and payload. Require actual blocking, first response replayed=false, second response replayed=true and identical row ID. Reuse the full stock, cost, journal and audit invariants with one additional committed operation, and recheck after another replay. No additional hosted write or schema change. The fixture still omits optional fuel readings and does not exercise HTTP, heterogeneous writer cycles, or full authorization; no claim of global lock order. No ownership or release approval.
+
+Historical source inspected: 20261023090000_powerhub_generator_maintenance.sql and 20261104215427_powerhub_inventory_fuel_fill_as_issue.sql. Both take operation-key advisory locks before replay lookup, then lock business resources. The new tests exercise the actual installed fixture routines, not just these historical texts. No runtime changes in this batch.

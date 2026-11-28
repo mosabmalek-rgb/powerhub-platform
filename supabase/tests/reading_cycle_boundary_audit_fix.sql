@@ -207,7 +207,7 @@ $test$;
 
 
 -- Exercise the new canonical cycle function against PostgreSQL itself.
-\ir ../migrations/20261011110000_powerhub_reading_cycle_anchor_modes.sql
+\ir ../migrations/20261104193215_powerhub_reading_cycle_anchor_modes.sql
 
 do $cycle_matrix$
 declare

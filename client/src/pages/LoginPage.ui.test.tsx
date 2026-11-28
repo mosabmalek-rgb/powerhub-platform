@@ -6,18 +6,28 @@ import LoginPage from "./LoginPage";
 
 const state = vi.hoisted(() => ({
   setLocation: vi.fn(),
-  useAuth: vi.fn(() => ({ isAuthenticated: false, loading: false, hasSession: false })),
+  useAuth: vi.fn((): {
+    isAuthenticated: boolean;
+    loading: boolean;
+    hasSession: boolean;
+    error?: Error | null;
+    powerHubReachable?: boolean;
+    refresh?: () => unknown;
+  } => ({ isAuthenticated: false, loading: false, hasSession: false })),
   signInWithPassword: vi.fn(),
   probePowerHubConnectivity: vi.fn(),
   signUp: vi.fn(),
   getValidOfflineAuthLease: vi.fn(),
   getOfflineAuthUser: vi.fn(),
+  acceptSupabaseSignInSession: vi.fn(),
 }));
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: state.useAuth }));
 
 vi.mock("@/lib/supabase", () => ({
   supabase: { auth: { signInWithPassword: state.signInWithPassword, signUp: state.signUp } },
+  acceptSupabaseSignInSession: state.acceptSupabaseSignInSession,
+  resetSupabaseSessionReadBackoff: vi.fn(),
 }));
 vi.mock("@/lib/offline-connectivity", () => ({
   probePowerHubConnectivity: state.probePowerHubConnectivity,
@@ -32,6 +42,9 @@ vi.mock("wouter", () => ({ useLocation: () => ["/login", state.setLocation] }));
 
 afterEach(() => {
   cleanup();
+  // Restore globals and the jsdom URL before configuring shared test state.
+  vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/login");
   state.setLocation.mockReset();
   state.useAuth.mockReset();
   state.useAuth.mockReturnValue({ isAuthenticated: false, loading: false, hasSession: false });
@@ -40,32 +53,56 @@ afterEach(() => {
   state.signUp.mockReset();
   state.getValidOfflineAuthLease.mockReset();
   state.getOfflineAuthUser.mockReset();
+  state.acceptSupabaseSignInSession.mockReset();
   vi.stubGlobal("navigator", { ...navigator, onLine: true });
 });
 
 describe("LoginPage", () => {
-  it("signs in with email and password through Supabase", async () => {
-    state.signInWithPassword.mockResolvedValue({
-      data: { session: { access_token: "fresh-access-token", expires_at: Math.floor(Date.now() / 1000) + 3600 } },
-      error: null,
-    });
-    render(<LoginPage />);
+  it("adopts the successful Supabase session but waits for provider validation before routing", async () => {
+    const session = {
+      access_token: "fresh-access-token",
+      refresh_token: "fresh-refresh-token",
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      user: { id: "user-1", email: "admin@powerhub.test" },
+    };
+    state.probePowerHubConnectivity.mockResolvedValue(true);
+    state.signInWithPassword.mockResolvedValue({ data: { session }, error: null });
+    state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: false });
+
+    const view = render(<LoginPage />);
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@powerhub.test" } });
     fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "SecurePass123" } });
     fireEvent.click(screen.getByRole("button", { name: "تسجيل الدخول" }));
+
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "SecurePass123" }));
+    await waitFor(() => expect(state.acceptSupabaseSignInSession).toHaveBeenCalledWith(session));
+    expect(await screen.findByText(/تم قبول بيانات الدخول؛ جارٍ التحقق/)).toBeInTheDocument();
+    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
+
+    state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false, hasSession: true });
+    view.rerender(<LoginPage />);
+    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
   });
 
-  it("leaves the login page while a restored session awaits profile validation", async () => {
-    state.useAuth.mockReturnValue({ isAuthenticated: false, loading: true, hasSession: true });
+  it("keeps a present but unvalidated session on the recoverable login screen", async () => {
+    state.useAuth.mockReturnValue({
+      isAuthenticated: false,
+      loading: false,
+      hasSession: true,
+      error: new Error("auth.me temporarily unavailable"),
+      powerHubReachable: true,
+      refresh: vi.fn(),
+    });
 
     render(<LoginPage />);
 
-    await waitFor(() => expect(state.setLocation).toHaveBeenCalledWith("/workspace"));
+    expect(await screen.findByText("الجلسة موجودة، لكن التحقق من الحساب لم يكتمل.")).toBeInTheDocument();
+    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
+    expect(screen.getByRole("button", { name: "إعادة التحقق من الجلسة" })).toBeInTheDocument();
     expect(state.signInWithPassword).not.toHaveBeenCalled();
   });
 
-  it("returns to the workspace when a persisted online session is already restored", async () => {
+  it("returns to the workspace when a persisted online session has already been validated", async () => {
     state.useAuth.mockReturnValue({ isAuthenticated: true, loading: false, hasSession: true });
 
     render(<LoginPage />);
@@ -104,6 +141,28 @@ describe("LoginPage", () => {
     await waitFor(() => expect(state.probePowerHubConnectivity).toHaveBeenCalled());
     await waitFor(() => expect(state.signInWithPassword).toHaveBeenCalledWith({ email: "admin@powerhub.test", password: "WrongPassword123" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحين.");
+  });
+
+  it("keeps the explicit login route open instead of restoring a cached offline workspace", () => {
+    vi.stubGlobal("navigator", { ...navigator, onLine: true });
+    // Update window.location itself; stubbing globalThis.location does not
+    // change window.location in jsdom, while the component reads window.location.
+    window.history.replaceState({}, "", "/login?forceLogin=1");
+    state.probePowerHubConnectivity.mockResolvedValue(false);
+    state.getValidOfflineAuthLease.mockResolvedValue({
+      userId: "cached-user",
+      issuedAt: Date.now() - 60_000,
+      expiresAt: Date.now() + 60_000,
+    });
+    state.getOfflineAuthUser.mockResolvedValue({ id: "cached-user", email: "admin@powerhub.test" });
+
+    render(<LoginPage />);
+
+    expect(state.probePowerHubConnectivity).not.toHaveBeenCalled();
+    expect(state.setLocation).not.toHaveBeenCalledWith("/workspace");
+    expect(state.getValidOfflineAuthLease).not.toHaveBeenCalled();
+    expect(state.getOfflineAuthUser).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "تسجيل الدخول" })).toBeInTheDocument();
   });
 
   it("restores a cached workspace when navigator.online is stale but PowerHub is unreachable", async () => {

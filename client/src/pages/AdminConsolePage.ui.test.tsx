@@ -24,7 +24,7 @@ vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: tru
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
-    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, listActiveTenantAddons: { invalidate: vi.fn() }, listTenantAddonRequests: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, listTenantFeatureEntitlements: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
+    useUtils: () => ({ admin: { overview: { invalidate: vi.fn() }, listOwners: { invalidate: vi.fn() }, userDirectory: { invalidate: vi.fn() }, platformSnapshot: { invalidate: vi.fn() }, listNotifications: { invalidate: vi.fn() }, securityCenter: { invalidate: vi.fn() }, listSmsPlans: { invalidate: vi.fn() }, listSmsPackageRequests: { invalidate: vi.fn() }, listTweetSmsAccounts: { invalidate: vi.fn() }, getPlatformTweetSmsAccount: { invalidate: vi.fn() }, platformTweetSmsReport: { invalidate: vi.fn() }, listPlatformSmsFallbackProviders: { invalidate: vi.fn() }, listActiveTenantAddons: { invalidate: vi.fn() }, listTenantAddonRequests: { invalidate: vi.fn() }, advancedDashboard: { invalidate: vi.fn() }, globalSearch: { invalidate: vi.fn() }, performanceMetrics: { invalidate: vi.fn() }, activityMetrics: { invalidate: vi.fn() }, listComplaints: { invalidate: vi.fn() }, listTariffPolicies: { invalidate: vi.fn() }, platformConfiguration: { invalidate: vi.fn() }, listTenantBranchSettings: { invalidate: vi.fn() }, listTenantFeatureEntitlements: { invalidate: vi.fn() }, rolePolicies: { invalidate: vi.fn() }, listSubscriptionUpgradeRequests: { invalidate: vi.fn() } } }),
     admin: {
       overview: { useQuery: () => ({ data: { totals: { generatorOwners: 1, residential: 120, commercial: 30, subscribers: 150, activeSubscriptions: 1 }, owners: [ownerRow] } }) },
       listOwners: { useQuery: () => ({ data: [ownerRow] }) },
@@ -52,6 +52,8 @@ vi.mock("@/lib/trpc", () => ({
       ownerQuotaUsageReport: { useQuery: () => ({ data: [], isLoading: false }) },
       advancedDashboard: { useQuery: () => ({ data: { kpis: { activeGenerators: 2, subscribers: 150, dailyConsumption: 50, monthlyConsumption: 1000, monthlyCollections: 4000, openComplaints: 1, generatorsToReview: 0, collectionRate: state.collectionRate }, monthlyGrowth: [{ month: "2026-08", count: 150 }], consumptionByRegion: [{ region: "بغداد", consumptionKwh: 1000 }], collectionsByGenerator: [{ generatorId: 22, generatorName: "مولد اختبار", code: "GEN-T-01", tenantName: "مساحة مولد الاختبار", amount: 4000 }], latestGenerators: [], recentComplaints: [], expiringSubscriptions: [] } }) },
       globalSearch: { useQuery: () => ({ data: [] }) },
+      performanceMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), database: { name: "powerhub", sizeBytes: 1048576, sizeMiB: 1 }, connections: { clientBackends: 2, active: 1, idleInTransaction: 0, maxConnections: 60 }, cacheHitRatioPercent: 99.5, transactions: { commits: 100, rollbacks: 1, deadlocks: 0, tempFiles: 0, tempBytes: 0, statsResetAt: null }, topTables: [] }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
+      activityMetrics: { useQuery: () => ({ data: { generatedAt: new Date().toISOString(), period: { fromDate: "2026-10-04", toDate: "2026-11-02" }, paymentDocumentation: { totalRequests: 4, pendingRequests: 1, approvedRequests: 2, rejectedRequests: 1, approvedAmountInPeriod: 75, decidedRequests: 3, approvalRatePercent: 66.67, latestSubmittedAt: new Date().toISOString() }, search: { searchesInPeriod: 12, noResultSearchesInPeriod: 2, noResultRatePercentInPeriod: 16.67, generatorResultHitsInPeriod: 4, subscriberResultHitsInPeriod: 6, ownerResultHitsInPeriod: 2, trackingStartedAt: "2026-10-04", lastSearchAt: new Date().toISOString() } }, isLoading: false, isError: false, isFetching: false, refetch: vi.fn() }) },
       listComplaints: { useQuery: () => ({ data: [{ id: 4, title: "شكوى اختبار", description: "تفاصيل الشكوى", priority: "high", status: "open", response: null, openedAt: new Date(), resolvedAt: null, tenantId: 1, tenantName: "مساحة مولد الاختبار", siteName: "محطة الاختبار", subscriberName: "مشترك تجريبي", assignedUserId: null, assignedUserName: null }] }) },
       updateComplaint: { useMutation: () => ({ mutate: state.mutation, isPending: false }) },
       listTariffPolicies: { useQuery: () => ({ data: [] }) },
@@ -166,6 +168,9 @@ describe("PowerHub platform administration UI", () => {
     expect(screen.getByText("سجل الإشعارات")).toBeInTheDocument();
     fireEvent.click(sidebarNav("الأمان والسجلات"));
     expect(screen.getByText("أحداث الأمان والنسخ الاحتياطي")).toBeInTheDocument();
+    fireEvent.click(sidebarNav("الأداء والبنية التحتية"));
+    expect(screen.getByText("حجم قاعدة البيانات")).toBeInTheDocument();
+    expect(screen.getByText("قياسات الاستضافة")).toBeInTheDocument();
     fireEvent.click(sidebarNav("إعدادات المنصة"));
     expect(screen.getByText("وضع صيانة المنصة")).toBeInTheDocument();
   }, 15_000);
@@ -191,6 +196,17 @@ describe("PowerHub platform administration UI", () => {
   it("renders central operational data and controlled states in every platform tab", () => {
     state.role = "admin";
     render(<AdminConsolePage />);
+    expect(screen.getByText("إحصاءات البحث وتوثيق الدفع")).toBeInTheDocument();
+    expect(screen.getByText("الفترة الزمنية للإحصاءات")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "فترة مخصصة" }));
+    expect(screen.getByLabelText("من تاريخ")).toBeInTheDocument();
+    expect(screen.getByLabelText("إلى تاريخ")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("من تاريخ"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("إلى تاريخ"), { target: { value: "2026-10-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "تطبيق الفترة" }));
+    fireEvent.click(screen.getByRole("button", { name: "آخر 7 أيام" }));
+    fireEvent.click(screen.getByRole("button", { name: "آخر 90 يومًا" }));
+    fireEvent.click(screen.getByRole("button", { name: "كل الفترات" }));
     fireEvent.click(sidebarNav("إدارة المولدات"));
     expect(screen.getAllByText("مولد اختبار").length).toBeGreaterThan(0);
     expect(screen.getByText("بانتظار المراجعة")).toBeInTheDocument();

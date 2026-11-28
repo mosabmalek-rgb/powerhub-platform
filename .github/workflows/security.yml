@@ -2,7 +2,7 @@ name: PowerHub Security
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/auth-local-first-single-pr]
   pull_request:
     branches: [main]
   schedule:
@@ -18,7 +18,6 @@ concurrency:
 jobs:
   codeql:
     name: CodeQL analysis
-    if: ${{ vars.GITHUB_ADVANCED_SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -42,6 +41,39 @@ jobs:
         with:
           category: /language:javascript-typescript
 
+      - name: Export open CodeQL alerts for remediation
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ALERT_REF: refs/heads/${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          endpoint="repos/${GITHUB_REPOSITORY}/code-scanning/alerts?state=open&tool_name=CodeQL&ref=${ALERT_REF}&per_page=100"
+          if ! gh api --paginate "$endpoint" > codeql-alerts.json 2> codeql-alerts-error.log; then
+            echo "CodeQL alert details could not be retrieved by this workflow token." >> "$GITHUB_STEP_SUMMARY"
+            cat codeql-alerts-error.log
+            exit 0
+          fi
+          jq -r '.[] |
+            "- Alert #\(.number): \(.rule.id) — \(.rule.security_severity_level // .rule.severity) — \(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)\\n  \(.rule.description)"' codeql-alerts.json > codeql-alerts.md
+          if [ -s codeql-alerts.md ]; then
+            cat codeql-alerts.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No open CodeQL alerts were returned for $ALERT_REF." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload CodeQL alert diagnostics
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-alert-diagnostics
+          path: |
+            codeql-alerts.json
+            codeql-alerts-error.log
+            codeql-alerts.md
+          if-no-files-found: ignore
+
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-latest
@@ -55,17 +87,65 @@ jobs:
         with:
           node-version: 24
 
+      - name: Bootstrap pnpm
+        run: npm install --global pnpm@10.34.5
+
+      - name: Resolve patched dependency versions into the lockfile
+        run: pnpm install --lockfile-only --ignore-scripts
+
+      - name: Upload resolved dependency lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-pnpm-lockfile
+          path: pnpm-lock.yaml
+          if-no-files-found: error
+
+      - name: Audit production dependency advisories
+        run: pnpm audit --prod --audit-level low
+
       - name: Static dependency security guard
         run: node scripts/check-dependency-security.mjs
 
+      - name: Capture full lockfile dependency advisories
+        if: always()
+        run: |
+          set +e
+          pnpm audit --json > pnpm-audit-full.json 2> pnpm-audit-errors.log
+          audit_status=$?
+          set -e
+          set -o pipefail
+          node scripts/summarize-pnpm-audit.mjs pnpm-audit-full.json "$audit_status" | tee pnpm-audit-summary.md | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full lockfile audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: powerhub-full-lockfile-audit
+          path: |
+            pnpm-audit-full.json
+            pnpm-audit-errors.log
+            pnpm-audit-summary.md
+          if-no-files-found: warn
+
+      - name: Gate all dependency groups at Low severity
+        run: pnpm audit --audit-level low
+
   dependency-review:
     name: Dependency review
-    if: ${{ github.event_name == 'pull_request' && vars.GITHUB_ADVANCED_SECURITY_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name != 'main') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: write
     steps:
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
-          fail-on-severity: high
+          config-file: ./.github/dependency-review-config.yml
+          base-ref: ${{ github.event.pull_request.base.ref || 'main' }}
+          head-ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          comment-summary-in-pr: ${{ github.event_name == 'pull_request' }}

@@ -18,7 +18,7 @@ describe("report design system", () => {
   it("uses canonical financial terminology", () => {
     expect(REPORT_METRICS.map((metric) => metric.label)).toEqual([
       "إجمالي الفوترة",
-      "إجمالي التحصيل",
+      "التحصيل المطبق على الفواتير",
       "الأرصدة المستحقة",
       "إجمالي المصروفات",
       "صافي التدفق التشغيلي",

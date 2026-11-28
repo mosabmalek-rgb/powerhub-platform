@@ -21,8 +21,12 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
     expect(router).toContain("includeDetails: z.boolean().default(true)");
     expect(router).toContain("const subscriberRows = input.includeDetails");
     expect(reportReads).toContain('.select(input.summaryOnly');
-    expect(reportReads).toContain('? "id, site_id, subscriber_id, issue_date, due_date, total_amount, balance_due, status"');
-    expect(reportReads).toContain('? "id, site_id, subscriber_id, amount, status, paid_at"');
+    expect(reportReads).toContain('? "id, site_id, subscriber_id, issue_date, due_date, cycle_start_at, cycle_end_at, total_amount, tax_amount, balance_due, status"');
+    expect(reportReads).toContain('? "id, site_id, subscriber_id, amount, invoice_applied_amount, subscriber_credit_amount, status, paid_at"');
+    expect(reportReads).toContain('.in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])');
+    expect(reportReads).toContain('grossAmount: String(row.amount ?? 0)');
+    expect(reportReads).toContain('invoiceAppliedAmount: String(row.invoice_applied_amount ?? 0)');
+    expect(reportReads).toContain('subscriberCreditAmount: String(row.subscriber_credit_amount ?? 0)');
     expect(router).toContain("paymentDocumentationGazaDateBoundary(input.startDate)");
     expect(metrics).toContain('invoice.status !== "cancelled" && invoice.status !== "draft"');
     expect(metrics).toContain('payment.status === "completed"');
@@ -40,11 +44,16 @@ describe("billing-cycle dashboard KPI and arrears handoff", () => {
   });
 
   it("binds the first four dashboard cards to the selected range and hands the same range to arrears", () => {
-    expect(home).toContain("periodMetricsQuery.data?.summary.invoiced");
+    expect(home).toContain('metric: "periodInvoiced"');
+    expect(home).toContain('metric: "periodCollected"');
+    expect(home).toContain('metric: "collectionRate"');
+    expect(home).toContain('metric: "periodOverdue"');
+    expect(home).toContain("enabled: periodKpiEnabled");
     expect(home).toContain("includeDetails: false");
-    expect(home).toContain("periodMetricsQuery.data?.summary.collected");
-    expect(home).toContain("periodMetricsQuery.data?.summary.collectionRate");
-    expect(home).toContain("periodMetricsQuery.data?.summary.overdue");
+    expect(home).toContain("value={periodKpiNumber(periodInvoicedKpiQuery)}");
+    expect(home).toContain("value={periodKpiNumber(periodCollectedKpiQuery)}");
+    expect(home).toContain("value={periodKpiRatio(collectionRateKpiQuery)}");
+    expect(home).toContain("value={periodKpiNumber(periodOverdueKpiQuery)}");
     expect(home).toContain('debtorPeriod: dashboardPeriod.preset');
     expect(home).toContain('debtorStatus: "overdue"');
     expect(home).toContain('debtorFocus: "1"');

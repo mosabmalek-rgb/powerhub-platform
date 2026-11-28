@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {readFileSync} from 'node:fs';
+const file='scripts/pr359-canonical/fixtures/generator-full-history-keyset-contrast.sql';
+const read=()=>readFileSync(file,'utf8');
+test('keyset synthetic backfill uses tenant, site, generator and monotonic IDs in bounded pages',()=>{
+ const s=read();
+ assert.match(s,/CREATE UNIQUE INDEX pr359_synthetic_delta_probe_key/);
+ assert.match(s,/ON public\.delta_probe \(tenant_id,site_id,entity_type,entity_id\)/);
+ assert.match(s,/tenant_id=1 AND site_id=10 AND generator_id=1 AND id>last_id/g);
+ assert.equal((s.match(/ORDER BY id ASC LIMIT 128/g)||[]).length,2);
+ assert.match(s,/fuel_emitted<>501 OR maintenance_emitted<>201/);
+ assert.match(s,/fuel_pages<>4 OR maintenance_pages<>2/);
+ assert.match(s,/count\(\*\) FROM public\.delta_probe\)<>702/);
+ assert.match(s,/PR359_LOCAL_KEYSET_GENERATOR_501_FUEL_201_MAINTENANCE_PASS/);
+ assert.match(s,/PR359_KEYSET_CROSS_TRANSACTION_REPLAY_PROVEN=FALSE/);
+ assert.match(s,/PR359_LOCAL_KEYSET_PRODUCER_REAL_RUNTIME_PROOF=FALSE/);
+ assert.match(s,/PR359_KEYSET_DEPLOYMENT_APPROVED=FALSE/);
+ assert.match(s,/PR359_CANONICAL_BASELINE_APPROVED=FALSE/);
+ assert.ok(!/\\connect|\\copy|dblink|postgres(?:ql)?:\/\//i.test(s));
+ assert.ok(!/\bDROP\s+(?:TABLE|SCHEMA|DATABASE)\b/i.test(s));
+});

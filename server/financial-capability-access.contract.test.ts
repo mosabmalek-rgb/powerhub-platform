@@ -1,0 +1,98 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+
+describe("financial capability enforcement", () => {
+  it("separates invoice and payment collection reads from broad financial reporting", () => {
+    const router = read("server/powerhub.ts");
+    expect(router).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["issueInvoices", "collectPayments", "viewFinancialReports"])');
+    expect(router).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"])');
+    expect(router).not.toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);\n      return listSupabaseInvoices');
+    expect(router).not.toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "collector", "viewer"]);\n      return listSupabasePayments');
+  });
+
+  it("does not let site membership or viewer role expose expenses, deposits, or financial reports", () => {
+    const router = read("server/powerhub.ts");
+    expect(router).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"])');
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
+    expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
+    expect(router).toContain('securityDeposit: canViewFinancialReports ? String(data?.[0]?.security_deposit ?? 0) : null');
+    expect(router).toContain('financial: canViewFinancial ? {');
+    expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
+  });
+
+  it("keeps collection credit visible without exposing the subscriber security deposit to collectors", () => {
+    const router = read("server/powerhub.ts");
+    expect(router).toContain('["collectPayments", "viewFinancialReports"]');
+    expect(router).toContain('securityDeposit: canViewFinancialReports ? String(data?.[0]?.security_deposit ?? 0) : null');
+    expect(router).toContain('await requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
+  });
+
+  it("authorizes payment receipt images by purpose so report-only viewers can access deposit receipts", () => {
+    const router = read("server/powerhub.ts");
+    const start = router.indexOf("getReceiptImage:");
+    const end = router.indexOf("    create: protectedProcedure", start);
+    const receiptRoute = router.slice(start, end);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    expect(receiptRoute).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["collectPayments", "viewFinancialReports"])');
+    expect(receiptRoute).toContain('const requiredCapability = ["security_deposit", "security_deposit_refund"].includes(payment.payment_purpose ?? "")');
+    expect(receiptRoute).toContain('? "viewFinancialReports" : "collectPayments"');
+    expect(receiptRoute).toContain("if (!access.allowedCapabilities.includes(requiredCapability))");
+    expect(receiptRoute).toContain('code: "FORBIDDEN"');
+  });
+
+  it("applies capability checks to both financial Delta feeds and full snapshots", () => {
+    const router = read("server/powerhub.ts");
+    expect(router).toContain('const isFinancialDeltaEntity = ["invoices", "payments", "expenses", "company_accounts", "company_accounts_all"].includes(input.entityType)');
+    expect(router).toContain('["manageExpenses", "viewFinancialReports"]');
+    expect(router).toContain('["collectPayments", "viewFinancialReports"]');
+    expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
+  });
+
+  it("guards complete financial reports and settlement statements", () => {
+    const router = read("server/powerhub.ts");
+    expect(router).toContain('requireSupabaseSiteRole(ctx.user.id, input.siteId, ["owner", "manager", "accountant", "viewer"], "viewFinancialReports")');
+    expect(router).toContain('requireSupabaseAllBranchesRole(ctx.user.id, input.siteId, ["manager", "accountant", "viewer"], "viewFinancialReports")');
+    expect(router).toContain('requireSupabaseSiteAnyCapability(ctx.user.id, input.siteId, ["manageExpenses", "viewFinancialReports"])');
+  });
+
+  it("keeps role defaults least-privilege and supports explicit financial report grants", () => {
+    const rbac = read("shared/powerhub-rbac.ts");
+    const tests = read("shared/powerhub-rbac.test.ts");
+    expect(rbac).toContain('viewFinancialReports: ["owner", "manager", "accountant"]');
+    expect(rbac).toContain('viewFinancialReports: "عرض التقارير والبيانات المالية"');
+    expect(tests).toContain('expect(can("collector", "viewFinancialReports")).toBe(false)');
+    expect(tests).toContain('expect(can("viewer", "viewFinancialReports", ["viewFinancialReports"])).toBe(true)');
+  });
+
+  it("uses the effective site permission and deny-only platform policy for all-branch reports", () => {
+    const access = read("server/powerhub-supabase.ts");
+    expect(access).toContain("export async function requireSupabaseAllBranchesRole(");
+    expect(access).toContain("permissions.includes(capability)");
+    expect(access).toContain("access.deniedCapabilities.includes(capability)");
+    expect(access).toContain("staff_profile_capability_overrides");
+    expect(access).toContain('const policyCapability = capability ?? "viewFinancialReports"');
+    expect(access).toContain("permissions.filter((item) => item !== policyCapability)");
+    expect(access).toContain("custom_permission_roles");
+  });
+
+  it("separates security-deposit payment visibility from collection capability", () => {
+    const router = read("server/powerhub.ts");
+    const persistence = read("server/powerhub-supabase.ts");
+    const rls = read("supabase/migrations/20261106224854_powerhub_payment_security_deposit_rls.sql");
+    const projection = read("supabase/migrations/20261106224902_powerhub_payment_delta_purpose_projection.sql");
+    expect(router).toContain('const canViewPaymentSecurityDeposits = input.entityType === "payments"');
+    expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
+    expect(router).toContain('select("id, receipt_image_key, payment_purpose")');
+    expect(router).toContain('.in("payment_purpose", ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"])');
+    expect(persistence).toContain('paymentPurposesVisibleToCollectors = ["invoice_collection", "invoice_collection_with_credit", "subscriber_credit"]');
+    expect(persistence).toContain('.in("payment_purpose", visiblePaymentPurposes)');
+    expect(rls).toContain("security_deposit_refund");
+    expect(projection).toContain("jsonb_build_object('payment_purpose',p.payment_purpose)");
+    expect(router).toContain('resolveSupabaseSiteCapabilityAccess(ctx.user.id, input.siteId, ["viewFinancialReports"])');
+    expect(router).toContain('!canViewPaymentSecurityDeposits');
+  });
+});

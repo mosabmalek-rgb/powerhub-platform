@@ -1,0 +1,28 @@
+{
+  "format": "PR359 Historical migration ledger whole-row fingerprint, read-only v1",
+  "captured_date": "2026-11-20",
+  "source_head_before_code_patch": "575dcc1406d6a20d06cf833121dd1a977e7be73e",
+  "capture_method": "Supabase execute_sql SELECT only; SHA256 over canonical jsonb_agg(to_jsonb(row) sorted by version,name,idempotency_key), all six columns included; no statements exported",
+  "staging": {
+    "project_ref": "iyuryuhaylhisjfcrwkz",
+    "row_count": 553,
+    "min_version": "20260905170000",
+    "max_version": "20261116231000",
+    "whole_row_sha256": "52b3006440effe431299a2a58b2150c18acd02ab78ffc79ffcb13075538bb613"
+  },
+  "production": {
+    "project_ref": "vvcdiqcyhaloxesvpppc",
+    "row_count": 486,
+    "min_version": "20260825144836",
+    "max_version": "20261026102654",
+    "whole_row_sha256": "85f116159887cc7ac56a0fe992664af316a7c97f1b3118f65282c9d9ea57092c"
+  },
+  "limitations": [
+    "Not a backup or raw history export",
+    "not a transactionally atomic multi-catalog R4 snapshot",
+    "Production shadow workflow verifies actual Production historical ledger only",
+    "Staging ledger has not been restored from a fresh protected backup",
+    "No write to either hosted environment"
+  ],
+  "staging_inplace_go": false
+}

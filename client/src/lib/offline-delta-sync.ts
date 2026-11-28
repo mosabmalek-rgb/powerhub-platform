@@ -1,5 +1,5 @@
 import { openLegacyOfflineDatabaseIfPresent, openOfflineWorkspaceDatabase } from "./offline-workspace-db";
-export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs";
+export type DeltaEntityType = "sites" | "subscribers" | "generators" | "readings" | "tariffs" | "invoices" | "payments" | "expenses" | "company_accounts" | "company_accounts_all" | "inventory_items" | "inventory_item_units" | "suppliers" | "inventory_warehouses" | "inventory_stock_movements" | "inventory_stocktakes" | "inventory_purchase_headers" | "inventory_purchase_receipt_headers" | "inventory_supplier_return_headers" | "fuel_readings" | "maintenance_preventive_plans" | "fuel_events" | "maintenance_work_orders" | "hr_employee_directory" | "hr_attendance" | "hr_employee_advances" | "hr_payroll_runs" | `maintenance_work_order_parts:${number}`;
 
 export type DeltaChange<Row extends Record<string, unknown> = Record<string, unknown>> = {
   cursor: string;
@@ -28,23 +28,250 @@ export type DeltaCursorScope = {
   siteId: number;
   entityType: DeltaEntityType;
 };
-export type DeltaCursorRecord = DeltaCursorScope & { cursor: string; updatedAt: number };
+export type DeltaCursorRecord = DeltaCursorScope & { cursor: string; updatedAt: number; repairVersion?: number };
 export type DeltaEntityRecord<Row extends Record<string, unknown> = Record<string, unknown>> =
   DeltaCursorScope & { entityId: string; rowData: Row; updatedAt: number };
 
 export interface DeltaSyncStorage<Row extends Record<string, unknown> = Record<string, unknown>> {
   getCursor(scope: DeltaCursorScope): Promise<string | null>;
   listEntities(scope: DeltaCursorScope): Promise<DeltaEntityRecord<Row>[]>;
-  commitPage(scope: DeltaCursorScope, page: DeltaPage<Row>, nextCursor: string): Promise<void>;
-  replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string): Promise<void>;
+  commitPage(scope: DeltaCursorScope, page: DeltaPage<Row>, nextCursor: string, isCurrent?: () => boolean): Promise<void>;
+  replaceSnapshot(scope: DeltaCursorScope, rows: readonly Row[], cursor: string, isCurrent?: () => boolean, repairVersion?: number): Promise<void>;
+  getRepairVersion?(scope: DeltaCursorScope): Promise<number | undefined>;
+  getRepairCheckpoint?(scope: DeltaCursorScope): Promise<{ cursor: string | null; repairVersion?: number }>;
   clearUser(userId: number): Promise<void>;
 }
 
 const CURSOR_STORE = "cursors";
 const ENTITY_STORE = "entities";
 
+const MAX_LOCAL_STOCK_MOVEMENT_ROWS = 500;
+const MAX_LOCAL_INVENTORY_STOCKTAKE_ROWS = 200;
+const MAX_LOCAL_PURCHASE_HEADER_ROWS = 200;
+const MAX_LOCAL_PURCHASE_CHILD_HISTORY_ROWS = 200;
+const MAX_LOCAL_FUEL_READING_ROWS = 500;
+const MAX_LOCAL_MAINTENANCE_PLAN_ROWS = 500;
+const MAX_LOCAL_FUEL_EVENT_ROWS = 500;
+const MAX_LOCAL_MAINTENANCE_WORK_ORDER_ROWS = 200;
+const MAX_LOCAL_HR_EMPLOYEE_DIRECTORY_ROWS = 500;
+const MAX_LOCAL_HR_ATTENDANCE_ROWS = 1000;
+const MAX_LOCAL_HR_ADVANCE_ROWS = 500;
+const MAX_LOCAL_HR_PAYROLL_RUN_ROWS = 120;
+
+function movementProjection(value: Record<string, unknown>): Record<string, unknown> {
+  const nested = value.rowData;
+  return nested !== null && typeof nested === "object" && !Array.isArray(nested)
+    ? nested as Record<string, unknown>
+    : value;
+}
+
+function movementIdentity(value: Record<string, unknown>, row: Record<string, unknown>): string {
+  const id = row.id ?? row.movement_id ?? value.entityId;
+  return id === null || id === undefined ? "" : String(id);
+}
+
+function compareFuelReadingNewestFirst(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const leftParsed = Date.parse(String(left.recorded_at ?? left.recordedAt ?? ""));
+  const rightParsed = Date.parse(String(right.recorded_at ?? right.recordedAt ?? ""));
+  const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+  const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  return movementIdentity(rightValue, right).localeCompare(movementIdentity(leftValue, left), undefined, { numeric: true });
+}
+
+/** Match the server's bounded maintenance feed: reported_at falls back to created_at. */
+export function compareMaintenanceWorkOrderNewestFirst(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const leftParsed = Date.parse(String(left.reported_at ?? left.reportedAt ?? left.created_at ?? left.createdAt ?? ""));
+  const rightParsed = Date.parse(String(right.reported_at ?? right.reportedAt ?? right.created_at ?? right.createdAt ?? ""));
+  const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+  const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  const leftId = movementIdentity(leftValue, left);
+  const rightId = movementIdentity(rightValue, right);
+  try {
+    const leftBigInt = BigInt(leftId);
+    const rightBigInt = BigInt(rightId);
+    return leftBigInt === rightBigInt ? 0 : leftBigInt > rightBigInt ? -1 : 1;
+  } catch {
+    return rightId.localeCompare(leftId, undefined, { numeric: true });
+  }
+}
+
+function compareMaintenancePlanPriority(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const priority = (row: Record<string, unknown>) =>
+    row.alert_type === "overdue" || row.alertType === "overdue" ? 0
+      : row.alert_type === "due_soon" || row.alertType === "due_soon" ? 1 : 2;
+  const priorityDiff = priority(left) - priority(right);
+  if (priorityDiff !== 0) return priorityDiff;
+  const dueAt = (row: Record<string, unknown>) => {
+    const raw = row.next_due_at ?? row.nextDueAt;
+    if (raw === null || raw === undefined || raw === "") return Number.POSITIVE_INFINITY;
+    const value = Date.parse(String(raw));
+    return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
+  };
+  const dateDiff = dueAt(left) - dueAt(right);
+  if (dateDiff !== 0) return dateDiff;
+  const leftId = movementIdentity(leftValue, left);
+  const rightId = movementIdentity(rightValue, right);
+  try {
+    const leftBigInt = BigInt(leftId);
+    const rightBigInt = BigInt(rightId);
+    return leftBigInt === rightBigInt ? 0 : leftBigInt < rightBigInt ? -1 : 1;
+  } catch {
+    return leftId.localeCompare(rightId, undefined, { numeric: true });
+  }
+}
+
+function compareHrEmployeeDirectoryNewestFirst(leftValue: Record<string, unknown>, rightValue: Record<string, unknown>): number {
+  // Match hr.listEmployees and its SQL snapshot: created_at DESC, id DESC.
+  const left = movementProjection(leftValue), right = movementProjection(rightValue);
+  const leftDate = Date.parse(String(left.created_at ?? left.createdAt ?? ""));
+  const rightDate = Date.parse(String(right.created_at ?? right.createdAt ?? ""));
+  const leftTime = Number.isFinite(leftDate) ? leftDate : 0, rightTime = Number.isFinite(rightDate) ? rightDate : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  const leftId = movementIdentity(leftValue, left), rightId = movementIdentity(rightValue, right);
+  try { const a = BigInt(leftId), b = BigInt(rightId); return a === b ? 0 : a > b ? -1 : 1; }
+  catch { return rightId.localeCompare(leftId, undefined, { numeric: true }); }
+}
+
+function compareHrAttendanceNewestFirst(leftValue: Record<string, unknown>, rightValue: Record<string, unknown>): number {
+  const left = movementProjection(leftValue), right = movementProjection(rightValue);
+  const leftDate = Date.parse(String(left.work_date ?? left.workDate ?? ""));
+  const rightDate = Date.parse(String(right.work_date ?? right.workDate ?? ""));
+  const leftTime = Number.isFinite(leftDate) ? leftDate : 0, rightTime = Number.isFinite(rightDate) ? rightDate : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+  const leftId = movementIdentity(leftValue, left), rightId = movementIdentity(rightValue, right);
+  try { const a = BigInt(leftId), b = BigInt(rightId); return a === b ? 0 : a > b ? -1 : 1; }
+  catch { return rightId.localeCompare(leftId, undefined, { numeric: true }); }
+}
+
+function compareStockMovementNewestFirst(
+  leftValue: Record<string, unknown>,
+  rightValue: Record<string, unknown>,
+): number {
+  const left = movementProjection(leftValue);
+  const right = movementProjection(rightValue);
+  const leftParsed = Date.parse(String(left.occurred_at ?? left.occurredAt ?? left.reported_at ?? left.reportedAt ?? left.invoice_date ?? left.invoiceDate ?? left.received_at ?? left.receivedAt ?? left.receipt_date ?? left.receiptDate ?? left.return_date ?? left.returnDate ?? left.next_due_at ?? left.nextDueAt ?? left.created_at ?? left.createdAt ?? ""));
+  const rightParsed = Date.parse(String(right.occurred_at ?? right.occurredAt ?? right.reported_at ?? right.reportedAt ?? right.invoice_date ?? right.invoiceDate ?? right.received_at ?? right.receivedAt ?? right.receipt_date ?? right.receiptDate ?? right.return_date ?? right.returnDate ?? right.next_due_at ?? right.nextDueAt ?? right.created_at ?? right.createdAt ?? ""));
+  const leftTime = Number.isFinite(leftParsed) ? leftParsed : 0;
+  const rightTime = Number.isFinite(rightParsed) ? rightParsed : 0;
+  if (leftTime !== rightTime) return rightTime - leftTime;
+
+  const leftId = movementIdentity(leftValue, left);
+  const rightId = movementIdentity(rightValue, right);
+  try {
+    const leftBigInt = BigInt(leftId);
+    const rightBigInt = BigInt(rightId);
+    if (leftBigInt === rightBigInt) return 0;
+    return leftBigInt > rightBigInt ? -1 : 1;
+  } catch {
+    return rightId.localeCompare(leftId, undefined, { numeric: true });
+  }
+}
+
+/**
+ * Entity feeds whose local Delta sidecar must be pruned atomically with each cursor.
+ * Work-order parts are intentionally unbounded within their own work-order partition.
+ */
+export function isBoundedDeltaEntityType(entityType: DeltaEntityType): boolean {
+  return entityType === "inventory_stock_movements" ||
+    entityType === "inventory_stocktakes" ||
+    entityType === "inventory_purchase_headers" ||
+    entityType === "inventory_purchase_receipt_headers" ||
+    entityType === "inventory_supplier_return_headers" ||
+    entityType === "fuel_readings" ||
+    entityType === "maintenance_preventive_plans" ||
+    entityType === "fuel_events" ||
+    entityType === "maintenance_work_orders" ||
+    entityType === "hr_employee_directory" ||
+    entityType === "hr_attendance" ||
+    entityType === "hr_employee_advances" ||
+    entityType === "hr_payroll_runs";
+}
+
+/**
+ * Keep the bounded stock-movement feed bounded in IndexedDB as well as in the UI.
+ * Accepts either projected rows or stored entity records that wrap rowData.
+ */
+export function limitDeltaEntityRows<T extends Record<string, unknown>>(
+  entityType: DeltaEntityType,
+  rows: readonly T[],
+): T[] {
+  const limit = entityType === "inventory_stock_movements"
+    ? MAX_LOCAL_STOCK_MOVEMENT_ROWS
+    : entityType === "inventory_stocktakes"
+      ? MAX_LOCAL_INVENTORY_STOCKTAKE_ROWS
+      : entityType === "inventory_purchase_headers"
+        ? MAX_LOCAL_PURCHASE_HEADER_ROWS
+        : entityType === "inventory_purchase_receipt_headers" || entityType === "inventory_supplier_return_headers"
+          ? MAX_LOCAL_PURCHASE_CHILD_HISTORY_ROWS
+          : entityType === "fuel_readings"
+            ? MAX_LOCAL_FUEL_READING_ROWS
+            : entityType === "maintenance_preventive_plans"
+              ? MAX_LOCAL_MAINTENANCE_PLAN_ROWS
+              : entityType === "fuel_events"
+                ? MAX_LOCAL_FUEL_EVENT_ROWS
+                : entityType === "maintenance_work_orders"
+                   ? MAX_LOCAL_MAINTENANCE_WORK_ORDER_ROWS
+                   : entityType === "hr_employee_directory"
+                     ? MAX_LOCAL_HR_EMPLOYEE_DIRECTORY_ROWS
+                     : entityType === "hr_attendance"
+                       ? MAX_LOCAL_HR_ATTENDANCE_ROWS
+                       : entityType === "hr_employee_advances"
+                         ? MAX_LOCAL_HR_ADVANCE_ROWS
+                         : entityType === "hr_payroll_runs"
+                           ? MAX_LOCAL_HR_PAYROLL_RUN_ROWS
+                           : null;
+  if (limit === null || rows.length <= limit) return [...rows];
+  if (entityType === "fuel_readings") {
+    return [...rows].sort(compareFuelReadingNewestFirst).slice(0, limit);
+  }
+  if (entityType === "maintenance_preventive_plans") {
+    return [...rows].sort(compareMaintenancePlanPriority).slice(0, limit);
+  }
+  if (entityType === "hr_employee_directory") {
+    return [...rows].sort(compareHrEmployeeDirectoryNewestFirst).slice(0, limit);
+  }
+  if (entityType === "hr_attendance") {
+    return [...rows].sort(compareHrAttendanceNewestFirst).slice(0, limit);
+  }
+  if (entityType === "hr_employee_advances") {
+    return [...rows].sort((left, right) => {
+      const a = movementProjection(left), b = movementProjection(right);
+      const at = Date.parse(String(a.created_at ?? a.createdAt ?? ""));
+      const bt = Date.parse(String(b.created_at ?? b.createdAt ?? ""));
+      return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0) ||
+        movementIdentity(right, b).localeCompare(movementIdentity(left, a), undefined, { numeric: true });
+    }).slice(0, limit);
+  }
+  if (entityType === "hr_payroll_runs") {
+    return [...rows].sort((left, right) => {
+      const a = movementProjection(left), b = movementProjection(right);
+      return String(b.period ?? "").localeCompare(String(a.period ?? "")) ||
+        movementIdentity(right, b).localeCompare(movementIdentity(left, a), undefined, { numeric: true });
+    }).slice(0, limit);
+  }
+  if (entityType.startsWith("maintenance_work_order_parts:")) return [...rows];
+  return [...rows].sort(compareStockMovementNewestFirst).slice(0, limit);
+}
+
 function assertCursor(cursor: string) {
-  if (!/^(0|[1-9][0-9]*)$/.test(cursor)) throw new Error("مؤشر المزامنة غير صالح.");
+  if (typeof cursor !== "string" || !/^(0|[1-9][0-9]*)$/.test(cursor)) throw new Error("مؤشر المزامنة غير صالح.");
   return cursor;
 }
 
@@ -55,10 +282,119 @@ function scopeKey(scope: DeltaCursorScope) {
   return [scope.userId, scope.tenantId, scope.siteId, scope.entityType].join(":");
 }
 
+type DeltaSyncLockManager = {
+  request<T>(name: string, options: { mode: "exclusive" }, callback: () => Promise<T>): Promise<T>;
+};
+
+const inProcessDeltaRuns = new Map<string, Promise<void>>();
+
+function browserDeltaSyncLockManager(): DeltaSyncLockManager | undefined {
+  if (typeof navigator === "undefined" || !("locks" in navigator)) return undefined;
+  return (navigator as Navigator & { locks?: DeltaSyncLockManager }).locks;
+}
+
+/**
+ * Serializes one user's Delta work across tabs when Web Locks are available.
+ * Query projections can be shared across sites and entity feeds, so a per-cursor
+ * lock would still allow stale writes into the same persisted query record. The
+ * fallback serializes callers in this tab; cursor compare-and-commit still
+ * fails closed if a non-cooperating tab races it.
+ */
+export async function withDeltaSyncLock<T>(
+  scope: DeltaCursorScope,
+  task: () => Promise<T>,
+  lockManager: DeltaSyncLockManager | null | undefined = browserDeltaSyncLockManager(),
+): Promise<T> {
+  // Query-cache projections can be shared by several sites and entity feeds
+  // (for example sites.list and payment/subscriber relationship projections).
+  // Serialize a user's entire Delta run, not merely one entity cursor scope.
+  scopeKey(scope); // Validate every cursor-scope component before acquiring any lock.
+  const name = `powerhub:delta-sync:user:${scope.userId}`;
+  if (lockManager) {
+    return lockManager.request(name, { mode: "exclusive" }, task);
+  }
+
+  const previous = inProcessDeltaRuns.get(name);
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  inProcessDeltaRuns.set(name, current);
+  if (previous) await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    release();
+    if (inProcessDeltaRuns.get(name) === current) inProcessDeltaRuns.delete(name);
+  }
+}
+
+/** A run may mutate the live QueryCache only while its authenticated owner is still active. */
+export function isDeltaSyncRunCurrent(
+  runUserId: number,
+  activeUserId: number | null,
+  disposed: boolean,
+): boolean {
+  return !disposed &&
+    Number.isSafeInteger(runUserId) &&
+    runUserId > 0 &&
+    activeUserId === runUserId;
+}
+
 export function compareDeltaCursors(a: string, b: string) {
   const left = BigInt(assertCursor(a));
   const right = BigInt(assertCursor(b));
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Fail closed when a server snapshot/change contains a row outside its requested tenant/site. */
+export function assertDeltaRowWithinScope(
+  entityType: DeltaEntityType,
+  row: Record<string, unknown>,
+  scope: Pick<DeltaCursorScope, "tenantId" | "siteId">,
+): void {
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  const valueOf = (record: Record<string, unknown>, camel: string, snake: string) =>
+    record[camel] ?? record[snake];
+  const primary = entityType === "readings" && isRecord(row.reading) ? row.reading : row;
+  const tenantId = Number(valueOf(primary, "tenantId", "tenant_id"));
+  const rawSite = primary.siteId !== undefined ? primary.siteId : primary.site_id;
+  const siteId = Number(rawSite);
+  // SQL catalog projections intentionally omit site_id; only the two HR
+  // summary feeds also authorize explicit null site IDs.
+  const tenantCatalog = entityType === "inventory_items" || entityType === "inventory_item_units" || entityType === "suppliers";
+  const sharedHr = (entityType === "hr_employee_directory" || entityType === "hr_payroll_runs") && rawSite === null;
+  const sharedCatalog = tenantCatalog && rawSite === undefined;
+  const identityMatches = entityType === "sites"
+    ? Number(primary.id) === scope.siteId && tenantId === scope.tenantId
+    : tenantId === scope.tenantId && (siteId === scope.siteId || sharedHr || sharedCatalog);
+  if (!identityMatches) {
+    throw new Error("سجل المزامنة خارج نطاق المستأجر أو الفرع المطلوب.");
+  }
+  if (entityType.startsWith("maintenance_work_order_parts:")) {
+    const match = /^maintenance_work_order_parts:([1-9][0-9]{0,15})$/.exec(entityType);
+    const expectedWorkOrderId = match ? Number(match[1]) : Number.NaN;
+    const rowWorkOrderId = Number(valueOf(primary, "workOrderId", "work_order_id"));
+    if (!Number.isSafeInteger(expectedWorkOrderId) || rowWorkOrderId !== expectedWorkOrderId) {
+      throw new Error("سجل قطع الغيار خارج نطاق أمر الصيانة المطلوب.");
+    }
+  }
+
+  // Joined page projections must not smuggle a related record from another scope.
+  const related: Array<{ label: string; value: unknown }> = [];
+  if (entityType === "readings" && isRecord(row.subscriber)) {
+    related.push({ label: "subscriber", value: row.subscriber });
+  }
+  if (entityType === "payments") {
+    if (isRecord(row.payment)) related.push({ label: "payment", value: row.payment });
+    if (isRecord(row.subscriber)) related.push({ label: "subscriber", value: row.subscriber });
+  }
+  for (const relation of related) {
+    const record = relation.value as Record<string, unknown>;
+    if (Number(valueOf(record, "tenantId", "tenant_id")) !== scope.tenantId ||
+        Number(valueOf(record, "siteId", "site_id")) !== scope.siteId) {
+      throw new Error(`العلاقة ${relation.label} في سجل المزامنة خارج نطاق المستأجر أو الفرع.`);
+    }
+  }
 }
 
 export function applyDeltaChanges<Row extends Record<string, unknown>>(
@@ -175,12 +511,12 @@ function cursorKey(scope: DeltaCursorScope) {
   return [scope.userId, scope.tenantId, scope.siteId, scope.entityType];
 }
 
-export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | null> {
+async function getDeltaCursorRecord(scope: DeltaCursorScope): Promise<DeltaCursorRecord | undefined> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CURSOR_STORE, "readonly");
     const request = tx.objectStore(CURSOR_STORE).get(cursorKey(scope));
-    request.onsuccess = () => resolve((request.result as DeltaCursorRecord | undefined)?.cursor ?? null);
+    request.onsuccess = () => resolve(request.result as DeltaCursorRecord | undefined);
     request.onerror = () => reject(request.error ?? new Error("تعذر قراءة مؤشر المزامنة."));
     tx.oncomplete = () => db.close();
     tx.onerror = () => { db.close(); reject(tx.error ?? new Error("تعذر قراءة مؤشر المزامنة.")); };
@@ -188,6 +524,20 @@ export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | 
   });
 }
 
+
+export async function getDeltaCursor(scope: DeltaCursorScope): Promise<string | null> {
+  return (await getDeltaCursorRecord(scope))?.cursor ?? null;
+}
+
+export async function getDeltaRepairCheckpoint(scope: DeltaCursorScope): Promise<{ cursor: string | null; repairVersion?: number }> {
+  const record = await getDeltaCursorRecord(scope);
+  const version = record?.repairVersion;
+  return { cursor: record?.cursor ?? null, repairVersion: typeof version === "number" && Number.isSafeInteger(version) && version > 0 ? version : undefined };
+}
+
+export async function getDeltaRepairVersion(scope: DeltaCursorScope): Promise<number | undefined> {
+  return (await getDeltaRepairCheckpoint(scope)).repairVersion;
+}
 
 export type DeltaSyncStatusRecord = DeltaCursorScope & {
   cursor: string;
@@ -264,17 +614,14 @@ export async function listDeltaEntities<Row extends Record<string, unknown> = Re
   });
 }
 
-/** Atomically applies one server page and advances the cursor in the same IndexedDB transaction. */
-export async function commitDeltaPage<Row extends Record<string, unknown>>(
+/** Validate all changes before any cache projection or durable write. */
+function validateDeltaPageChanges(
   scope: DeltaCursorScope,
-  page: DeltaPage<Row>,
+  page: DeltaPage,
   nextCursor: string,
-  now = Date.now(),
-) {
-  const key = scopeKey(scope);
-  assertCursor(nextCursor);
-  if (page.status !== "ok" || page.entity_type !== scope.entityType) throw new Error("صفحة المزامنة لا تطابق نطاقها.");
-  let priorChangeCursor: string | null = null;
+  afterCursor: string | null = null,
+): void {
+  let priorChangeCursor: string | null = afterCursor;
   for (const change of page.changes) {
     assertCursor(change.cursor);
     if (change.entity_type !== scope.entityType) throw new Error("نوع التغيير لا يطابق نطاق المزامنة.");
@@ -282,8 +629,13 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
       throw new Error("ترتيب تغييرات المزامنة غير صالح.");
     }
     priorChangeCursor = change.cursor;
-    if (change.operation === "upsert" && (!change.row_data || String(change.row_data.id ?? "") !== change.entity_id)) {
-      throw new Error("بيانات التغيير لا تطابق معرّف السجل.");
+    if (change.operation !== "upsert" && change.operation !== "delete") throw new Error("عملية Delta غير معروفة.");
+    if (typeof change.entity_id !== "string" || !change.entity_id.trim()) throw new Error("معرّف تغيير Delta غير صالح.");
+    if (change.operation === "upsert") {
+      if (!change.row_data || String(change.row_data.id ?? "") !== change.entity_id) {
+        throw new Error("بيانات التغيير لا تطابق معرّف السجل.");
+      }
+      assertDeltaRowWithinScope(scope.entityType, change.row_data, scope);
     }
     if (change.operation === "delete" && change.row_data !== null) throw new Error("علامة حذف المزامنة تحتوي بيانات غير متوقعة.");
     if (compareDeltaCursors(change.cursor, page.through_cursor) > 0 ||
@@ -291,7 +643,23 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
       throw new Error("تجاوز تغيير حد صفحة المزامنة.");
     }
   }
+}
+ 
+/** Atomically applies one server page and advances the cursor in the same IndexedDB transaction. */
+export async function commitDeltaPage<Row extends Record<string, unknown>>(
+  scope: DeltaCursorScope,
+  page: DeltaPage<Row>,
+  nextCursor: string,
+  now = Date.now(),
+  isCurrent?: () => boolean,
+) {
+  assertDeltaSyncRunActive(isCurrent);
+  const key = scopeKey(scope);
+  assertCursor(nextCursor);
+  if (page.status !== "ok" || page.entity_type !== scope.entityType) throw new Error("صفحة المزامنة لا تطابق نطاقها.");
+  validateDeltaPageChanges(scope, page, nextCursor);
   const db = await openDatabase();
+  assertDeltaSyncRunActive(isCurrent);
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
     const cursors = tx.objectStore(CURSOR_STORE);
@@ -307,7 +675,12 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
     existingCursorRequest.onerror = () => failTransaction("تعذر التحقق من مؤشر المزامنة الحالي.");
     existingCursorRequest.onsuccess = () => {
       if (rejected) return;
-      const existing = (existingCursorRequest.result as DeltaCursorRecord | undefined)?.cursor ?? "0";
+      if (isCurrent && !isCurrent()) {
+        failTransaction("توقف تثبيت صفحة Delta بعد تغيّر هوية التشغيل.");
+        return;
+      }
+      const previous = existingCursorRequest.result as DeltaCursorRecord | undefined;
+      const existing = previous?.cursor ?? "0";
       if (compareDeltaCursors(nextCursor, existing) < 0) {
         failTransaction("وصلت صفحة مزامنة أقدم من البيانات المحفوظة؛ أعد قراءة المؤشر.");
         return;
@@ -335,12 +708,55 @@ export async function commitDeltaPage<Row extends Record<string, unknown>>(
           });
         }
       }
-      cursors.put({ ...scope, cursor: nextCursor, updatedAt: now } satisfies DeltaCursorRecord);
+      if (isBoundedDeltaEntityType(scope.entityType)) {
+        // Keep every bounded entity sidecar in the same transaction as mutations and cursor.
+        const retainedRequest = entities.index("byScope").getAll(IDBKeyRange.only(key));
+        retainedRequest.onerror = () => failTransaction("تعذر تقليص سجل المزامنة المحلي.");
+        retainedRequest.onsuccess = () => {
+          if (rejected) return;
+          if (isCurrent && !isCurrent()) {
+            failTransaction("توقف تقليص سجل Delta بعد تغيّر هوية التشغيل.");
+            return;
+          }
+          const stored = retainedRequest.result as Array<Record<string, unknown>>;
+          const retainedIds = new Set(
+            limitDeltaEntityRows(scope.entityType, stored).map((record) => String(record.entityId)),
+          );
+          for (const record of stored) {
+            const entityId = String(record.entityId);
+            if (!retainedIds.has(entityId)) entities.delete([key, entityId]);
+          }
+          cursors.put({ ...scope, cursor: nextCursor, updatedAt: now, ...(previous?.repairVersion !== undefined ? { repairVersion: previous.repairVersion } : {}) } satisfies DeltaCursorRecord);
+        };
+      } else {
+        cursors.put({ ...scope, cursor: nextCursor, updatedAt: now, ...(previous?.repairVersion !== undefined ? { repairVersion: previous.repairVersion } : {}) } satisfies DeltaCursorRecord);
+      }
     };
     tx.oncomplete = () => { db.close(); if (!rejected) resolve(); };
     tx.onerror = () => { db.close(); if (!rejected) reject(tx.error ?? new Error("تعذر تثبيت صفحة المزامنة.")); };
     tx.onabort = () => { db.close(); if (!rejected) reject(tx.error ?? new Error("أُلغيت عملية تثبيت صفحة المزامنة.")); };
   });
+}
+
+/** Check the recovery watermark before any query-cache or sidecar write. */
+export function assertDeltaSnapshotWatermark(cursor: string, requestedCursor: string): void {
+  if (compareDeltaCursors(cursor, requestedCursor) < 0) {
+    throw new Error("لقطة إعادة التهيئة أقدم من الحد المطلوب؛ لم تتغير البيانات المحلية.");
+  }
+}
+
+/** Validate the complete normalized snapshot before projecting any rows. */
+export function assertDeltaSnapshotRows(scope: DeltaCursorScope, rows: readonly Record<string, unknown>[]): void {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = row.id;
+    if (id === undefined || id === null || String(id).trim().length === 0 || id === 0 || id === "0") {
+      throw new Error("لقطة المزامنة تحتوي سجلًا دون معرّف.");
+    }
+    if (ids.has(String(id))) throw new Error("لقطة المزامنة تحتوي معرّفًا مكررًا.");
+    ids.add(String(id));
+    assertDeltaRowWithinScope(scope.entityType, row, scope);
+  }
 }
 
 /** Replaces a full snapshot and commits its checkpoint atomically. */
@@ -349,16 +765,23 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
   rows: readonly Row[],
   cursor: string,
   now = Date.now(),
+  isCurrent?: () => boolean,
+  repairVersion?: number,
 ) {
+  assertDeltaSyncRunActive(isCurrent);
   const key = scopeKey(scope);
-  assertCursor(cursor);
-  const normalized = new Map<string, Row>();
-  for (const row of rows) {
-    const id = row.id;
-    if (id === undefined || id === null || String(id).length === 0) throw new Error("لقطة المزامنة تحتوي سجلًا دون معرّف.");
-    normalized.set(String(id), row);
+  if (repairVersion !== undefined && (!Number.isSafeInteger(repairVersion) || repairVersion < 1)) {
+    throw new Error("Invalid Delta repair version.");
   }
+  assertCursor(cursor);
+  assertDeltaSnapshotRows(scope, rows);
+  const normalized = new Map<string, Row>(rows.map(row => [String(row.id), row]));
+  const boundedRows = limitDeltaEntityRows(scope.entityType, [...normalized.values()]);
+  const boundedNormalized = new Map<string, Row>(
+    boundedRows.map((row) => [String(row.id), row]),
+  );
   const db = await openDatabase();
+  assertDeltaSyncRunActive(isCurrent);
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction([CURSOR_STORE, ENTITY_STORE], "readwrite");
     const cursors = tx.objectStore(CURSOR_STORE);
@@ -374,7 +797,16 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
     request.onerror = () => failTransaction("تعذر التحقق من مؤشر لقطة المزامنة.");
     request.onsuccess = () => {
       if (rejected) return;
-      const existing = (request.result as DeltaCursorRecord | undefined)?.cursor ?? "0";
+      if (isCurrent && !isCurrent()) {
+        failTransaction("توقف استبدال لقطة Delta بعد تغيّر هوية التشغيل.");
+        return;
+      }
+      const previous = request.result as DeltaCursorRecord | undefined;
+      const existing = previous?.cursor ?? "0";
+      if (repairVersion !== undefined && (previous?.repairVersion ?? 0) > repairVersion) {
+        failTransaction("A newer Delta repair has already been committed.");
+        return;
+      }
       if (compareDeltaCursors(cursor, existing) < 0) {
         failTransaction("لقطة أقدم من مؤشر محلي أحدث؛ أعد المحاولة بالمؤشر الحالي.");
         return;
@@ -384,11 +816,18 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
       keysRequest.onerror = () => failTransaction("تعذر تجهيز استبدال لقطة المزامنة.");
       keysRequest.onsuccess = () => {
         if (rejected) return;
+        if (isCurrent && !isCurrent()) {
+          failTransaction("توقف استبدال سجلات لقطة Delta بعد تغيّر هوية التشغيل.");
+          return;
+        }
         for (const entityKey of keysRequest.result) entities.delete(entityKey);
-        for (const [entityId, rowData] of normalized) {
+        for (const [entityId, rowData] of boundedNormalized) {
           entities.put({ scopeKey: key, ...scope, entityId, rowData, updatedAt: now });
         }
-        cursors.put({ ...scope, cursor, updatedAt: now } satisfies DeltaCursorRecord);
+        // An ordinary retention snapshot must not erase a completed repair.
+        // It cannot certify a new version; only an explicitly versioned repair can do that.
+        const committedRepairVersion = repairVersion ?? previous?.repairVersion;
+        cursors.put({ ...scope, cursor, updatedAt: now, ...(committedRepairVersion !== undefined ? { repairVersion: committedRepairVersion } : {}) } satisfies DeltaCursorRecord);
       };
     };
     tx.oncomplete = () => { db.close(); if (!rejected) resolve(); };
@@ -433,8 +872,12 @@ export async function clearDeltaSyncDataForUser(userId: number) {
 const indexedDbStorage: DeltaSyncStorage = {
   getCursor: getDeltaCursor,
   listEntities: listDeltaEntities,
-  commitPage: commitDeltaPage,
-  replaceSnapshot: replaceDeltaSnapshot,
+  commitPage: (scope, page, nextCursor, isCurrent) =>
+    commitDeltaPage(scope, page, nextCursor, Date.now(), isCurrent),
+  replaceSnapshot: (scope, rows, cursor, isCurrent, repairVersion) =>
+    replaceDeltaSnapshot(scope, rows, cursor, Date.now(), isCurrent, repairVersion),
+  getRepairVersion: getDeltaRepairVersion,
+  getRepairCheckpoint: getDeltaRepairCheckpoint,
   clearUser: clearDeltaSyncDataForUser,
 };
 
@@ -443,14 +886,28 @@ const indexedDbStorage: DeltaSyncStorage = {
  * single local transaction; if a page is replayed after interruption, the local
  * store rejects an older cursor rather than overwriting fresher records.
  */
+function assertDeltaSyncRunActive(isCurrent?: () => boolean): void {
+  if (isCurrent && !isCurrent()) {
+    throw Object.assign(new Error("توقف تشغيل Delta لأن هوية الجلسة أو نطاق التشغيل تغيّر."), {
+      name: "PowerHubDeltaSyncRunSupersededError",
+    });
+  }
+}
+
 export async function pullDeltaPages<Row extends Record<string, unknown>>(input: {
   scope: DeltaCursorScope;
   afterCursor: string | null;
   pageSize?: number;
   pull: (args: { afterCursor: string | null; throughCursor: string | null; pageSize: number }) => Promise<DeltaPage<Row>>;
   applyPage?: (page: DeltaPage<Row>) => Promise<void>;
-  rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[] }>;
+  rebuildSnapshot: (requestedCursor: string) => Promise<{ cursor: string; rows: readonly Row[]; applyCache?: () => Promise<void> }>;
   storage?: DeltaSyncStorage<Row>;
+  /** Explicit, caller-authorized repair after the producer fix is certified. Never set from an untrusted query parameter. */
+  repairSnapshot?: boolean;
+  /** Monotonic, server-certified projection repair version. No runtime activation yet. */
+  repairVersion?: number;
+  /** Prevent an obsolete authenticated run from applying or checkpointing late RPC results. */
+  isCurrent?: () => boolean;
 }): Promise<{ cursor: string; appliedChanges: number; resetRequired: boolean }> {
   const pageSize = input.pageSize ?? 200;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 500) throw new Error("حجم صفحة المزامنة غير صالح.");
@@ -459,20 +916,100 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
   let through: string | null = null;
   let appliedChanges = 0;
   let resetRequired = false;
+  // A misconfigured or rapidly pruning server must not trigger an unbounded
+  // loop of full snapshot fetches while the user is working offline-first.
+  let resetRebuilds = 0;
+  const maxResetRebuilds = 3;
   let pages = 0;
+  // A correct cursor cannot detect a historically stale projection. An explicit
+  // repair replaces only this scoped snapshot, even at the same watermark.
+  // No caller currently enables this until the producer correction is approved.
+  if (input.repairVersion !== undefined && (!input.repairSnapshot || !Number.isSafeInteger(input.repairVersion) || input.repairVersion < 1)) {
+    throw new Error("Invalid Delta repair version.");
+  }
+  if (input.repairSnapshot) {
+    const entity = input.scope.entityType;
+    const partId = /^maintenance_work_order_parts:([1-9][0-9]{0,15})$/.exec(entity)?.[1];
+    if (entity !== "fuel_events" && entity !== "maintenance_work_orders" &&
+        !(partId && Number.isSafeInteger(Number(partId)))) {
+      throw new Error("Delta snapshot repair is not authorized for this entity.");
+    }
+    assertDeltaSyncRunActive(input.isCurrent);
+    if (input.repairVersion !== undefined && !storage.getRepairCheckpoint) {
+      throw new Error("Versioned Delta repair requires durable repair metadata.");
+    }
+    // Read marker and cursor together from a single record; separate reads can
+    // observe different commits from another tab.
+    const checkpoint = input.repairVersion === undefined
+      ? { cursor: await storage.getCursor(input.scope), repairVersion: undefined }
+      : await storage.getRepairCheckpoint!(input.scope);
+    assertDeltaSyncRunActive(input.isCurrent);
+    const durableCursor = checkpoint.cursor;
+    const requested = assertCursor(cursor ?? "0");
+    const durable = assertCursor(durableCursor ?? "0");
+    const minimum = compareDeltaCursors(requested, durable) >= 0 ? requested : durable;
+    const completed = checkpoint.repairVersion;
+    assertDeltaSyncRunActive(input.isCurrent);
+    if (input.repairVersion !== undefined && completed !== undefined && completed >= input.repairVersion && durableCursor !== null) {
+      // Resume from the actual committed checkpoint, not a stale caller cursor.
+      cursor = durable;
+    } else {
+      const snapshot = await input.rebuildSnapshot(minimum);
+      assertDeltaSyncRunActive(input.isCurrent);
+      const snapshotCursor = assertCursor(snapshot.cursor);
+      assertDeltaSnapshotWatermark(snapshotCursor, minimum);
+      assertDeltaSnapshotRows(input.scope, snapshot.rows);
+      // Cache writes must follow snapshot validation and precede the durable cursor.
+      await snapshot.applyCache?.();
+      assertDeltaSyncRunActive(input.isCurrent);
+      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent, input.repairVersion);
+      assertDeltaSyncRunActive(input.isCurrent);
+      cursor = snapshotCursor;
+    }
+  }
   while (pages++ < 10000) {
+    assertDeltaSyncRunActive(input.isCurrent);
     const page = await input.pull({ afterCursor: cursor, throughCursor: through, pageSize });
+    assertDeltaSyncRunActive(input.isCurrent);
     if (page.entity_type !== input.scope.entityType) throw new Error("استجابة المزامنة لا تطابق نوع البيانات المطلوب.");
     if (page.status === "reset_required") {
-      const snapshot = await input.rebuildSnapshot(assertCursor(page.snapshot_cursor ?? page.current_cursor));
+      // Validate reset control data BEFORE fetching or replacing a local snapshot.
+      // A Reset is not an ordinary page, and must not contain changes or a
+      // continuation cursor. Outbox stores are intentionally untouched.
+      const currentCursor = assertCursor(page.current_cursor);
+      const retainedCursor = assertCursor(page.retained_from_cursor);
+      const requestedSnapshotCursor = assertCursor(page.snapshot_cursor ?? currentCursor);
+      if (compareDeltaCursors(retainedCursor, currentCursor) > 0 ||
+          compareDeltaCursors(requestedSnapshotCursor, currentCursor) > 0 ||
+          page.has_more || page.next_cursor !== null || page.changes.length !== 0) {
+        throw new Error("استجابة إعادة تهيئة Delta غير صالحة؛ لم تتغير البيانات المحلية.");
+      }
+      if (++resetRebuilds > maxResetRebuilds) {
+        throw new Error("تكررت مطالبة الخادم بإعادة التهيئة؛ أوقفت المزامنة لحماية البيانات المحلية.");
+      }
+      assertDeltaSyncRunActive(input.isCurrent);
+      const durable = assertCursor((await storage.getCursor(input.scope)) ?? "0");
+      assertDeltaSyncRunActive(input.isCurrent);
+      const floor = [requestedSnapshotCursor, durable, assertCursor(cursor ?? "0")]
+        .reduce((left, right) => compareDeltaCursors(left, right) >= 0 ? left : right);
+      const snapshot = await input.rebuildSnapshot(floor);
+      assertDeltaSyncRunActive(input.isCurrent);
       const snapshotCursor = assertCursor(snapshot.cursor);
-      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor);
+      // The snapshot service may return a NEWER coherent watermark, but
+      // must never silently roll back before the reset-required boundary.
+      assertDeltaSnapshotWatermark(snapshotCursor, floor);
+      assertDeltaSnapshotRows(input.scope, snapshot.rows);
+      await snapshot.applyCache?.();
+      assertDeltaSyncRunActive(input.isCurrent);
+      await storage.replaceSnapshot(input.scope, snapshot.rows, snapshotCursor, input.isCurrent);
+      assertDeltaSyncRunActive(input.isCurrent);
       cursor = snapshotCursor;
       through = null;
       resetRequired = true;
       continue;
     }
 
+    if (page.status !== "ok") throw new Error("حالة استجابة Delta غير معروفة.");
     assertCursor(page.current_cursor);
     assertCursor(page.through_cursor);
     if (through === null) through = page.through_cursor;
@@ -483,11 +1020,18 @@ export async function pullDeltaPages<Row extends Record<string, unknown>>(input:
     if (!page.has_more && next !== page.through_cursor) throw new Error("الصفحة النهائية لا تنتهي عند حد المزامنة.");
     if (page.has_more && page.changes.length === 0) throw new Error("توقفت المزامنة قبل اكتمال الصفحة.");
     if (cursor !== null && compareDeltaCursors(next, cursor) < 0) throw new Error("تراجع مؤشر المزامنة.");
+    validateDeltaPageChanges(input.scope, page, next, cursor);
     // Update the live query cache and await its durable offline-cache write
     // before advancing the separate delta cursor. If the browser stops here,
     // the old cursor causes a safe idempotent replay instead of a skipped change.
-    if (input.applyPage && page.changes.length) await input.applyPage(page);
-    await storage.commitPage(input.scope, page, next);
+    assertDeltaSyncRunActive(input.isCurrent);
+    if (input.applyPage && page.changes.length) {
+      await input.applyPage(page);
+      assertDeltaSyncRunActive(input.isCurrent);
+    }
+    assertDeltaSyncRunActive(input.isCurrent);
+    await storage.commitPage(input.scope, page, next, input.isCurrent);
+    assertDeltaSyncRunActive(input.isCurrent);
     appliedChanges += page.changes.length;
     cursor = next;
     if (!page.has_more) return { cursor: through, appliedChanges, resetRequired };

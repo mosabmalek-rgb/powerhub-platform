@@ -1,0 +1,1615 @@
+{
+  "format": "PR359 R0 SECURITY DEFINER AUTH EXECUTABLE CATALOG V2",
+  "captured_date": "2026-11-19",
+  "scope": "direct role+schema privileges; only public/private/powerhub_private",
+  "method": "read-only pg_catalog SELECT plus lexical markers on pg_get_functiondef",
+  "interpretation": "Presence or absence of keyword indicators is NOT an authorization verdict. Account for helper calls, RLS/invoker, and stable API exposure; no execution performed.",
+  "environments": [
+    {
+      "environment": "Production",
+      "objects": [
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_tenant_ids()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, powerhub_private"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "1d7a8feed1f180195cd8a3a7010bed677fb666b2a4bbe5e2d917c44f37c12c9c",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, powerhub_private"
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_user_id()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, private, powerhub_private"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "7bffed365032ad04a5e29b3dc64e41a449e8387e7e6f980ec6af3e025252278a",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, private, powerhub_private"
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.has_tenant_access(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, powerhub_private"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "02496fd955fbbc768b6f8c8c69c147ab0c7a7374fa7ca4200733779d02d99d0c",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, powerhub_private"
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_admin()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, powerhub_private"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "bbb5a24e2f66f89c30d6500218bd0957020f14198ef9eaaf3a0727136d9580ab",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, powerhub_private"
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_user()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, private, powerhub_private"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "63ca68e361693c0938d0fbde0f420c7e2bc6666e3ccb49fb645d2ff72f84a47b",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, private, powerhub_private"
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_after_support_conversation_create()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": true,
+          "sql_sha256": "a4d23262d9a9c9be7fb75847ded440ea823880b1009b7856b94a24017574482f",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_notify_message_visibility()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": true,
+          "sql_sha256": "978117265280f2d688612f7cd545abfec0a008fea51add61304cbd7c1c416be0",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_prepare_support_conversation()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": true,
+          "sql_sha256": "e0fb213341c815882906f4abc7727f529126b410c51ef9f1f7a884a06e08a427",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_conversation(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "3afcf4dcb71d25b27b2a450c9bbe7c119bd1ec942c15c5048dc84382e823c704",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamp with time zone)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "809825cbb3b997cb56bcf61160616642f4f7643e8a3fc3807a084b5d36c3a45b",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_current_user_id()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "5bc07cd2f5e19e4596c399a7aa3aae07fdf555ad1dab5f6f983499f037213928",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public"
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_platform_capability(text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "2be1f68e35234f69c7f0142f1b35d7108ac1a088c072658b99f97edf30b8f059",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_tenant_access(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "dcfad836d9d1e350fc681aa3be20dbaae66a8021b53c17f02eea92073ae7f055",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public"
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_admin()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "8abff66d81f10d5b3ea16064ae6f51ae60066d7df0feaca9e7a02ae2ad62126f",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public"
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_management_admin()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, pg_temp"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "869752fbda4b1ec95f1eb90e4a7067fbe9c368eaa6626f58da08aaf3c69ac627",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, pg_temp"
+        },
+        {
+          "schema": "public",
+          "signature": "chat_ai_rate_message(bigint,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "b705b9b844a92fb67c2eaafba946d2655f201a5ccdce95a7a91fd7576816d16f",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_create_conversation(bigint,text,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "4439d46335c1bd33a67663ecb97a9fcb815b0e87038719980c139e8bba504d81",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_all_notifications_read()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "16a77dd421a3eb1eaea6bf3ee11824826e4c16bac32c96596830d763a67f532a",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_delivered(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "4e6867d2c43909ced0f5a297729fa786bf437ed23ff9d998cb4b6f3abc2110e9",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_notification_read(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "310f49dba312a73f365a1025fa4f9ed2fd06db49503d747f9981d8bb0e2c78d4",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read_up_to(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "8be1724951076645dd52e13a380ecb8e020d259e4401430891714311f903ec4a",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "e94e6cb2fa5fea0e06d9031f6fb7e4e82de781e131cde429fd88c70333503226",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_receipts_for_message(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "22a59606c716ee50301e6328bbc939e9adb980ffe46dc8c330b7845ddd3dd1fc",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_send_message(bigint,text,uuid,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "955eeda1dcb1009a7f7bab57c456c916cd0b747fc627a10b8d302598958b6c1c",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_users()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "73af07305c2549069e498a7c20ce6e37c4042e6abd1c90de7ff3a9beb6594c98",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_unread_notification_count()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "6a550e717089156c1612a66a3f938d9c78d3ee85c7016e876e8908f9a2cb3b04",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_list(integer)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "4be9f5559cb3128611b48f8c6af2dd6cb82cdbdb5223a2fee52e85384c4a9ccc",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_all_read()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "a1085fbbe52c2c9adf8bcd5914fa3d5d7f5c5f1b77d2d6ab9ccaed87c5e9bc2a",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_read(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "cdb8dcc09711963fbd6ee5aa9e8004e0243be308eab770790ee1cafdc05b4040",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_unread_count()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "295fc2162e80a0c58b8fbd0633a95693b5814f179508c011bc15065262c90e80",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_create(bigint,text,text,text,numeric,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, pg_temp"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "cec62f79cd2baa89c64b80087fda18eb1ec57dde45e8dc9b375db1df6ffe80ed",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, pg_temp"
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamp with time zone,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=public, pg_temp"
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "6371bda7e92f6803f77b76747f2dc1367d1059735a8e41f7ea547be391887304",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=public, pg_temp"
+        }
+      ]
+    },
+    {
+      "environment": "Staging",
+      "objects": [
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_tenant_ids()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "af995fb49f1a5864146fd247b502a98b97efaa89bc8e487fe87700ed314dee31",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.current_user_id()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "fd661b82e8d37296556803b009edfccd41179d60a40180821f475c60d33a2f4c",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.has_tenant_access(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "50b5bf927791b4f5396e3f18fc00721795c7e73ab61348b24e1c093471b40a80",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_admin()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "1d0043a9e28554e051da4693047871719683805e9714282badc2d5bb74c42e19",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "powerhub_private",
+          "signature": "powerhub_private.is_platform_user()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "d4659147be0ade0510483c7143ff74a9ceb1b9d076c2b703c4f707b4c385f157",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_conversation(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "c921e72007b2389b0ab2843f0c92b918bad55fabaee3d895c8d6ef01f1a60dec",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.chat_rls_can_select_participant(bigint,bigint,bigint,timestamp with time zone)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "203f10f304300d64403dd582228b404b7db7b7ab20ae7f0208097d86d176c30d",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_current_user_id()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "ba214239ad9b200e2de7e4e21d8cad93449a7553547105475c8d81c5a0cdac35",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_company_account_access(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "bbe66dce45cbad37bf9d10ef4e34acdab9300cd49735ab10a655359530d6ee7f",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_company_account_capability(bigint,bigint,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "0d58adff87c6caf4093c7b0d7f9ffc0644e86056e15a49c444009b58ffc4b168",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_platform_capability(text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "6dfb4d25a1619ed7a1f99de524f434a68c6eca5a81425f620c410755a7005f34",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_site_access(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "702ab2975f2853fc7c20aa48ceabef5faedcd7c85bd0ed18a8cb082309667bf0",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_site_capability(bigint,bigint,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "eff8b48281e5618f4f2ad9fbd4cd4ecacd28ff206fa104d3fdd32949d7bb84bf",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_staff_profile_site_access(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "23a2c8b721178d471741c65ab2ce6c8b0100fe1e6a028a33b515c9af4e7ed1b5",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_has_tenant_access(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "464eb398a67d03dcd52d9c0c3c3f31b872c7f233f073f8f628b3d1ffa45b3e15",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_admin()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "04d902b3f24c9dfb12a197db63f84c9d8e73bd34a5e35022333da71e8399814f",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_is_platform_management_admin()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "8e12ed5c1516e1b52d7ea84ed8925c690f479fe411ff0a46770f8ccf77b4e9ec",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "private",
+          "signature": "private.powerhub_realtime_can_read_delta_topic(bigint,bigint,boolean)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": false,
+          "anon_execute": false,
+          "sql_sha256": "d8fc040a86e52bbb9cab7f84ea2750fef724518f29332444a48a1857496e81f7",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_ai_rate_message(bigint,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "d41d4b84cec403fa84f4f17a624147045a6d197a9f3c58b3c4d740af534e451f",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_assign_support(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "749247d92d1f09859548a1be0bee65ed9c5d61c33bba4ecc99304132c526046f",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_create_conversation(bigint,text,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "4439d46335c1bd33a67663ecb97a9fcb815b0e87038719980c139e8bba504d81",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_all_notifications_read()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "16a77dd421a3eb1eaea6bf3ee11824826e4c16bac32c96596830d763a67f532a",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_delivered(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "57df4b5a9082c7a917ef7a27039f375971339f71b2c043aa613a9c744fb2c33b",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_notification_read(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "310f49dba312a73f365a1025fa4f9ed2fd06db49503d747f9981d8bb0e2c78d4",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read_up_to(bigint,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "fe6241f674ceac37d431222468a520a0e1cc639925cc87ba229d8757a8035b72",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_mark_read(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "00ef0ef4384b85dc403225b6ea9a798b2327d6909f522fc72891ab367d83d739",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_rate_support(bigint,smallint,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "77daaad178f07ad6bc0bd2a0d108592db4e987398c226c014e2e275e52a12d08",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_receipts_for_message(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "7e3d7cb7116e7ca6a78778c06be3350d4483aa6ccb300dfee5e414bfd6086ab3",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_release_support(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "418a9372dc53b53f569de91c86bca7cf452be71a9972abbeec1421c1eece85ca",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_reopen_support_conversation(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "7f1b14e99b82427feb0058bda27fb5800c9df7523b496b5be08df10f9917e804",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_send_internal_note(bigint,text,uuid)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "54f7dc581889438da970d71417d3f0f69b9f758a99f155da3d4af7658c4b555b",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_send_message(bigint,text,uuid,bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "955eeda1dcb1009a7f7bab57c456c916cd0b747fc627a10b8d302598958b6c1c",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_set_conversation_tags(bigint,bigint[])",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "64b554c65febf882a8d94dae08769451c623e532301376affb1f1e01ba0717c8",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_save_settings(integer,integer)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "a9df258e77b9911abe8a33d1fb5705129b7e677fbe608eea962009eb0d0f1802",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_snapshot()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "00606d6c8cf126c935dda03639b8d94f78a284cc05ed96dbe0ea58db4600f46b",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_category(text,text,text,integer,integer,integer,boolean)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "6bbcdd85de0c394ffe19b203845b9b57789d567ccb0583db03eaad54631d5846",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_quick_reply(text,text,text,text,boolean)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "7e68435d81379f70b2bdb07f343187c6565b06c1d9adce7b30a275a0c0ab93eb",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_sla(text,numeric)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "b1b1f3979b065f5a3ea7090f9d061ebd0334d2dcc48ae553940276f7ac7dfc05",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_admin_upsert_tag(text,text,text,boolean)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "a30f806781fb7ddd960a1b8fe42823a2f73711c46c0b2aa156ed9636c3f7ad79",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_metrics(timestamp with time zone,timestamp with time zone)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "848ceb60a2d7129b30985cf64a125fc535bccd5ff307266789a5c2d7b6cd1c22",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_queue(text,text,text,bigint,text,integer,integer)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "843191d2ca8c03d3e59228d54a24bde8cc23375578a1b18b1bcc956d46584d7d",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_set_metadata(bigint,text,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "157cdb67e16efa29919d7f795fb6f06467d4398c24cef57f6589684abeb40e9e",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_support_users()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "7e0900f70818b23c04e51fdeb5ff6cf6164ad33c9c385b7e3ead9a4d0cbf6e12",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_ticket_timeline(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "8fce46747b9997db6cc9b2ad4b51a307ff8798c58cfca40bb6b83d227eaa395b",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_transition_conversation(bigint,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "d47483ce63fe1e7ec5eaa267ba2e715ff33fd5c2d6cc61c2c36ac5ed9715a778",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "chat_unread_notification_count()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "6a550e717089156c1612a66a3f938d9c78d3ee85c7016e876e8908f9a2cb3b04",
+          "has_auth_related_expression": false,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_list(integer)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "a0fac67c9dc2114535f162fa0832af50089caa7c74b02aa5fe07d01b454a2542",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_all_read()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "01064f720e09e8ef89b7ab4e030949a778d175029f47136255f390942836fd7a",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_mark_read(bigint)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "714fd2139cbac9cbd748f3a2ae356283683330b13d5c60285631fa45ba5fc60e",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_notification_unread_count()",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "e6a708522c90bad6a45d9b677fc17c6e55b7213fad197770d84ad29b910058b2",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": false,
+          "has_site_related_expression": false,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_create(bigint,text,text,text,numeric,text,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "82aa627ae8ae37801da4a77cff0e038ac64bf9f4314aba90ca868a876074f660",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        },
+        {
+          "schema": "public",
+          "signature": "powerhub_sync_generator_update(bigint,bigint,text,numeric,numeric,numeric,text,timestamp with time zone,text)",
+          "owner": "postgres",
+          "prosecdef": true,
+          "proconfig": [
+            "search_path=\"\""
+          ],
+          "auth_schema_usage": true,
+          "auth_execute": true,
+          "anon_schema_usage": true,
+          "anon_execute": false,
+          "sql_sha256": "7c72840cc6ed96fe721e6ddcdb2665aedeb7e4df8d06206914a1e4c89ce569b7",
+          "has_auth_related_expression": true,
+          "has_tenant_related_expression": true,
+          "has_site_related_expression": true,
+          "has_dynamic_sql_indicators": false,
+          "function_config": "search_path=\"\""
+        }
+      ]
+    }
+  ]
+}

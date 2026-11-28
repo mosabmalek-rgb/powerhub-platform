@@ -1,0 +1,2572 @@
+{
+  "kind": "PR359_R0_CRITICAL_RPC_ARGUMENT_NAME_AUDIT",
+  "date": "2026-11-19",
+  "source_commit": "6d644b1901b8827c7ff94737fbf63677247d9f5d",
+  "method": "Read-only pg_proc + heuristic source argument key extraction. PostgreSQL proargmodes returned as a text array literal and normalized to modes; excludes output/table args from match.",
+  "limitations": "Supplied-key extraction may include a nearby nested object or stop early; a match only proves names observed, not complete required keys, overload resolution, call behavior or return shapes. Non-match demands manual review.",
+  "statistics": {
+    "critical_names": 27,
+    "source_files": 8,
+    "source_errors": [],
+    "staging_missing": [],
+    "production_missing": [
+      "powerhub_financial_gl_post_source",
+      "powerhub_financial_gl_trial_balance",
+      "powerhub_financial_gl_subledger_reconciliation",
+      "powerhub_financial_accrual_post_and_gl",
+      "powerhub_financial_accrual_journal_reverse",
+      "powerhub_financial_accrual_period_lock",
+      "powerhub_financial_settlement_preview",
+      "powerhub_inventory_purchase_auto_receive",
+      "powerhub_assign_existing_staff_with_permissions",
+      "powerhub_update_staff_profile_permissions_e50",
+      "powerhub_mobile_create_field_reading",
+      "powerhub_mobile_delta_fence",
+      "powerhub_site_access_snapshot",
+      "powerhub_subscriber_balance_snapshot",
+      "powerhub_create_subscriber_with_security_deposit",
+      "powerhub_financial_supplier_payment_correction_approve_post"
+    ],
+    "potential_staging_named_mismatch": [],
+    "potential_production_named_mismatch": [],
+    "source_call_count": 30
+  },
+  "source_files": [
+    {
+      "path": "server/powerhub.ts",
+      "blob_sha": "4a19352875df5553c7e98689eacaf29a19925f51",
+      "calls": 20,
+      "error": null
+    },
+    {
+      "path": "server/powerhub-inventory-router.ts",
+      "blob_sha": "9f8055e70b23d86acb200410f1733a5c9f2f2f2f",
+      "calls": 3,
+      "error": null
+    },
+    {
+      "path": "server/mobile-api.ts",
+      "blob_sha": "b1dc71a6be81565298236c6239c56911f5c95e71",
+      "calls": 1,
+      "error": null
+    },
+    {
+      "path": "server/mobile-delta-service.ts",
+      "blob_sha": "94b0d6d162a81bd8ccb7c33cb74ca63464366ccc",
+      "calls": 1,
+      "error": null
+    },
+    {
+      "path": "server/admin-role-policy-router.ts",
+      "blob_sha": "2c90d062651ef9507b477c310d0df4901dc10e30",
+      "calls": 1,
+      "error": null
+    },
+    {
+      "path": "server/staff-auth-provisioning.ts",
+      "blob_sha": "3a9bc8b4799f0edbcb81ee6926e43349ef7c9a9a",
+      "calls": 0,
+      "error": null
+    },
+    {
+      "path": "server/powerhub-mobile-approval-supabase.ts",
+      "blob_sha": "ea16f55f36220fc0f0204866ea64f7dee93f80d6",
+      "calls": 0,
+      "error": null
+    },
+    {
+      "path": "server/powerhub-supabase.ts",
+      "blob_sha": "bf66450276fa904191dfdeb6f9c9d0ac26055e83",
+      "calls": 4,
+      "error": null
+    }
+  ],
+  "rows": [
+    {
+      "rpc": "powerhub_create_payment",
+      "callers": [
+        {
+          "rpc": "powerhub_create_payment",
+          "line": 3527,
+          "parameter_form": "expression",
+          "supplied_keys": [],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_payment",
+              "signature": "powerhub_create_payment(bigint,bigint,bigint,bigint,bigint,text,numeric,text,bigint,text,text,text,text,text,bigint,uuid)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_invoice_id bigint, p_payment_no text, p_amount numeric, p_payment_method text, p_company_account_id bigint, p_transfer_from_account text, p_transfer_from_type text, p_reference_no text, p_receipt_image_key text, p_receipt_image_hash text, p_collector_session_id bigint, p_client_operation_id uuid",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_payment",
+              "signature": "powerhub_create_payment(bigint,bigint,bigint,bigint,bigint,text,numeric,text,bigint,text,text,text,text,text,bigint,uuid)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_invoice_id bigint, p_payment_no text, p_amount numeric, p_payment_method text, p_company_account_id bigint, p_transfer_from_account text, p_transfer_from_type text, p_reference_no text, p_receipt_image_key text, p_receipt_image_hash text, p_collector_session_id bigint, p_client_operation_id uuid",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": []
+    },
+    {
+      "rpc": "powerhub_create_payment_with_discount",
+      "callers": [
+        {
+          "rpc": "powerhub_create_payment_with_discount",
+          "line": 3526,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_manual_discount_amount",
+            "p_manual_discount_reason"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_payment_with_discount",
+              "signature": "powerhub_create_payment_with_discount(bigint,bigint,bigint,bigint,bigint,text,numeric,text,bigint,text,text,text,text,text,bigint,uuid,numeric,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_invoice_id bigint, p_payment_no text, p_amount numeric, p_payment_method text, p_company_account_id bigint, p_transfer_from_account text, p_transfer_from_type text, p_reference_no text, p_receipt_image_key text, p_receipt_image_hash text, p_collector_session_id bigint, p_client_operation_id uuid, p_manual_discount_amount numeric, p_manual_discount_reason text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id",
+                "p_manual_discount_amount",
+                "p_manual_discount_reason",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id",
+                "p_manual_discount_amount",
+                "p_manual_discount_reason"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_payment_with_discount",
+              "signature": "powerhub_create_payment_with_discount(bigint,bigint,bigint,bigint,bigint,text,numeric,text,bigint,text,text,text,text,text,bigint,uuid,numeric,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_invoice_id bigint, p_payment_no text, p_amount numeric, p_payment_method text, p_company_account_id bigint, p_transfer_from_account text, p_transfer_from_type text, p_reference_no text, p_receipt_image_key text, p_receipt_image_hash text, p_collector_session_id bigint, p_client_operation_id uuid, p_manual_discount_amount numeric, p_manual_discount_reason text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id",
+                "p_manual_discount_amount",
+                "p_manual_discount_reason",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_invoice_id",
+                "p_payment_no",
+                "p_amount",
+                "p_payment_method",
+                "p_company_account_id",
+                "p_transfer_from_account",
+                "p_transfer_from_type",
+                "p_reference_no",
+                "p_receipt_image_key",
+                "p_receipt_image_hash",
+                "p_collector_session_id",
+                "p_client_operation_id",
+                "p_manual_discount_amount",
+                "p_manual_discount_reason"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 3526,
+          "supplied_keys": [
+            "p_manual_discount_amount",
+            "p_manual_discount_reason"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_approve_payment_documentation",
+      "callers": [
+        {
+          "rpc": "powerhub_approve_payment_documentation",
+          "line": 4024,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_payment_id",
+            "p_request_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_approve_payment_documentation",
+              "signature": "powerhub_approve_payment_documentation(bigint,bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_request_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_approve_payment_documentation",
+              "signature": "powerhub_approve_payment_documentation(bigint,bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_request_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 4024,
+          "supplied_keys": [
+            "p_tenant_id",
+            "p_site_id",
+            "p_user_id",
+            "p_request_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true,
+          "heuristic_supplied_keys": [
+            "p_payment_id",
+            "p_request_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "manual_source_review": true,
+          "manual_review_reason": "Regex traversed subsequent receipt-context RPC and included p_payment_id unrelated to approval."
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_reject_payment_documentation",
+      "callers": [
+        {
+          "rpc": "powerhub_reject_payment_documentation",
+          "line": 4110,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_rejection_reason",
+            "p_request_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_reject_payment_documentation",
+              "signature": "powerhub_reject_payment_documentation(bigint,bigint,bigint,bigint,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_request_id bigint, p_rejection_reason text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id",
+                "p_rejection_reason",
+                "request_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id",
+                "p_rejection_reason"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_reject_payment_documentation",
+              "signature": "powerhub_reject_payment_documentation(bigint,bigint,bigint,bigint,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_request_id bigint, p_rejection_reason text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id",
+                "p_rejection_reason",
+                "request_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_request_id",
+                "p_rejection_reason"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 4110,
+          "supplied_keys": [
+            "p_rejection_reason",
+            "p_request_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_gl_post_source",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_gl_post_source",
+          "line": 5786,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_site_id",
+            "p_source_id",
+            "p_source_type",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_gl_post_source",
+              "signature": "powerhub_financial_gl_post_source(bigint,bigint,text,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_source_type text, p_source_id bigint, p_user_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_source_type",
+                "p_source_id",
+                "p_user_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_source_type",
+                "p_source_id",
+                "p_user_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 5786,
+          "supplied_keys": [
+            "p_site_id",
+            "p_source_id",
+            "p_source_type",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_gl_trial_balance",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_gl_trial_balance",
+          "line": 6689,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_period",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_gl_trial_balance",
+              "signature": "powerhub_financial_gl_trial_balance(bigint,bigint,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_period text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 6689,
+          "supplied_keys": [
+            "p_period",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_gl_subledger_reconciliation",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_gl_subledger_reconciliation",
+          "line": 6539,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_period",
+            "p_site_id",
+            "p_site_ids",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_gl_subledger_reconciliation",
+              "signature": "powerhub_financial_gl_subledger_reconciliation(bigint,bigint,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_period text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 6539,
+          "supplied_keys": [
+            "p_tenant_id",
+            "p_site_id",
+            "p_period"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false,
+          "heuristic_supplied_keys": [
+            "p_period",
+            "p_site_id",
+            "p_site_ids",
+            "p_tenant_id"
+          ],
+          "manual_source_review": true,
+          "manual_review_reason": "Regex traversed subsequent adjacent calls and included p_site_ids unrelated to reconciliation."
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_accrual_post_and_gl",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_accrual_post_and_gl",
+          "line": 6953,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_journal_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_accrual_post_and_gl",
+              "signature": "powerhub_financial_accrual_post_and_gl(bigint,bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_journal_id bigint, p_user_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_journal_id",
+                "p_user_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_journal_id",
+                "p_user_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 6953,
+          "supplied_keys": [
+            "p_journal_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_accrual_journal_reverse",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_accrual_journal_reverse",
+          "line": 6983,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_journal_id",
+            "p_operation_key",
+            "p_period",
+            "p_reason",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_accrual_journal_reverse",
+              "signature": "powerhub_financial_accrual_journal_reverse(bigint,bigint,bigint,bigint,text,text,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_journal_id bigint, p_user_id bigint, p_period text, p_reason text, p_operation_key text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_journal_id",
+                "p_user_id",
+                "p_period",
+                "p_reason",
+                "p_operation_key"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_journal_id",
+                "p_user_id",
+                "p_period",
+                "p_reason",
+                "p_operation_key"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 6983,
+          "supplied_keys": [
+            "p_journal_id",
+            "p_operation_key",
+            "p_period",
+            "p_reason",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_accrual_period_lock",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_accrual_period_lock",
+          "line": 5220,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_period",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_accrual_period_lock",
+              "signature": "powerhub_financial_accrual_period_lock(bigint,bigint,text,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_period text, p_user_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period",
+                "p_user_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period",
+                "p_user_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 5220,
+          "supplied_keys": [
+            "p_period",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_create_financial_settlement",
+      "callers": [
+        {
+          "rpc": "powerhub_create_financial_settlement",
+          "line": 4855,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_actual_cash",
+            "p_notes",
+            "p_period_end",
+            "p_period_start",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_financial_settlement",
+              "signature": "powerhub_create_financial_settlement(bigint,bigint,bigint,timestamp with time zone,timestamp with time zone,numeric,numeric,numeric,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_period_start timestamp with time zone, p_period_end timestamp with time zone, p_total_collected numeric, p_total_expenses numeric, p_actual_cash numeric, p_notes text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_period_start",
+                "p_period_end",
+                "p_total_collected",
+                "p_total_expenses",
+                "p_actual_cash",
+                "p_notes",
+                "settlement_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,t}",
+              "default_argument_count": 2,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_period_start",
+                "p_period_end",
+                "p_total_collected",
+                "p_total_expenses",
+                "p_actual_cash",
+                "p_notes"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_financial_settlement",
+              "signature": "powerhub_create_financial_settlement(bigint,bigint,bigint,timestamp with time zone,timestamp with time zone,numeric,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_period_start timestamp with time zone, p_period_end timestamp with time zone, p_actual_cash numeric, p_notes text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_period_start",
+                "p_period_end",
+                "p_actual_cash",
+                "p_notes",
+                "settlement_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,t}",
+              "default_argument_count": 2,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_period_start",
+                "p_period_end",
+                "p_actual_cash",
+                "p_notes"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 4855,
+          "supplied_keys": [
+            "p_actual_cash",
+            "p_notes",
+            "p_period_end",
+            "p_period_start",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_settlement_preview",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_settlement_preview",
+          "line": 4783,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_period_end",
+            "p_period_start",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_settlement_preview",
+              "signature": "powerhub_financial_settlement_preview(bigint,bigint,timestamp with time zone,timestamp with time zone)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_period_start timestamp with time zone, p_period_end timestamp with time zone",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period_start",
+                "p_period_end"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_period_start",
+                "p_period_end"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 4783,
+          "supplied_keys": [
+            "p_period_end",
+            "p_period_start",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_inventory_purchase_auto_receive",
+      "callers": [
+        {
+          "rpc": "powerhub_inventory_purchase_auto_receive",
+          "line": 1439,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_company_account_id",
+            "p_due_date",
+            "p_invoice_date",
+            "p_lines",
+            "p_notes",
+            "p_operation_key",
+            "p_payment_date",
+            "p_payment_mode",
+            "p_payment_notes",
+            "p_payment_reference_no",
+            "p_payment_terms_days",
+            "p_receipt_date",
+            "p_reference_no",
+            "p_site_id",
+            "p_supplier_id",
+            "p_supplier_invoice_no",
+            "p_tenant_id",
+            "p_user_id",
+            "p_warehouse_id"
+          ],
+          "path": "server/powerhub-inventory-router.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_inventory_purchase_auto_receive",
+              "signature": "powerhub_inventory_purchase_auto_receive(bigint,bigint,bigint,bigint,bigint,text,date,date,integer,text,text,text,bigint,date,text,text,date,text,jsonb)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_supplier_id bigint, p_warehouse_id bigint, p_supplier_invoice_no text, p_invoice_date date, p_due_date date, p_payment_terms_days integer, p_payment_mode text, p_reference_no text, p_notes text, p_company_account_id bigint, p_payment_date date, p_payment_reference_no text, p_payment_notes text, p_receipt_date date, p_operation_key text, p_lines jsonb",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_supplier_id",
+                "p_warehouse_id",
+                "p_supplier_invoice_no",
+                "p_invoice_date",
+                "p_due_date",
+                "p_payment_terms_days",
+                "p_payment_mode",
+                "p_reference_no",
+                "p_notes",
+                "p_company_account_id",
+                "p_payment_date",
+                "p_payment_reference_no",
+                "p_payment_notes",
+                "p_receipt_date",
+                "p_operation_key",
+                "p_lines",
+                "purchase_id",
+                "purchase_number",
+                "purchase_status",
+                "receipt_id",
+                "receipt_number",
+                "payment_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t,t,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_supplier_id",
+                "p_warehouse_id",
+                "p_supplier_invoice_no",
+                "p_invoice_date",
+                "p_due_date",
+                "p_payment_terms_days",
+                "p_payment_mode",
+                "p_reference_no",
+                "p_notes",
+                "p_company_account_id",
+                "p_payment_date",
+                "p_payment_reference_no",
+                "p_payment_notes",
+                "p_receipt_date",
+                "p_operation_key",
+                "p_lines"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub-inventory-router.ts",
+          "line": 1439,
+          "supplied_keys": [
+            "p_company_account_id",
+            "p_due_date",
+            "p_invoice_date",
+            "p_lines",
+            "p_notes",
+            "p_operation_key",
+            "p_payment_date",
+            "p_payment_mode",
+            "p_payment_notes",
+            "p_payment_reference_no",
+            "p_payment_terms_days",
+            "p_receipt_date",
+            "p_reference_no",
+            "p_site_id",
+            "p_supplier_id",
+            "p_supplier_invoice_no",
+            "p_tenant_id",
+            "p_user_id",
+            "p_warehouse_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_inventory_record_supplier_payment",
+      "callers": [
+        {
+          "rpc": "powerhub_inventory_record_supplier_payment",
+          "line": 1996,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_amount",
+            "p_company_account_id",
+            "p_notes",
+            "p_operation_key",
+            "p_payment_date",
+            "p_purchase_id",
+            "p_reference_no",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub-inventory-router.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_inventory_record_supplier_payment",
+              "signature": "powerhub_inventory_record_supplier_payment(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_purchase_id bigint, p_company_account_id bigint, p_amount numeric, p_payment_date date, p_reference_no text, p_notes text, p_operation_key text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_purchase_id",
+                "p_company_account_id",
+                "p_amount",
+                "p_payment_date",
+                "p_reference_no",
+                "p_notes",
+                "p_operation_key",
+                "payment_id",
+                "purchase_id",
+                "company_account_id",
+                "account_transaction_id",
+                "amount",
+                "payment_date",
+                "paid_amount",
+                "outstanding_amount",
+                "account_balance",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,t,t,t,t,t,t,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_purchase_id",
+                "p_company_account_id",
+                "p_amount",
+                "p_payment_date",
+                "p_reference_no",
+                "p_notes",
+                "p_operation_key"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_inventory_record_supplier_payment",
+              "signature": "powerhub_inventory_record_supplier_payment(bigint,bigint,bigint,bigint,bigint,numeric,date,text,text,text)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_purchase_id bigint, p_company_account_id bigint, p_amount numeric, p_payment_date date, p_reference_no text, p_notes text, p_operation_key text",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_purchase_id",
+                "p_company_account_id",
+                "p_amount",
+                "p_payment_date",
+                "p_reference_no",
+                "p_notes",
+                "p_operation_key",
+                "payment_id",
+                "purchase_id",
+                "company_account_id",
+                "account_transaction_id",
+                "amount",
+                "payment_date",
+                "paid_amount",
+                "outstanding_amount",
+                "account_balance",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,t,t,t,t,t,t,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_purchase_id",
+                "p_company_account_id",
+                "p_amount",
+                "p_payment_date",
+                "p_reference_no",
+                "p_notes",
+                "p_operation_key"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub-inventory-router.ts",
+          "line": 1996,
+          "supplied_keys": [
+            "p_amount",
+            "p_company_account_id",
+            "p_notes",
+            "p_operation_key",
+            "p_payment_date",
+            "p_purchase_id",
+            "p_reference_no",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_inventory_purchase_supplier_return_credit",
+      "callers": [
+        {
+          "rpc": "powerhub_inventory_purchase_supplier_return_credit",
+          "line": 1172,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_purchase_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub-inventory-router.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_inventory_purchase_supplier_return_credit",
+              "signature": "powerhub_inventory_purchase_supplier_return_credit(bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_purchase_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_purchase_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_purchase_id"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_inventory_purchase_supplier_return_credit",
+              "signature": "powerhub_inventory_purchase_supplier_return_credit(bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_purchase_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_purchase_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_purchase_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub-inventory-router.ts",
+          "line": 1172,
+          "supplied_keys": [
+            "p_purchase_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_assign_existing_staff",
+      "callers": [
+        {
+          "rpc": "powerhub_assign_existing_staff",
+          "line": 1886,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_actor_user_id",
+            "p_all_branches",
+            "p_role",
+            "p_site_id",
+            "p_target_user_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_assign_existing_staff",
+              "signature": "powerhub_assign_existing_staff(bigint,bigint,bigint,bigint,text,boolean)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_target_user_id bigint, p_role text, p_all_branches boolean",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_target_user_id",
+                "p_role",
+                "p_all_branches",
+                "profile_id",
+                "target_user_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_target_user_id",
+                "p_role",
+                "p_all_branches"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_assign_existing_staff",
+              "signature": "powerhub_assign_existing_staff(bigint,bigint,bigint,bigint,text,boolean)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_target_user_id bigint, p_role text, p_all_branches boolean",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_target_user_id",
+                "p_role",
+                "p_all_branches",
+                "profile_id",
+                "target_user_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_target_user_id",
+                "p_role",
+                "p_all_branches"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 1886,
+          "supplied_keys": [
+            "p_actor_user_id",
+            "p_all_branches",
+            "p_role",
+            "p_site_id",
+            "p_target_user_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_assign_existing_staff_with_permissions",
+      "callers": [],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_assign_existing_staff_with_permissions",
+              "signature": "powerhub_assign_existing_staff_with_permissions(bigint,bigint,bigint,bigint,text,boolean,jsonb)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_target_user_id bigint, p_role text, p_all_branches boolean, p_permissions jsonb",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_target_user_id",
+                "p_role",
+                "p_all_branches",
+                "p_permissions",
+                "profile_id",
+                "target_user_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_target_user_id",
+                "p_role",
+                "p_all_branches",
+                "p_permissions"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": []
+    },
+    {
+      "rpc": "powerhub_update_staff_profile_permissions_e50",
+      "callers": [
+        {
+          "rpc": "powerhub_update_staff_profile_permissions_e50",
+          "line": 1850,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_actor_user_id",
+            "p_custom_role_id",
+            "p_expected_updated_at",
+            "p_permissions",
+            "p_profile_id",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_update_staff_profile_permissions_e50",
+              "signature": "powerhub_update_staff_profile_permissions_e50(bigint,bigint,bigint,bigint,bigint,jsonb,timestamp with time zone)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_actor_user_id bigint, p_profile_id bigint, p_custom_role_id bigint, p_permissions jsonb, p_expected_updated_at timestamp with time zone",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_profile_id",
+                "p_custom_role_id",
+                "p_permissions",
+                "p_expected_updated_at",
+                "profile_id",
+                "target_user_id",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_actor_user_id",
+                "p_profile_id",
+                "p_custom_role_id",
+                "p_permissions",
+                "p_expected_updated_at"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 1850,
+          "supplied_keys": [
+            "p_actor_user_id",
+            "p_custom_role_id",
+            "p_expected_updated_at",
+            "p_permissions",
+            "p_profile_id",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_admin_set_staff_capability_override",
+      "callers": [
+        {
+          "rpc": "powerhub_admin_set_staff_capability_override",
+          "line": 203,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_actor_user_id",
+            "p_capability",
+            "p_is_allowed",
+            "p_profile_id"
+          ],
+          "path": "server/admin-role-policy-router.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_admin_set_staff_capability_override",
+              "signature": "powerhub_admin_set_staff_capability_override(bigint,bigint,text,boolean)",
+              "argument_types": "p_actor_user_id bigint, p_profile_id bigint, p_capability text, p_is_allowed boolean",
+              "arg_names": [
+                "p_actor_user_id",
+                "p_profile_id",
+                "p_capability",
+                "p_is_allowed",
+                "success",
+                "profile_id",
+                "capability",
+                "is_allowed"
+              ],
+              "arg_modes": "{i,i,i,i,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_actor_user_id",
+                "p_profile_id",
+                "p_capability",
+                "p_is_allowed"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_admin_set_staff_capability_override",
+              "signature": "powerhub_admin_set_staff_capability_override(bigint,bigint,text,boolean)",
+              "argument_types": "p_actor_user_id bigint, p_profile_id bigint, p_capability text, p_is_allowed boolean",
+              "arg_names": [
+                "p_actor_user_id",
+                "p_profile_id",
+                "p_capability",
+                "p_is_allowed",
+                "success",
+                "profile_id",
+                "capability",
+                "is_allowed"
+              ],
+              "arg_modes": "{i,i,i,i,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_actor_user_id",
+                "p_profile_id",
+                "p_capability",
+                "p_is_allowed"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/admin-role-policy-router.ts",
+          "line": 203,
+          "supplied_keys": [
+            "p_actor_user_id",
+            "p_capability",
+            "p_is_allowed",
+            "p_profile_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_mobile_create_field_reading",
+      "callers": [
+        {
+          "rpc": "powerhub_mobile_create_field_reading",
+          "line": 1048,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_actor_tenant_role",
+            "p_capture_method",
+            "p_client_operation_id",
+            "p_field_verified",
+            "p_image_hash",
+            "p_image_key",
+            "p_is_reading_reset",
+            "p_latitude",
+            "p_longitude",
+            "p_notes",
+            "p_reading_at",
+            "p_reading_value",
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/mobile-api.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_mobile_create_field_reading",
+              "signature": "powerhub_mobile_create_field_reading(bigint,bigint,bigint,bigint,uuid,timestamp with time zone,numeric,text,text,text,text,boolean,boolean,text,double precision,double precision)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_client_operation_id uuid, p_reading_at timestamp with time zone, p_reading_value numeric, p_capture_method text, p_image_key text, p_image_hash text, p_notes text, p_is_reading_reset boolean, p_field_verified boolean, p_actor_tenant_role text, p_latitude double precision, p_longitude double precision",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_client_operation_id",
+                "p_reading_at",
+                "p_reading_value",
+                "p_capture_method",
+                "p_image_key",
+                "p_image_hash",
+                "p_notes",
+                "p_is_reading_reset",
+                "p_field_verified",
+                "p_actor_tenant_role",
+                "p_latitude",
+                "p_longitude",
+                "reading_id",
+                "consumption_kwh",
+                "status",
+                "replayed"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_subscriber_id",
+                "p_client_operation_id",
+                "p_reading_at",
+                "p_reading_value",
+                "p_capture_method",
+                "p_image_key",
+                "p_image_hash",
+                "p_notes",
+                "p_is_reading_reset",
+                "p_field_verified",
+                "p_actor_tenant_role",
+                "p_latitude",
+                "p_longitude"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/mobile-api.ts",
+          "line": 1048,
+          "supplied_keys": [
+            "p_actor_tenant_role",
+            "p_capture_method",
+            "p_client_operation_id",
+            "p_field_verified",
+            "p_image_hash",
+            "p_image_key",
+            "p_is_reading_reset",
+            "p_latitude",
+            "p_longitude",
+            "p_notes",
+            "p_reading_at",
+            "p_reading_value",
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_mobile_delta_fence",
+      "callers": [
+        {
+          "rpc": "powerhub_mobile_delta_fence",
+          "line": 68,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_branch_id",
+            "p_tenant_id"
+          ],
+          "path": "server/mobile-delta-service.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_mobile_delta_fence",
+              "signature": "powerhub_mobile_delta_fence(bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_branch_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_branch_id",
+                "highwater",
+                "retained_floor",
+                "max_subscriber_id"
+              ],
+              "arg_modes": "{i,i,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_branch_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/mobile-delta-service.ts",
+          "line": 68,
+          "supplied_keys": [
+            "p_branch_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_site_access_snapshot",
+      "callers": [
+        {
+          "rpc": "powerhub_site_access_snapshot",
+          "line": 130,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_site_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub-supabase.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_site_access_snapshot",
+              "signature": "powerhub_site_access_snapshot(bigint,bigint)",
+              "argument_types": "p_user_id bigint, p_site_id bigint",
+              "arg_names": [
+                "p_user_id",
+                "p_site_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_user_id",
+                "p_site_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub-supabase.ts",
+          "line": 130,
+          "supplied_keys": [
+            "p_site_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_dashboard_financial_overview",
+      "callers": [
+        {
+          "rpc": "powerhub_dashboard_financial_overview",
+          "line": 4608,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_include_details",
+            "p_now",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        },
+        {
+          "rpc": "powerhub_dashboard_financial_overview",
+          "line": 1309,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_include_details",
+            "p_now",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub-supabase.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_dashboard_financial_overview",
+              "signature": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_now timestamp with time zone, p_include_details boolean",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_now",
+                "p_include_details"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 3,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_now",
+                "p_include_details"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_dashboard_financial_overview",
+              "signature": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_now timestamp with time zone, p_include_details boolean",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_now",
+                "p_include_details"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 3,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_now",
+                "p_include_details"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 4608,
+          "supplied_keys": [
+            "p_include_details",
+            "p_now",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        },
+        {
+          "path": "server/powerhub-supabase.ts",
+          "line": 1309,
+          "supplied_keys": [
+            "p_include_details",
+            "p_now",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_subscriber_balance_snapshot",
+      "callers": [
+        {
+          "rpc": "powerhub_subscriber_balance_snapshot",
+          "line": 2660,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        },
+        {
+          "rpc": "powerhub_subscriber_balance_snapshot",
+          "line": 512,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub-supabase.ts"
+        },
+        {
+          "rpc": "powerhub_subscriber_balance_snapshot",
+          "line": 564,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub-supabase.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_subscriber_balance_snapshot",
+              "signature": "powerhub_subscriber_balance_snapshot(bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_subscriber_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_subscriber_id",
+                "available_credit",
+                "security_deposit"
+              ],
+              "arg_modes": "{i,i,i,t,t}",
+              "default_argument_count": 0,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_subscriber_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 2660,
+          "supplied_keys": [
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        },
+        {
+          "path": "server/powerhub-supabase.ts",
+          "line": 512,
+          "supplied_keys": [
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        },
+        {
+          "path": "server/powerhub-supabase.ts",
+          "line": 564,
+          "supplied_keys": [
+            "p_site_id",
+            "p_subscriber_id",
+            "p_tenant_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_create_subscriber_with_security_deposit",
+      "callers": [
+        {
+          "rpc": "powerhub_create_subscriber_with_security_deposit",
+          "line": 2780,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_address",
+            "p_client_operation_id",
+            "p_full_name",
+            "p_offline_device_id",
+            "p_offline_grant_id",
+            "p_offline_number_value",
+            "p_opening_image_hash",
+            "p_opening_image_key",
+            "p_opening_reading",
+            "p_opening_reading_approved",
+            "p_opening_reading_at",
+            "p_phone",
+            "p_quota_limit",
+            "p_security_deposit_amount",
+            "p_security_deposit_company_account_id",
+            "p_security_deposit_operation_id",
+            "p_security_deposit_payment_method",
+            "p_security_deposit_payment_no",
+            "p_security_deposit_reference_no",
+            "p_site_id",
+            "p_subscription_type",
+            "p_tenant_id",
+            "p_user_id",
+            "p_whatsapp_number"
+          ],
+          "path": "server/powerhub.ts"
+        },
+        {
+          "rpc": "powerhub_create_subscriber_with_security_deposit",
+          "line": 2866,
+          "parameter_form": "expression",
+          "supplied_keys": [],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_create_subscriber_with_security_deposit",
+              "signature": "powerhub_create_subscriber_with_security_deposit(bigint,bigint,bigint,text,text,text,text,text,uuid,integer,numeric,timestamp with time zone,text,text,boolean,uuid,uuid,text,numeric,bigint,text,text,text,uuid)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_full_name text, p_phone text, p_whatsapp_number text, p_address text, p_subscription_type text, p_client_operation_id uuid, p_quota_limit integer, p_opening_reading numeric, p_opening_reading_at timestamp with time zone, p_opening_image_key text, p_opening_image_hash text, p_opening_reading_approved boolean, p_offline_device_id uuid, p_offline_grant_id uuid, p_offline_number_value text, p_security_deposit_amount numeric, p_security_deposit_company_account_id bigint, p_security_deposit_payment_method text, p_security_deposit_payment_no text, p_security_deposit_reference_no text, p_security_deposit_operation_id uuid",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_full_name",
+                "p_phone",
+                "p_whatsapp_number",
+                "p_address",
+                "p_subscription_type",
+                "p_client_operation_id",
+                "p_quota_limit",
+                "p_opening_reading",
+                "p_opening_reading_at",
+                "p_opening_image_key",
+                "p_opening_image_hash",
+                "p_opening_reading_approved",
+                "p_offline_device_id",
+                "p_offline_grant_id",
+                "p_offline_number_value",
+                "p_security_deposit_amount",
+                "p_security_deposit_company_account_id",
+                "p_security_deposit_payment_method",
+                "p_security_deposit_payment_no",
+                "p_security_deposit_reference_no",
+                "p_security_deposit_operation_id",
+                "subscriber_id",
+                "subscriber_no",
+                "opening_reading_id",
+                "opening_reading_status",
+                "replayed",
+                "security_deposit_payment_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,t,t,t,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": true,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_full_name",
+                "p_phone",
+                "p_whatsapp_number",
+                "p_address",
+                "p_subscription_type",
+                "p_client_operation_id",
+                "p_quota_limit",
+                "p_opening_reading",
+                "p_opening_reading_at",
+                "p_opening_image_key",
+                "p_opening_image_hash",
+                "p_opening_reading_approved",
+                "p_offline_device_id",
+                "p_offline_grant_id",
+                "p_offline_number_value",
+                "p_security_deposit_amount",
+                "p_security_deposit_company_account_id",
+                "p_security_deposit_payment_method",
+                "p_security_deposit_payment_no",
+                "p_security_deposit_reference_no",
+                "p_security_deposit_operation_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 2780,
+          "supplied_keys": [
+            "p_address",
+            "p_client_operation_id",
+            "p_full_name",
+            "p_offline_device_id",
+            "p_offline_grant_id",
+            "p_offline_number_value",
+            "p_opening_image_hash",
+            "p_opening_image_key",
+            "p_opening_reading",
+            "p_opening_reading_approved",
+            "p_opening_reading_at",
+            "p_phone",
+            "p_quota_limit",
+            "p_security_deposit_amount",
+            "p_security_deposit_company_account_id",
+            "p_security_deposit_operation_id",
+            "p_security_deposit_payment_method",
+            "p_security_deposit_payment_no",
+            "p_security_deposit_reference_no",
+            "p_site_id",
+            "p_subscription_type",
+            "p_tenant_id",
+            "p_user_id",
+            "p_whatsapp_number"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
+      "callers": [
+        {
+          "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
+          "line": 5403,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_approver_id",
+            "p_correction_id",
+            "p_payment_id",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 0,
+          "overloads": []
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
+              "signature": "powerhub_financial_supplier_payment_correction_approve_post(bigint,bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_correction_id bigint, p_approver_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_correction_id",
+                "p_approver_id"
+              ],
+              "arg_modes": null,
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_correction_id",
+                "p_approver_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 5403,
+          "supplied_keys": [
+            "p_tenant_id",
+            "p_site_id",
+            "p_correction_id",
+            "p_approver_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": false,
+          "heuristic_supplied_keys": [
+            "p_approver_id",
+            "p_correction_id",
+            "p_payment_id",
+            "p_site_id",
+            "p_tenant_id"
+          ],
+          "manual_source_review": true,
+          "manual_review_reason": "Regex traversed subsequent object field/payment verification and included p_payment_id unrelated to approval."
+        }
+      ]
+    },
+    {
+      "rpc": "powerhub_pay_payroll",
+      "callers": [
+        {
+          "rpc": "powerhub_pay_payroll",
+          "line": 8541,
+          "parameter_form": "object_literal_heuristic",
+          "supplied_keys": [
+            "p_account_id",
+            "p_payroll_run_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "path": "server/powerhub.ts"
+        }
+      ],
+      "db": {
+        "production": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_pay_payroll",
+              "signature": "powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_payroll_run_id bigint, p_account_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_payroll_run_id",
+                "p_account_id",
+                "payroll_run_id",
+                "expense_id",
+                "transaction_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_payroll_run_id",
+                "p_account_id"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "count": 1,
+          "overloads": [
+            {
+              "rpc": "powerhub_pay_payroll",
+              "signature": "powerhub_pay_payroll(bigint,bigint,bigint,bigint,bigint)",
+              "argument_types": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_payroll_run_id bigint, p_account_id bigint",
+              "arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_payroll_run_id",
+                "p_account_id",
+                "payroll_run_id",
+                "expense_id",
+                "transaction_id"
+              ],
+              "arg_modes": "{i,i,i,i,i,t,t,t}",
+              "default_argument_count": 0,
+              "security_definer": false,
+              "service_execute": true,
+              "input_arg_names": [
+                "p_tenant_id",
+                "p_site_id",
+                "p_user_id",
+                "p_payroll_run_id",
+                "p_account_id"
+              ]
+            }
+          ]
+        }
+      },
+      "binding_review": [
+        {
+          "path": "server/powerhub.ts",
+          "line": 8541,
+          "supplied_keys": [
+            "p_account_id",
+            "p_payroll_run_id",
+            "p_site_id",
+            "p_tenant_id",
+            "p_user_id"
+          ],
+          "staging_candidate_match": true,
+          "production_candidate_match": true
+        }
+      ]
+    }
+  ],
+  "manual_followup": {
+    "date": "2026-11-19",
+    "reviewed": [
+      {
+        "rpc": "powerhub_approve_payment_documentation",
+        "line": 4024,
+        "actual": [
+          "p_tenant_id",
+          "p_site_id",
+          "p_user_id",
+          "p_request_id"
+        ],
+        "cause": "Regex traversed subsequent receipt-context RPC and included p_payment_id unrelated to approval."
+      },
+      {
+        "rpc": "powerhub_financial_gl_subledger_reconciliation",
+        "line": 6539,
+        "actual": [
+          "p_tenant_id",
+          "p_site_id",
+          "p_period"
+        ],
+        "cause": "Regex traversed subsequent adjacent calls and included p_site_ids unrelated to reconciliation."
+      },
+      {
+        "rpc": "powerhub_financial_supplier_payment_correction_approve_post",
+        "line": 5403,
+        "actual": [
+          "p_tenant_id",
+          "p_site_id",
+          "p_correction_id",
+          "p_approver_id"
+        ],
+        "cause": "Regex traversed subsequent object field/payment verification and included p_payment_id unrelated to approval."
+      }
+    ],
+    "interpretation": "All three initial candidate mismatches were source-scanner false positives; manually parsed source key sets match at least one staging signature and, where function exists, production signature. No runtime proof."
+  }
+}

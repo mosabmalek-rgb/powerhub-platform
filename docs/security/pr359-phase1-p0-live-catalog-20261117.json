@@ -1,0 +1,704 @@
+{
+  "schemaVersion": 1,
+  "recordedOn": "2026-11-17",
+  "sourceHead": "0fea781e108c8d3769b7a6ca299546b74b4f064f",
+  "capture": "Supabase connector PostgreSQL 17 read-only catalog and migration metadata, no data reads",
+  "stageProject": "iyuryuhaylhisjfcrwkz",
+  "productionProject": "vvcdiqcyhaloxesvpppc",
+  "shadowUpgrade": "NOT_TESTED",
+  "historicalExecution": "UNPROVEN",
+  "releaseDecision": "NO_GO",
+  "environments": {
+    "staging": {
+      "tables": [
+        {
+          "table_name": "chat_messages",
+          "anon_select": false,
+          "rls_enabled": true,
+          "schema_name": "public",
+          "authenticated_delete": false,
+          "authenticated_insert": false,
+          "authenticated_update": false
+        },
+        {
+          "table_name": "objects",
+          "anon_select": true,
+          "rls_enabled": true,
+          "schema_name": "storage",
+          "authenticated_delete": true,
+          "authenticated_insert": true,
+          "authenticated_update": true
+        }
+      ],
+      "policies": [
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_conversation_tags",
+          "policyname": "chat_conversation_tags_select_access",
+          "schemaname": "public",
+          "predicate_prefix": "private.chat_rls_can_select_conversation(conversation_id, tenant_id)",
+          "predicate_sha256": "9a944bee787489280b1cf9819accb7baa5fc3348a0493579ff7054fd51f52ab1",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_conversations",
+          "policyname": "chat_conversations_select_participant",
+          "schemaname": "public",
+          "predicate_prefix": "private.chat_rls_can_select_conversation(id, tenant_id)",
+          "predicate_sha256": "6727e82cf7dd1af041edbf1de41f1f6ee3fdcde1f5e8718bb20223ddd35be22a",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_messages",
+          "policyname": "chat_messages_select_conversation_access",
+          "schemaname": "public",
+          "predicate_prefix": "((private.powerhub_has_platform_capability('manageSupportChat'::text) AND (EXISTS ( SELECT 1\n   FROM chat_conversations c\n  WHERE ((c.id = chat_messages.conversation_id) AND (c.tenant_id = chat_messages.tenant_id) AND (c.conversation_type = 'support'::text))))) OR ((visibility = 'public'::text) AND private.chat_rls_can_select_conversation(conversation_id, tenant_id)))",
+          "predicate_sha256": "750e6b154045ab26c67d70cf23c9314142cf6a3532f62f0fc4a848c8eb4c3ce1",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_support_assignments",
+          "policyname": "chat_assignments_select_support_only",
+          "schemaname": "public",
+          "predicate_prefix": "(private.powerhub_has_platform_capability('manageSupportChat'::text) AND (EXISTS ( SELECT 1\n   FROM chat_conversations c\n  WHERE ((c.id = chat_support_assignments.conversation_id) AND (c.tenant_id = chat_support_assignments.tenant_id) AND (c.conversation_type = 'support'::text)))))",
+          "predicate_sha256": "e0ed5e8918daa868282f934855ac205f057b8f9243ee07f465fdcc12119e57da",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_support_feedback",
+          "policyname": "chat_support_feedback_select_own_or_support",
+          "schemaname": "public",
+          "predicate_prefix": "(((user_id = powerhub_private.current_user_id()) AND (tenant_id = ANY (powerhub_private.current_tenant_ids()))) OR (private.powerhub_has_platform_capability('manageSupportChat'::text) AND (EXISTS ( SELECT 1\n   FROM chat_conversations c\n  WHERE ((c.id = chat_support_feedback.conversation_id) AND (c.tenant_id = chat_support_feedback.tenant_id) AND (c.conversation_type = 'support'::text))))))",
+          "predicate_sha256": "2c55d47297c2d2a55e6175469f9193af9a1cc4f6210295e1dee4313e3fad4b01",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_ticket_events",
+          "policyname": "chat_ticket_events_select_support",
+          "schemaname": "public",
+          "predicate_prefix": "(private.powerhub_has_platform_capability('manageSupportChat'::text) AND (EXISTS ( SELECT 1\n   FROM chat_conversations c\n  WHERE ((c.id = chat_ticket_events.conversation_id) AND (c.tenant_id = chat_ticket_events.tenant_id) AND (c.conversation_type = 'support'::text)))))",
+          "predicate_sha256": "c1c2df03ca1ea09c8717f24c951c79a2883851b9111ae805b8ff70890f8d2e99",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_conversation_receive",
+          "schemaname": "realtime",
+          "predicate_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (((topic ~ '^chat:conversation:[0-9]+$'::text) AND (EXISTS ( SELECT 1\n   FROM ((chat_conversations c\n     JOIN chat_participants cp ON (((cp.conversation_id = c.id) AND (cp.tenant_id = c.tenant_id))))\n     JOIN tenant_members tm ON (((tm.tenant_id = c.tenant_id) AND (tm.user_id = cp.user_id))))\n  WHERE ((c.id = (\"substring\"(messages.topic, 'chat:conversation:([0-9]+)$'::text))::bigint) AND (cp.user_id = powerhub_private.current_user_id()) AND (cp.left_at IS NULL) AND (tm.user_id = powerh",
+          "predicate_sha256": "86ef70f3832b34a38440559a37ca90dfab9a80fc0f504a3b386ec7c36cb540b2",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "INSERT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_conversation_send",
+          "schemaname": "realtime",
+          "predicate_prefix": "",
+          "predicate_sha256": "f9a43ab755d5825a32af166c03bced08ca4b2061b5474976c95d849b47662b8f",
+          "with_check_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (((topic ~ '^chat:conversation:[0-9]+$'::text) AND (EXISTS ( SELECT 1\n   FROM ((chat_conversations c\n     JOIN chat_participants cp ON (((cp.conversation_id = c.id) AND (cp.tenant_id = c.tenan"
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_support_receive_conversation",
+          "schemaname": "realtime",
+          "predicate_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (topic ~ '^chat:conversation:[0-9]+$'::text) AND private.powerhub_has_platform_capability('manageSupportChat'::text) AND (EXISTS ( SELECT 1\n   FROM chat_conversations c\n  WHERE ((c.id = (\"substring\"(messages.topic, 'chat:conversation:([0-9]+)$'::text))::bigint) AND (c.conversation_type = 'support'::text)))))",
+          "predicate_sha256": "273def5ecb25c3125d2c1f5c8b09e31a85bc386997c07885e8c5dbde1955d6c0",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "INSERT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_support_send_conversation",
+          "schemaname": "realtime",
+          "predicate_prefix": "",
+          "predicate_sha256": "d7c2366ef2c7151c8aac99e2a461f9e321fd9411034997ec2d31d57ef3372c71",
+          "with_check_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (topic ~ '^chat:conversation:[0-9]+$'::text) AND private.powerhub_has_platform_capability('manageSupportChat'::text) AND (EXISTS ( SELECT 1\n   FROM chat_conversations c\n  WHERE ((c.id = (\"subs"
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_user_notification_receive",
+          "schemaname": "realtime",
+          "predicate_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (topic ~ '^chat:user:[0-9]+$'::text) AND (split_part(topic, ':'::text, 3) = (powerhub_private.current_user_id())::text) AND (EXISTS ( SELECT 1\n   FROM chat_inbox_notifications n\n  WHERE (((n.id)::text = (messages.payload #>> '{record,id}'::text[])) AND (n.user_id = powerhub_private.current_user_id()) AND ((n.conversation_id IS NULL) OR (EXISTS ( SELECT 1\n           FROM chat_conversations c\n          WHERE ((c.id = n.conversation_id) AND (c.tenant_id = n.tenant_id) AND private.chat_rls_c",
+          "predicate_sha256": "cd966cc90ea619a0bedc941cf4c89de1c8bf1f03b6557bbe7dc23a64fb6132af",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "policyname": "chat_storage_select_conversation_access",
+          "schemaname": "storage",
+          "predicate_prefix": "((bucket_id = 'powerhub-private'::text) AND (EXISTS ( SELECT 1\n   FROM chat_message_attachments cma\n  WHERE ((cma.tenant_id IS NOT NULL) AND (cma.storage_bucket = objects.bucket_id) AND (cma.storage_path = objects.name) AND private.chat_rls_can_select_conversation(cma.conversation_id, cma.tenant_id)))))",
+          "predicate_sha256": "f57496d34ad150a17d806bf71946f4119ce11cc57e58fbc32bf40be78209d175",
+          "with_check_prefix": ""
+        }
+      ],
+      "functions": [
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": false,
+          "function_name": "chat_after_support_conversation_create",
+          "identity_args": "",
+          "service_execute": false,
+          "security_definer": true,
+          "definition_sha256": "a4d23262d9a9c9be7fb75847ded440ea823880b1009b7856b94a24017574482f",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": false,
+          "function_name": "chat_notify_message_visibility",
+          "identity_args": "",
+          "service_execute": false,
+          "security_definer": true,
+          "definition_sha256": "978117265280f2d688612f7cd545abfec0a008fea51add61304cbd7c1c416be0",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": false,
+          "function_name": "chat_prepare_support_conversation",
+          "identity_args": "",
+          "service_execute": false,
+          "security_definer": true,
+          "definition_sha256": "e0fb213341c815882906f4abc7727f529126b410c51ef9f1f7a884a06e08a427",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": false,
+          "function_name": "powerhub_has_platform_capability",
+          "identity_args": "p_capability text",
+          "service_execute": false,
+          "security_definer": true,
+          "definition_sha256": "6dfb4d25a1619ed7a1f99de524f434a68c6eca5a81425f620c410755a7005f34",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_admin_set_platform_access_role",
+          "identity_args": "p_actor_user_id bigint, p_user_id bigint, p_platform_role text",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "e372a731af2090aef216e8847333740f431b3dc5ac88722d3b991864b663d006",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_admin_subscription_upgrade_requests",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "39ab5d12e3d7ea87996aa376e7251d1905485237189d78e76c87057517781e50",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_create_reading",
+          "identity_args": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_client_operation_id uuid, p_reading_at timestamp with time zone, p_reading_value numeric, p_capture_method text, p_image_key text, p_image_hash text, p_notes text, p_is_reading_reset boolean, p_field_verified boolean, p_can_override_same_day boolean",
+          "service_execute": true,
+          "security_definer": false,
+          "definition_sha256": "493282ba3b317368ff03382b519633d725ad568cc1f5292695a2bcbb711e517d",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_dashboard_financial_overview",
+          "identity_args": "p_tenant_id bigint, p_site_id bigint, p_now timestamp with time zone, p_include_details boolean",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "da763042afc1818ea80bdd90e7698913b6a57017eede20e24c7726c8216d9cc8",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_enforce_field_user_quota",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "3dbe26ac1ebdedcdcc6276ac31af139e70cde8c1506a17b50d2a2418a9dab8d6",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_has_platform_capability",
+          "identity_args": "p_capability text",
+          "service_execute": true,
+          "security_definer": false,
+          "definition_sha256": "c24ea826347c9d989955c36772834375b59684db29d5351e866bad482621864b",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_unified_messaging_history",
+          "identity_args": "p_tenant_id bigint, p_site_id bigint, p_period text, p_start_date date, p_end_date date, p_type text, p_channel text, p_status text, p_search text, p_limit integer, p_offset integer",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "bda02b0f0ddb82addbe69d45a6e44521f8fe1e45be57ae6fbb02984d01f7e685",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        }
+      ],
+      "creditLedger": "subscriber_balance_ledger",
+      "coreMigrations": [
+        {
+          "name": "powerhub_subscriber_credit_ledger",
+          "version": "20261103131052",
+          "sql_available": true
+        },
+        {
+          "name": "powerhub_subscriber_liability_and_cash_allocation",
+          "version": "20261103131104",
+          "sql_available": true
+        },
+        {
+          "name": "powerhub_statement_operating_collection_summary",
+          "version": "20261103131125",
+          "sql_available": true
+        },
+        {
+          "name": "powerhub_legacy_unlinked_payments_to_subscriber_credit",
+          "version": "20261103145232",
+          "sql_available": true
+        },
+        {
+          "name": "powerhub_platform_support_identity_role_guard",
+          "version": "20261107130443",
+          "sql_available": false
+        },
+        {
+          "name": "powerhub_field_user_policy_guard_update_and_concurrency",
+          "version": "20261108111500",
+          "sql_available": false
+        },
+        {
+          "name": "powerhub_chat_message_support_scope_read_hardening",
+          "version": "20261108120000",
+          "sql_available": false
+        }
+      ],
+      "financeColumns": [
+        {
+          "data_type": "numeric",
+          "column_name": "invoice_applied_amount"
+        },
+        {
+          "data_type": "text",
+          "column_name": "payment_purpose"
+        },
+        {
+          "data_type": "numeric",
+          "column_name": "subscriber_credit_amount"
+        }
+      ],
+      "privateAnonUsage": false
+    },
+    "production": {
+      "tables": [
+        {
+          "table_name": "chat_messages",
+          "anon_select": false,
+          "rls_enabled": true,
+          "schema_name": "public",
+          "authenticated_delete": false,
+          "authenticated_insert": false,
+          "authenticated_update": false
+        },
+        {
+          "table_name": "objects",
+          "anon_select": true,
+          "rls_enabled": true,
+          "schema_name": "storage",
+          "authenticated_delete": true,
+          "authenticated_insert": true,
+          "authenticated_update": true
+        }
+      ],
+      "policies": [
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_conversation_tags",
+          "policyname": "chat_conversation_tags_select_access",
+          "schemaname": "public",
+          "predicate_prefix": "(private.powerhub_has_platform_capability('manageSupportChat'::text) OR (EXISTS ( SELECT 1\n   FROM chat_participants cp\n  WHERE ((cp.conversation_id = chat_conversation_tags.conversation_id) AND (cp.user_id = powerhub_private.current_user_id()) AND (cp.left_at IS NULL)))))",
+          "predicate_sha256": "dcd86c7a201e097730fe47a89c0956b24fe8d349aa9c2d7d51b1657050a367ac",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_conversations",
+          "policyname": "chat_conversations_select_participant",
+          "schemaname": "public",
+          "predicate_prefix": "private.chat_rls_can_select_conversation(id, tenant_id)",
+          "predicate_sha256": "6727e82cf7dd1af041edbf1de41f1f6ee3fdcde1f5e8718bb20223ddd35be22a",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_messages",
+          "policyname": "chat_messages_select_conversation_access",
+          "schemaname": "public",
+          "predicate_prefix": "(private.powerhub_has_platform_capability('manageSupportChat'::text) OR ((visibility = 'public'::text) AND (EXISTS ( SELECT 1\n   FROM chat_participants cp\n  WHERE ((cp.conversation_id = chat_messages.conversation_id) AND (cp.tenant_id = chat_messages.tenant_id) AND (cp.user_id = powerhub_private.current_user_id()) AND (cp.left_at IS NULL))))))",
+          "predicate_sha256": "00b258c1c2e7956cd2d0fe5c431f504e1f90bfe55b0cd127d0e1978add6c9e95",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_support_assignments",
+          "policyname": "chat_assignments_select_support_only",
+          "schemaname": "public",
+          "predicate_prefix": "private.powerhub_has_platform_capability('manageSupportChat'::text)",
+          "predicate_sha256": "ca371890e56f42fd22db648c9de857fed33f8dd269aa98cde606b4b972380147",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_support_feedback",
+          "policyname": "chat_support_feedback_select_own_or_support",
+          "schemaname": "public",
+          "predicate_prefix": "((user_id = powerhub_private.current_user_id()) OR private.powerhub_has_platform_capability('manageSupportChat'::text))",
+          "predicate_sha256": "abcf50e66d5061c91a205a14b178bbea951a9051872f9b0bf99179709d33a8ed",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "chat_ticket_events",
+          "policyname": "chat_ticket_events_select_support",
+          "schemaname": "public",
+          "predicate_prefix": "private.powerhub_has_platform_capability('manageSupportChat'::text)",
+          "predicate_sha256": "ca371890e56f42fd22db648c9de857fed33f8dd269aa98cde606b4b972380147",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_conversation_receive",
+          "schemaname": "realtime",
+          "predicate_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (((topic ~ '^chat:conversation:[0-9]+$'::text) AND (EXISTS ( SELECT 1\n   FROM ((chat_conversations c\n     JOIN chat_participants cp ON (((cp.conversation_id = c.id) AND (cp.tenant_id = c.tenant_id))))\n     JOIN tenant_members tm ON (((tm.tenant_id = c.tenant_id) AND (tm.user_id = cp.user_id))))\n  WHERE ((c.id = (\"substring\"(messages.topic, 'chat:conversation:([0-9]+)$'::text))::bigint) AND (cp.user_id = powerhub_private.current_user_id()) AND (cp.left_at IS NULL) AND (tm.user_id = powerh",
+          "predicate_sha256": "cdedad5a9562c1dd11894ecc5d48a7f20d71f2787511d0dda9c1c11eb9c9333a",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "INSERT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_conversation_send",
+          "schemaname": "realtime",
+          "predicate_prefix": "",
+          "predicate_sha256": "d2111c4a4c704c10df04bbcaaba51fb6129e1005f727e249569d012c5c4f71ec",
+          "with_check_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (((topic ~ '^chat:conversation:[0-9]+$'::text) AND (EXISTS ( SELECT 1\n   FROM ((chat_conversations c\n     JOIN chat_participants cp ON (((cp.conversation_id = c.id) AND (cp.tenant_id = c.tenan"
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_support_receive_conversation",
+          "schemaname": "realtime",
+          "predicate_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (topic ~ '^chat:conversation:[0-9]+$'::text) AND private.powerhub_has_platform_capability('manageSupportChat'::text))",
+          "predicate_sha256": "7f5a2581861e846a9e737c6c528169468b876608cd4df7db7b3318f619f168bf",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "INSERT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_support_send_conversation",
+          "schemaname": "realtime",
+          "predicate_prefix": "",
+          "predicate_sha256": "160b5544981bbe635c4962923f328093d8777ddaac511f81d01e68dc8e637a1f",
+          "with_check_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (topic ~ '^chat:conversation:[0-9]+$'::text) AND private.powerhub_has_platform_capability('manageSupportChat'::text))"
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "messages",
+          "policyname": "chat_user_notification_receive",
+          "schemaname": "realtime",
+          "predicate_prefix": "((private = true) AND (extension = 'broadcast'::text) AND (realtime.topic() ~ '^chat:user:[0-9]+$'::text) AND ((split_part(realtime.topic(), ':'::text, 3))::bigint = powerhub_private.current_user_id()))",
+          "predicate_sha256": "4b7b086eafa7ba820ac23cc6d6eea03887c9b8262b27003aa2824c6e8a4529d1",
+          "with_check_prefix": ""
+        },
+        {
+          "cmd": "SELECT",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "objects",
+          "policyname": "chat_storage_select_conversation_access",
+          "schemaname": "storage",
+          "predicate_prefix": "((bucket_id = 'powerhub-private'::text) AND (EXISTS ( SELECT 1\n   FROM ((chat_message_attachments cma\n     JOIN chat_participants cp ON (((cp.conversation_id = cma.conversation_id) AND (cp.tenant_id = cma.tenant_id))))\n     JOIN tenant_members tm ON (((tm.tenant_id = cma.tenant_id) AND (tm.user_id = cp.user_id))))\n  WHERE ((cma.storage_bucket = objects.bucket_id) AND (cma.storage_path = objects.name) AND (((cp.user_id = powerhub_private.current_user_id()) AND (cp.left_at IS NULL) AND (tm.is_active = true) AND (tm.membership_status = 'active'::t",
+          "predicate_sha256": "b96f8715d48001acfed76cc5b67e70fcaeda73ea80bf6a027ecf34698aa6760c",
+          "with_check_prefix": ""
+        }
+      ],
+      "functions": [
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": true,
+          "function_name": "chat_after_support_conversation_create",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "a4d23262d9a9c9be7fb75847ded440ea823880b1009b7856b94a24017574482f",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": true,
+          "function_name": "chat_notify_message_visibility",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "978117265280f2d688612f7cd545abfec0a008fea51add61304cbd7c1c416be0",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": true,
+          "function_name": "chat_prepare_support_conversation",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "e0fb213341c815882906f4abc7727f529126b410c51ef9f1f7a884a06e08a427",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "private",
+          "anon_execute": false,
+          "function_name": "powerhub_has_platform_capability",
+          "identity_args": "p_capability text",
+          "service_execute": false,
+          "security_definer": true,
+          "definition_sha256": "2be1f68e35234f69c7f0142f1b35d7108ac1a088c072658b99f97edf30b8f059",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_admin_set_platform_access_role",
+          "identity_args": "p_actor_user_id bigint, p_user_id bigint, p_platform_role text",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "af23c97068093b6a1e5d1e4ed3c82de1b33af33a34eedb6302c9ea451e24be57",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_admin_subscription_upgrade_requests",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "39ab5d12e3d7ea87996aa376e7251d1905485237189d78e76c87057517781e50",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_create_reading",
+          "identity_args": "p_tenant_id bigint, p_site_id bigint, p_user_id bigint, p_subscriber_id bigint, p_client_operation_id uuid, p_reading_at timestamp with time zone, p_reading_value numeric, p_capture_method text, p_image_key text, p_image_hash text, p_notes text, p_is_reading_reset boolean, p_field_verified boolean, p_can_override_same_day boolean",
+          "service_execute": true,
+          "security_definer": false,
+          "definition_sha256": "493282ba3b317368ff03382b519633d725ad568cc1f5292695a2bcbb711e517d",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_dashboard_financial_overview",
+          "identity_args": "p_tenant_id bigint, p_site_id bigint, p_now timestamp with time zone, p_include_details boolean",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "37950a1a4c679c074b86e1adf102c5d9d2ea756de356c0247310c74cdc912f3a",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_enforce_field_user_quota",
+          "identity_args": "",
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "3073052e08739b886561e814428b87cef8c4d36ff25d1b7912925d191c1c4ca0",
+          "function_settings": [
+            "search_path=public, pg_temp"
+          ],
+          "authenticated_execute": false
+        },
+        {
+          "owner_role": "postgres",
+          "schema_name": "public",
+          "anon_execute": false,
+          "function_name": "powerhub_has_platform_capability",
+          "identity_args": "p_capability text",
+          "service_execute": true,
+          "security_definer": false,
+          "definition_sha256": "3298daa472948d558a34f7f77bdc9af959b18e88cd7d2dc920a7fe7c3c4e19cc",
+          "function_settings": [
+            "search_path=\"\""
+          ],
+          "authenticated_execute": true
+        }
+      ],
+      "creditLedger": null,
+      "coreMigrations": [],
+      "financeColumns": [],
+      "privateAnonUsage": false
+    }
+  }
+}

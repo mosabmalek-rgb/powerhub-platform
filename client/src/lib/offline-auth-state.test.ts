@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isSupabaseSessionUsable,
+  getSupabaseSessionExpirySeconds,
+  isNonAuthoritativeInitialNullSessionEvent,
   isSessionReadBackoffActive,
   SUPABASE_SESSION_READ_ERROR_BACKOFF_MS,
   SUPABASE_SESSION_READ_TIMEOUT_MS,
@@ -11,6 +13,7 @@ import {
   isOfflineCacheWriteCurrent,
   shouldRefreshSupabaseSession,
   SUPABASE_BROWSER_AUTH_OPTIONS,
+  shouldValidateOnlineSession,
 } from "./offline-auth-state";
 
 describe("offline authentication state transitions", () => {
@@ -62,20 +65,49 @@ describe("query-cache lifecycle across auth transitions", () => {
     expect(isOfflineCacheWriteCurrent("user-a", 4, null, 4)).toBe(false);
   });
 
-  it("renders the app without waiting for offline bootstrap and does not overwrite live query data", () => {
+  it("restores the local query cache before mounting protected routes with a bounded startup gate", () => {
     const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
     const cache = readFileSync(new URL("./offline-query-cache.ts", import.meta.url), "utf8");
     expect(main).toContain("renderApp();");
-    expect(main).toContain("void bootstrapOfflineState();");
+    expect(main).toContain("Promise.race([bootstrapOfflineState(), deadline])");
+    expect(main.indexOf("Promise.race([bootstrapOfflineState(), deadline])")).toBeLessThan(main.indexOf("<AuthProvider>"));
+    expect(main).toContain("if (standalonePublicInvoice) return;");
     expect(main).not.toContain("bootstrapOfflineState().finally(renderApp)");
     expect(main).toContain("isOfflineCacheWriteCurrent(");
     expect(main).toContain("if (!token)");
+    expect(main).toContain("if (getPowerHubConnectivitySnapshot() === false)");
     expect(main).toContain('event === "TOKEN_REFRESHED" && nextUserId');
     expect(main).toContain('query.state.status === "error"');
     expect(main).toContain('if (event === "INITIAL_SESSION")');
     expect(main).toContain("query.state.fetchStatus === \"fetching\"");
     expect(cache).toContain("queryClient.getQueryData(queryKey) !== undefined");
     expect(cache).toContain("isStillCurrent: () => boolean = () => true");
+  });
+});
+
+describe("Supabase initial session event ordering", () => {
+  it("ignores INITIAL_SESSION(null) as an authoritative sign-out", () => {
+    expect(isNonAuthoritativeInitialNullSessionEvent("INITIAL_SESSION", null)).toBe(true);
+    expect(isNonAuthoritativeInitialNullSessionEvent("SIGNED_OUT", null)).toBe(false);
+    expect(isNonAuthoritativeInitialNullSessionEvent("INITIAL_SESSION", { user: { id: "user-a" } })).toBe(false);
+  });
+
+  it("filters the initial null before every auth consumer advances its startup revision", () => {
+    const supabase = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
+    const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
+    const auth = readFileSync(new URL("../_core/hooks/useAuth.ts", import.meta.url), "utf8");
+    const cases = [
+      { source: supabase, revision: "authStateRevision += 1;" },
+      { source: main, revision: "authEventRevision += 1;" },
+      { source: auth, revision: "const revision = ++transitionRevision;" },
+    ];
+    for (const item of cases) {
+      const guard = item.source.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))");
+      expect(guard, "missing INITIAL_SESSION(null) guard").toBeGreaterThanOrEqual(0);
+      expect(guard).toBeLessThan(item.source.indexOf(item.revision));
+      expect(item.source.slice(guard, item.source.indexOf(item.revision))).toContain("return;");
+    }
+    expect(supabase.slice(supabase.indexOf("if (isNonAuthoritativeInitialNullSessionEvent(event, session))"), supabase.indexOf("authStateRevision += 1;"))).not.toContain("subscriber(event, session)");
   });
 });
 
@@ -125,33 +157,77 @@ describe("Supabase browser session refresh policy", () => {
     expect(shouldRefreshSupabaseSession(null, 1_000)).toBe(true);
   });
 
-  it("only treats a session as usable while its access token is unexpired", () => {
-    expect(isSupabaseSessionUsable({ expires_at: 1_001 }, 1_000)).toBe(true);
-    expect(isSupabaseSessionUsable({ expires_at: 1_000 }, 1_000)).toBe(false);
-    expect(isSupabaseSessionUsable({ expires_at: 999 }, 1_000)).toBe(false);
-    expect(isSupabaseSessionUsable({ expires_at: Number.NaN }, 1_000)).toBe(false);
+  it("requires a non-empty access token and a future expiry", () => {
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: 1_001 }, 1_000)).toBe(true);
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: 1_000 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: 999 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "valid.jwt.token", expires_at: Number.NaN }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ expires_at: 1_001 }, 1_000)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "", expires_at: 1_001 }, 1_000)).toBe(false);
     expect(isSupabaseSessionUsable(null, 1_000)).toBe(false);
+  });
+
+  it("uses JWT exp as the bearer-token expiry and falls back to expires_at for opaque tokens", () => {
+    const payload = btoa(JSON.stringify({ exp: 1_001 }));
+    const token = `header.${payload}.signature`;
+    const session = { access_token: token };
+    expect(getSupabaseSessionExpirySeconds({ access_token: token, expires_at: 2_000 })).toBe(1_001);
+    expect(getSupabaseSessionExpirySeconds(session)).toBe(1_001);
+    expect(getSupabaseSessionExpirySeconds({ access_token: "opaque-token", expires_at: 2_000 })).toBe(2_000);
+    expect(getSupabaseSessionExpirySeconds({ access_token: "opaque-token" })).toBeNull();
+    expect(isSupabaseSessionUsable({ access_token: token, expires_at: 999 }, 1_000)).toBe(true);
+    expect(isSupabaseSessionUsable({ access_token: token, expires_at: 2_000 }, 1_001)).toBe(false);
+    expect(isSupabaseSessionUsable({ access_token: "opaque-token", expires_at: 2_000 }, 1_000)).toBe(true);
   });
 });
 
 
 describe("Supabase browser refresh wiring", () => {
-  it("uses the supported automatic refresh lifecycle in the actual browser client", () => {
+  it("uses an awaited, single-flight refresh-aware token resolver in the actual browser client", () => {
     const source = readFileSync(new URL("./supabase.ts", import.meta.url), "utf8");
+    const resolver = readFileSync(new URL("./supabase-token-resolution.ts", import.meta.url), "utf8");
+    const main = readFileSync(new URL("../main.tsx", import.meta.url), "utf8");
     expect(source).toContain("auth: { ...SUPABASE_BROWSER_AUTH_OPTIONS }");
     expect(source).not.toContain("autoRefreshToken: false");
-    expect(source).not.toContain("scheduleSessionRefresh");
-    expect(source).not.toContain("shouldRefreshSupabaseSession");
-    expect(source).not.toContain("supabase.auth.refreshSession()");
-    expect(source).not.toContain("refreshExpiredSupabaseSession");
-    expect(source).toContain("if (sessionInitialized && isSupabaseSessionUsable(currentSession, nowSeconds))");
-    expect(source).toContain("const sdkRead = supabase.auth.getSession();");
-    expect(source).toContain("Promise.race([sdkRead, timeout])");
-    expect(source).toContain("SUPABASE_SESSION_READ_TIMEOUT_MS");
+    expect(source).toContain("shouldRefreshSupabaseSession(getSupabaseSessionExpirySeconds(session))");
+    expect(source).toContain("supabase.auth.getSession()");
+    expect(source).not.toContain("supabase.auth.refreshSession(session)");
+    expect(source).toContain("resolveLatestSupabaseSessionForAccessToken");
+    expect(source).toContain("function startOrJoinSupabaseSdkSessionRead()");
+    expect(source).toContain("pending = sdkRead.finally(");
+    expect(source).toContain("if (sessionReadInFlight) return sessionReadInFlight");
+    expect(source).toContain("return awaitSupabaseSessionRead(");
+    expect(source.match(/const sdkRead = supabase\.auth\.getSession\(\)/g)).toHaveLength(1);
+    expect(source).not.toContain("accessTokenRefreshInFlight");
+    expect(source).toContain("selectAuthSnapshot(sdkSession, currentSession, requestRevision, authStateRevision)");
     expect(source).toContain("sessionReadInFlight = null;");
-    expect(source).toContain("The SDK's getSession() owns refresh-token rotation");
-    expect(source).toContain("if (!session || !isSupabaseSessionUsable(session)) {");
-    expect(source).toContain("PowerHubSessionReadTimeoutError");
+    expect(source).not.toContain("supabase.auth.refreshSession(session");
+    expect(source).toContain("getSupabaseAccessToken(): Promise<string | null>");
+    expect(source).toContain("createSupabaseAccessTokenResolver<Session>");
+    expect(source).toContain("export function acceptSupabaseSignInSession(session: Session): void");
+    expect(source).toContain('subscriber("SIGNED_IN", session)');
+    expect(resolver).toContain("SUPABASE_ACCESS_TOKEN_RESOLUTION_TIMEOUT_MS = 7_500");
+    expect(resolver).toContain("SUPABASE_SESSION_REFRESH_TIMEOUT_MS = 6_000");
+    expect(resolver).toContain("if (refreshRetryAfter > now())");
+    expect(resolver).toContain("if (stillValid) return stillValid");
+    expect(resolver).toContain("expectedUserId && resolved?.user?.id !== expectedUserId");
+    expect(resolver).toContain("PowerHubSessionIdentityChangedError");
+    expect(resolver).toContain("PowerHubSessionRefreshTimeoutError");
+    expect(main).toContain("await getSupabaseAccessToken()");
+    expect(main.indexOf("deviceId = await getPowerHubDeviceId()")).toBeLessThan(main.indexOf("await getSupabaseAccessToken()"));
+    expect(main).toContain("splitLink({");
+    expect(main).toContain('condition: (op) => op.path === "auth.me"');
+    expect(main).toContain("true: httpLink({");
+    expect(main).toContain("false: httpBatchLink({");
+    expect(main).toContain("headers: resolvePowerHubTRPCHeaders");
+    expect(main).toContain("fetch: powerHubTRPCFetch");
+    const login = readFileSync(new URL("../pages/LoginPage.tsx", import.meta.url), "utf8");
+    expect(login).toContain("acceptSupabaseSignInSession(data.session)");
+    // The sign-in response is adopted immediately, but navigation waits for provider validation.
+    expect(login).toContain("setAwaitingSignInConfirmation(true)");
+    expect(login).toContain("shouldRedirectToWorkspaceAfterAuthentication({");
+    expect(login).not.toContain("if (hasSupabaseSession ||");
+    expect(login).not.toContain("تهيئة جلسة PowerHub لم تكتمل");
     const packageJson = readFileSync(new URL("../../../package.json", import.meta.url), "utf8");
     const lockfile = readFileSync(new URL("../../../pnpm-lock.yaml", import.meta.url), "utf8");
     expect(packageJson).toContain('"@supabase/supabase-js": "^2.117.2"');
@@ -162,3 +238,11 @@ describe("Supabase browser refresh wiring", () => {
 });
 
 
+describe("online auth validation readiness", () => {
+  it("waits for the first reachability probe before starting auth.me", () => {
+    expect(shouldValidateOnlineSession(true, true, true)).toBe(false);
+    expect(shouldValidateOnlineSession(true, false, false)).toBe(false);
+    expect(shouldValidateOnlineSession(false, true, false)).toBe(false);
+    expect(shouldValidateOnlineSession(true, true, false)).toBe(true);
+  });
+});

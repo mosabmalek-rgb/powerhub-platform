@@ -170,6 +170,10 @@ export async function downloadReportHtmlAsPdf(element: HTMLElement, filename: st
   host.appendChild(report);
   document.body.appendChild(host);
   try {
+    if (document.fonts?.ready) await document.fonts.ready.catch(() => undefined);
+    await Promise.all(
+      Array.from(report.querySelectorAll("img")).map((image) => image.decode().catch(() => undefined)),
+    );
     const canvas = await html2canvas(report, { scale: 2, useCORS: true, backgroundColor: "#ffffff", windowWidth: width, windowHeight: Math.max(794, report.scrollHeight || 0), scrollX: 0, scrollY: 0 });
     const pdf = new jsPDF({ orientation, unit: "pt", format: "a4", compress: true });
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -202,5 +206,63 @@ export async function downloadReportHtmlAsPdf(element: HTMLElement, filename: st
     pdf.save(filename);
   } finally {
     host.remove();
+  }
+}
+
+
+/**
+ * Opens the report as real HTML for the browser's print-to-PDF pipeline.
+ * Unlike html2canvas/jsPDF, text and table cells remain selectable and searchable.
+ */
+export async function printReportHtmlAsPdf(
+  element: HTMLElement,
+  filename: string,
+  options?: { landscape?: boolean; title?: string },
+) {
+  const popup = window.open("", "_blank");
+  if (!popup) throw new Error("اسمح بفتح نافذة الطباعة ثم أعد محاولة تصدير PDF.");
+
+  const title = options?.title?.trim() || filename.replace(/\.pdf$/i, "");
+  const direction = element.dir === "ltr" ? "ltr" : "rtl";
+  const orientation = options?.landscape ? "landscape" : "portrait";
+  popup.document.open();
+  popup.document.write(`<!doctype html>
+<html lang="ar" dir="${direction}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title>
+<style>
+  @page { size: A4 ${orientation}; margin: 12mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #101828; }
+  body { font-family: Tahoma, Arial, sans-serif; font-size: 10pt; line-height: 1.5; direction: ${direction}; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  main { width: 100%; min-width: 0; overflow: visible; }
+  table { width: 100%; border-collapse: collapse; border-spacing: 0; page-break-inside: auto; break-inside: auto; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  th, td { vertical-align: middle; overflow-wrap: anywhere; }
+  section { break-inside: auto; page-break-inside: auto; }
+  img { max-width: 100%; }
+  @media print { body { margin: 0; } }
+</style>
+</head>
+<body>
+<main>${element.innerHTML}</main>
+</body>
+</html>`);
+  popup.document.close();
+
+  try {
+    if (popup.document.fonts?.ready) await popup.document.fonts.ready;
+    await Promise.all(
+      Array.from(popup.document.images).map((image) => image.decode().catch(() => undefined)),
+    );
+    popup.focus();
+    popup.print();
+  } catch (error) {
+    popup.close();
+    throw error;
   }
 }

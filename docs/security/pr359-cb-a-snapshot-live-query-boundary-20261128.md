@@ -1,0 +1,7 @@
+# CB-A snapshot/live query boundary — 2026-11-28
+
+Parent 1368f684c5df8e40bc42d84c21e1130e03d8c8c5: PostgreSQL integration succeeded, job 141013166811 emitted all eleven chat characterization/candidate/concurrency markers, including three independent transaction scenarios. Docker Shadow still running at initial review.
+
+Operational OfflineDeltaSyncRuntime previously chose matching list queries only after the awaited network snapshot, so an intervening live success could be overwritten without a comparable server watermark. Capture the exact matching query identities and states before requesting the snapshot; defer when a query is added, removed, replaced, updated, invalidated or fetching. Track only each expected local write and recheck before and after required durable cache persistence. Ordinary live query reads are never cancelled by this boundary.
+
+Unit tests use real TanStack QueryClient. Extend the disposable Chromium fixture to show a live result and its persisted record survive a rejected stale snapshot, with the old repair checkpoint and protected stores unchanged. The existing retry path remains tested. This is a conservative conflict detector, not a server version comparison, cross-tab durable write ordering proof, or a distributed transaction between the query cache and cursor databases. Hosted runtime acceptance, persistent cross-context fencing, and a certified server repair version remain open. No hosted mutations.

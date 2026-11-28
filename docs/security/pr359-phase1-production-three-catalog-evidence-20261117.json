@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 1,
+  "observationDate": "2026-11-17",
+  "sourceHead": "8d8d6a9c2be7c28d12831b6e4d817e4fadf1a59e",
+  "method": "Metadata-only read-only PostgreSQL catalog and cron.job inspection; no application RPC invoked",
+  "projects": {
+    "staging": "iyuryuhaylhisjfcrwkz",
+    "production": "vvcdiqcyhaloxesvpppc"
+  },
+  "historicalSqlUnavailableVersions": [
+    "20261026101438",
+    "20261026101445",
+    "20261026102654"
+  ],
+  "currentCatalogPostconditions": "SCOPED_METADATA_PASS",
+  "historicalAttribution": "UNPROVEN",
+  "behavioralE2E": "NOT_TESTED",
+  "shadowUpgrade": "NOT_TESTED",
+  "financialDashboardDrift": {
+    "status": "MATERIAL_LOGIC_DIFFERENCE",
+    "details": "Staging selects invoice_applied_amount and filters payment_purpose to invoice collections; Production selects payment.amount without that purpose restriction. Does not establish financial error without fixture or scoped operational acceptance.",
+    "functionDefinitionComparison": [
+      {
+        "function": "powerhub_process_subscription_lifecycle",
+        "stagingSha256": "b180e27e6ec703cc1c7fbf8e91dc044f1a0568153b4f819c5dbd05d51228b6ec",
+        "productionSha256": "b180e27e6ec703cc1c7fbf8e91dc044f1a0568153b4f819c5dbd05d51228b6ec",
+        "same": true
+      },
+      {
+        "function": "powerhub_dashboard_operational_summary",
+        "stagingSha256": "0138a95a6f7f8597853f2695983f60e59a240dffae53923cf734531280c5cdc8",
+        "productionSha256": "0138a95a6f7f8597853f2695983f60e59a240dffae53923cf734531280c5cdc8",
+        "same": true
+      },
+      {
+        "function": "powerhub_dashboard_financial_overview",
+        "stagingSha256": "da763042afc1818ea80bdd90e7698913b6a57017eede20e24c7726c8216d9cc8",
+        "productionSha256": "37950a1a4c679c074b86e1adf102c5d9d2ea756de356c0247310c74cdc912f3a",
+        "same": false
+      }
+    ]
+  },
+  "observations": {
+    "staging": {
+      "columns": [
+        {
+          "data_type": "timestamp with time zone",
+          "column_name": "ends_at",
+          "is_nullable": "NO",
+          "column_default": null
+        },
+        {
+          "data_type": "integer",
+          "column_name": "trial_duration_days",
+          "is_nullable": "YES",
+          "column_default": null
+        },
+        {
+          "data_type": "boolean",
+          "column_name": "trial_enabled",
+          "is_nullable": "NO",
+          "column_default": "false"
+        },
+        {
+          "data_type": "timestamp with time zone",
+          "column_name": "trial_ends_at",
+          "is_nullable": "YES",
+          "column_default": null
+        }
+      ],
+      "indexes": [
+        {
+          "indexdef": "CREATE INDEX expenses_tenant_site_occurred_at_id_idx ON public.expenses USING btree (tenant_id, site_id, occurred_at DESC, id DESC)",
+          "indexname": "expenses_tenant_site_occurred_at_id_idx"
+        },
+        {
+          "indexdef": "CREATE INDEX invoices_dashboard_open_debt_idx ON public.invoices USING btree (tenant_id, site_id, due_date, subscriber_id, id) INCLUDE (invoice_no, balance_due, status) WHERE ((status <> ALL (ARRAY['cancelled'::text, 'draft'::text])) AND (balance_due > (0)::numeric))",
+          "indexname": "invoices_dashboard_open_debt_idx"
+        },
+        {
+          "indexdef": "CREATE INDEX tenant_subscriptions_trial_ends_at_idx ON public.tenant_subscriptions USING btree (trial_ends_at) WHERE ((status = 'trial'::text) AND (trial_ends_at IS NOT NULL))",
+          "indexname": "tenant_subscriptions_trial_ends_at_idx"
+        }
+      ],
+      "functions": [
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "proname": "powerhub_admin_complete_generator_owner_provisioning",
+          "signature": "powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,integer,text,text,text,timestamp with time zone,integer)",
+          "anon_execute": false,
+          "uses_duration": true,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "b6b77b9491256ecd01d9ea5937c82236150601e14b48376d8bd7e70a9c14cce2",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": true,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "proname": "powerhub_admin_complete_generator_owner_provisioning",
+          "signature": "powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamp with time zone,integer)",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "6e983a41ca57d37b118b779b62932c1e848b271743b2cf868a68a8c2847ff013",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": false,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "proname": "powerhub_dashboard_financial_overview",
+          "signature": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "da763042afc1818ea80bdd90e7698913b6a57017eede20e24c7726c8216d9cc8",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": false,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": true,
+          "filters_invoice_collection_purpose": true
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "proname": "powerhub_dashboard_operational_summary",
+          "signature": "powerhub_dashboard_operational_summary(bigint,bigint)",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "0138a95a6f7f8597853f2695983f60e59a240dffae53923cf734531280c5cdc8",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": false,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "proname": "powerhub_process_subscription_lifecycle",
+          "signature": "powerhub_process_subscription_lifecycle()",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "b180e27e6ec703cc1c7fbf8e91dc044f1a0568153b4f819c5dbd05d51228b6ec",
+          "uses_trial_dedupe": true,
+          "uses_trial_ends_at": true,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        }
+      ],
+      "lifecycleJobs": [
+        {
+          "active": true,
+          "jobname": "powerhub-subscription-lifecycle",
+          "database": "postgres",
+          "schedule": "*/15 * * * *",
+          "username": "postgres"
+        }
+      ]
+    },
+    "production": {
+      "columns": [
+        {
+          "data_type": "timestamp with time zone",
+          "column_name": "ends_at",
+          "is_nullable": "NO",
+          "column_default": null
+        },
+        {
+          "data_type": "integer",
+          "column_name": "trial_duration_days",
+          "is_nullable": "YES",
+          "column_default": null
+        },
+        {
+          "data_type": "boolean",
+          "column_name": "trial_enabled",
+          "is_nullable": "NO",
+          "column_default": "false"
+        },
+        {
+          "data_type": "timestamp with time zone",
+          "column_name": "trial_ends_at",
+          "is_nullable": "YES",
+          "column_default": null
+        }
+      ],
+      "indexes": [
+        {
+          "indexdef": "CREATE INDEX expenses_tenant_site_occurred_at_id_idx ON public.expenses USING btree (tenant_id, site_id, occurred_at DESC, id DESC)",
+          "indexname": "expenses_tenant_site_occurred_at_id_idx"
+        },
+        {
+          "indexdef": "CREATE INDEX invoices_dashboard_open_debt_idx ON public.invoices USING btree (tenant_id, site_id, due_date, subscriber_id, id) INCLUDE (invoice_no, balance_due, status) WHERE ((status <> ALL (ARRAY['cancelled'::text, 'draft'::text])) AND (balance_due > (0)::numeric))",
+          "indexname": "invoices_dashboard_open_debt_idx"
+        },
+        {
+          "indexdef": "CREATE INDEX tenant_subscriptions_trial_ends_at_idx ON public.tenant_subscriptions USING btree (trial_ends_at) WHERE ((status = 'trial'::text) AND (trial_ends_at IS NOT NULL))",
+          "indexname": "tenant_subscriptions_trial_ends_at_idx"
+        }
+      ],
+      "functions": [
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "proname": "powerhub_admin_complete_generator_owner_provisioning",
+          "signature": "powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,integer,text,text,text,timestamp with time zone,integer)",
+          "anon_execute": false,
+          "uses_duration": true,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "b6b77b9491256ecd01d9ea5937c82236150601e14b48376d8bd7e70a9c14cce2",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": true,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=public, pg_temp"
+          ],
+          "proname": "powerhub_admin_complete_generator_owner_provisioning",
+          "signature": "powerhub_admin_complete_generator_owner_provisioning(bigint,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,text,text,text,timestamp with time zone,integer)",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "6e983a41ca57d37b118b779b62932c1e848b271743b2cf868a68a8c2847ff013",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": false,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "proname": "powerhub_dashboard_financial_overview",
+          "signature": "powerhub_dashboard_financial_overview(bigint,bigint,timestamp with time zone,boolean)",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "37950a1a4c679c074b86e1adf102c5d9d2ea756de356c0247310c74cdc912f3a",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": false,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "proname": "powerhub_dashboard_operational_summary",
+          "signature": "powerhub_dashboard_operational_summary(bigint,bigint)",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "0138a95a6f7f8597853f2695983f60e59a240dffae53923cf734531280c5cdc8",
+          "uses_trial_dedupe": false,
+          "uses_trial_ends_at": false,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        },
+        {
+          "owner": "postgres",
+          "config": [
+            "search_path=\"\""
+          ],
+          "proname": "powerhub_process_subscription_lifecycle",
+          "signature": "powerhub_process_subscription_lifecycle()",
+          "anon_execute": false,
+          "uses_duration": false,
+          "service_execute": true,
+          "security_definer": true,
+          "definition_sha256": "b180e27e6ec703cc1c7fbf8e91dc044f1a0568153b4f819c5dbd05d51228b6ec",
+          "uses_trial_dedupe": true,
+          "uses_trial_ends_at": true,
+          "authenticated_execute": false,
+          "uses_invoice_applied_amount": false,
+          "filters_invoice_collection_purpose": false
+        }
+      ],
+      "lifecycleJobs": [
+        {
+          "active": true,
+          "jobname": "powerhub-subscription-lifecycle",
+          "database": "postgres",
+          "schedule": "*/15 * * * *",
+          "username": "postgres"
+        }
+      ]
+    }
+  },
+  "releaseDecision": "NO_GO_UNPROVEN_HISTORICAL_SQL_AND_SHADOW_UPGRADE"
+}

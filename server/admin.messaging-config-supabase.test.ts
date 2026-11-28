@@ -16,6 +16,7 @@ const state = vi.hoisted(() => {
   const calls: string[] = [];
   const rpcArgs: Array<{ functionName: string; args?: Record<string, unknown> }> = [];
   const filters: Array<[string, string, unknown]> = [];
+  let metricError: { code?: string; message: string } | null = null;
   const rows: Record<string, unknown[]> = {
     platform_tweetsms_accounts: [{ id: 9, api_endpoint: "https://sms.example.test", sender_name: "PowerHub", low_balance_threshold: 100, last_provider_balance: 500, last_balance_checked_at: null, last_tested_at: null, last_error: null, is_active: false, credential_ciphertext: "test-ciphertext", credential_iv: "test-iv" }],
     platform_sms_fallback_providers: [{ id: 10, name: "مزود احتياطي", provider_key: "backup_sms", api_endpoint: null, sender_name: null, priority: 1, integration_status: "pending_contract", is_active: false, credential_ciphertext: null, credential_iv: null, last_tested_at: null, last_error: null, updated_at: "2026-08-27T00:00:00.000Z" }],
@@ -49,6 +50,7 @@ const state = vi.hoisted(() => {
       if (functionName === "powerhub_record_tenant_tweetsms_test") return Promise.resolve({ data: [{ account_id: 31, is_active: false, last_provider_balance: 80, last_tested_at: "2026-08-27T00:00:00.000Z", last_error: null }], error: null });
       if (functionName === "powerhub_finance_overview") return Promise.resolve({ data: [{ subscriptions: [{ status: "active", count: 2 }], collections_amount: "150.5", collections_count: 3 }], error: null });
       if (functionName === "powerhub_tweetsms_report") return Promise.resolve({ data: [{ account: { id: 9, isActive: false, senderName: "PowerHub", lowBalanceThreshold: 100, lastProviderBalance: 80, lastBalanceCheckedAt: "2026-08-27T00:00:00.000Z", lastError: null, configured: true }, total: 3, usage_rows: [{ tenantId: 20, tenantName: "مولدات الاختبار", total: 3, submitted: 2, failed: 1 }], alerts: [{ id: 22, balance: 80, threshold: 100, status: "open", notifiedAt: "2026-08-27T00:00:00.000Z", resolvedAt: null, createdAt: "2026-08-27T00:00:00.000Z", updatedAt: "2026-08-27T00:00:00.000Z" }] }], error: null });
+      if (functionName === "powerhub_admin_record_search_metric") return Promise.resolve({ data: null, error: metricError });
       if (functionName === "powerhub_advanced_dashboard") return Promise.resolve({ data: [{ kpis: { activeGenerators: 1, subscribers: 2, dailyConsumption: 3, monthlyConsumption: 4, monthlyCollections: 5, openComplaints: 1, generatorsToReview: 0, collectionRate: 75 }, monthly_growth: [{ month: "2026-08", count: 2 }], consumption_by_region: [{ region: "غزة", consumptionKwh: 4 }], collections_by_generator: [], latest_generators: [{ id: 17, name: "مولد الاختبار", code: "GEN-01", status: "active", tenantName: "مولدات الاختبار", createdAt: "2026-08-27T00:00:00.000Z" }], recent_complaints: [{ id: 15, title: "شكوى اختبار", priority: "high", status: "open", tenantName: "مولدات الاختبار", siteName: "فرع الاختبار", openedAt: "2026-08-27T00:00:00.000Z" }], expiring_subscriptions: [{ tenantId: 20, tenantName: "مولدات الاختبار", ownerName: "مالك الاختبار", endsAt: "2026-09-01T00:00:00.000Z", status: "active" }] }], error: null });
       return Promise.resolve({ data: null, error: { message: "unknown rpc" } });
     },
@@ -59,7 +61,16 @@ const state = vi.hoisted(() => {
       return { select: (..._args: unknown[]) => query };
     },
   };
-  return { calls, rpcArgs, filters, rows, client };
+  return {
+    calls,
+    rpcArgs,
+    filters,
+    rows,
+    client,
+    setMetricError(error: { code?: string; message: string } | null) {
+      metricError = error;
+    },
+  };
 });
 
 vi.mock("./supabase-admin", () => ({ supabaseAdmin: () => state.client }));
@@ -79,6 +90,48 @@ const adminContext = (platformRole: PlatformRole = "platform_admin") => ({
   user: { id: 1, role: "admin", platformRole, accountStatus: "active" } as never,
   req: {} as never,
   res: {} as never,
+});
+
+describe("إحصاءات البحث المركزي دون حفظ نص البحث", () => {
+  it("يسجل أعداد النتائج حسب الفئة فقط ولا يرسل عبارة البحث إلى RPC القياس", async () => {
+    state.calls.splice(0);
+    state.rpcArgs.splice(0);
+    const privateSearchPhrase = "private-search-phrase-should-never-be-stored";
+    const caller = adminRouter.createCaller(adminContext());
+    const results = await caller.globalSearch({ query: privateSearchPhrase });
+    expect(results.map((row) => row.kind)).toEqual(["generator", "subscriber", "owner"]);
+    const metricCall = state.rpcArgs.find((entry) => entry.functionName === "powerhub_admin_record_search_metric");
+    expect(metricCall?.args).toEqual({
+      p_result_count: 3,
+      p_generator_result_count: 1,
+      p_subscriber_result_count: 1,
+      p_owner_result_count: 1,
+    });
+    expect(JSON.stringify(metricCall?.args)).not.toContain(privateSearchPhrase);
+  });
+
+  it("keeps search available and logs only a safe error code when aggregate telemetry fails", async () => {
+    state.calls.splice(0);
+    state.rpcArgs.splice(0);
+    const privateSearchPhrase = "private-search-phrase-must-not-be-logged";
+    state.setMetricError({ code: "42501", message: privateSearchPhrase });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const caller = adminRouter.createCaller(adminContext());
+      const results = await caller.globalSearch({ query: privateSearchPhrase });
+      expect(results.map((row) => row.kind)).toEqual(["generator", "subscriber", "owner"]);
+      expect(warning).toHaveBeenCalledWith(
+        "[PowerHub admin search] Aggregate telemetry recording failed.",
+        { code: "42501" },
+      );
+      expect(JSON.stringify(warning.mock.calls)).not.toContain(privateSearchPhrase);
+    } finally {
+      state.setMetricError(null);
+      warning.mockRestore();
+      state.calls.splice(0);
+      state.rpcArgs.splice(0);
+    }
+  });
 });
 
 describe("إعدادات مزود الرسائل المركزي عبر Supabase", () => {
@@ -338,7 +391,7 @@ describe("إعدادات مزود الرسائل المركزي عبر Supabase"
       expect.objectContaining({ id: 40, kind: "subscriber", tenantName: "مولدات الاختبار" }),
       expect.objectContaining({ id: 50, kind: "owner", tenantName: "مولدات الاختبار" }),
     ]));
-    expect(state.calls).toEqual(["generators", "generators", "subscribers", "subscribers", "subscribers", "tenant_owner_profiles", "tenant_owner_profiles", "tenants"]);
+    expect(state.calls).toEqual(["generators", "generators", "subscribers", "subscribers", "subscribers", "tenant_owner_profiles", "tenant_owner_profiles", "tenants", "rpc:powerhub_admin_record_search_metric"]);
     expect(state.filters).toEqual(expect.arrayContaining([["generators", "name", "%اختبار%"], ["subscribers", "full_name", "%اختبار%"], ["tenant_owner_profiles", "full_name", "%اختبار%"]]));
   });
 

@@ -49,3 +49,87 @@ describe("saveRolePolicy — Supabase runtime", () => {
     expect(state.getDb).not.toHaveBeenCalled();
   });
 });
+
+
+describe("setOwnerCapabilityOverride — Supabase runtime", () => {
+  const input = {
+    tenantId: 44,
+    userId: 22,
+    capability: "viewInventory" as const,
+    isAllowed: false,
+  };
+
+  it("uses the server-only Supabase RPC for an active platform admin", async () => {
+    state.rpc.mockResolvedValueOnce({
+      data: [{
+        success: true,
+        tenant_id: 44,
+        user_id: 22,
+        capability: "viewInventory",
+        is_allowed: false,
+        replayed: false,
+      }],
+      error: null,
+    });
+
+    const caller = appRouter.createCaller({
+      user: { id: 11, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never,
+      req: {} as never,
+      res: {} as never,
+    });
+
+    await expect(caller.admin.setOwnerCapabilityOverride(input)).resolves.toEqual({
+      success: true,
+      targetType: "owner",
+      tenantId: 44,
+      userId: 22,
+      capability: "viewInventory",
+      isAllowed: false,
+      replayed: false,
+    });
+
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_set_owner_capability_override", {
+      p_actor_user_id: 11,
+      p_tenant_id: 44,
+      p_user_id: 22,
+      p_capability: "viewInventory",
+      p_is_allowed: false,
+    });
+    expect(state.getDb).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["tenant admin without a platform role", { id: 12, role: "admin", platformRole: "tenant_manager", accountStatus: "active" }],
+    ["platform support without platform-admin authority", { id: 13, role: "admin", platformRole: "platform_support", accountStatus: "active" }],
+    ["inactive platform admin", { id: 14, role: "admin", platformRole: "platform_admin", accountStatus: "inactive" }],
+    ["non-admin platform identity", { id: 15, role: "member", platformRole: "platform_admin", accountStatus: "active" }],
+  ])("rejects %s before reaching Supabase", async (_case, user) => {
+    state.rpc.mockClear();
+
+    const caller = appRouter.createCaller({
+      user: user as never,
+      req: {} as never,
+      res: {} as never,
+    });
+
+    await expect(caller.admin.setOwnerCapabilityOverride(input))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).not.toHaveBeenCalled();
+    expect(state.getDb).not.toHaveBeenCalled();
+  });
+
+  it("maps a database-side platform authorization failure to FORBIDDEN", async () => {
+    state.rpc.mockResolvedValueOnce({ data: null, error: { message: "PLATFORM_ADMIN_REQUIRED" } });
+
+    const caller = appRouter.createCaller({
+      user: { id: 11, role: "admin", platformRole: "platform_admin", accountStatus: "active" } as never,
+      req: {} as never,
+      res: {} as never,
+    });
+
+    await expect(caller.admin.setOwnerCapabilityOverride(input))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(state.rpc).toHaveBeenCalledWith("powerhub_admin_set_owner_capability_override", expect.any(Object));
+    expect(state.getDb).not.toHaveBeenCalled();
+  });
+});

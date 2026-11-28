@@ -42,6 +42,7 @@ create table public.expenses (
 );
 
 \ir ../migrations/20261023170000_powerhub_financial_index_trigger_reconciliation.sql
+\ir ../migrations/20261105102000_powerhub_account_transaction_tenant_recent_index.sql
 \ir ../migrations/20261023171000_powerhub_audit_entity_id_not_null.sql
 
 do $assert_indexes$
@@ -51,6 +52,7 @@ begin
     'account_transactions_account_id_idx',
     'account_transactions_payment_id_idx',
     'account_transactions_tenant_account_date_idx',
+    'account_transactions_tenant_recent_idx',
     'audit_logs_site_id_idx',
     'audit_logs_tenant_site_date_idx',
     'audit_logs_user_id_idx',
@@ -101,4 +103,32 @@ begin
 end
 $assert_trigger$;
 
-select 'financial indexes and company-account updated_at trigger reconciliation passed' as result;
+
+do $assert_recent_history_plan$
+declare
+  v_plan jsonb;
+begin
+  insert into public.account_transactions(tenant_id,account_id,occurred_at)
+  select case when g<=60000 then 901 else 902 end,
+         ((g-1)%12)+1,
+         timestamptz '2024-01-01 00:00:00+00' + g * interval '1 second'
+  from generate_series(1,120000) as g;
+  analyze public.account_transactions;
+
+  execute 'explain (format json) select id,account_id,occurred_at
+           from public.account_transactions
+           where tenant_id=901
+           order by occurred_at desc,id desc
+           limit 1000'
+    into v_plan;
+
+  if v_plan::text not like '%account_transactions_tenant_recent_idx%' then
+    raise exception 'TENANT_RECENT_HISTORY_QUERY_DID_NOT_USE_CANDIDATE_INDEX: %',v_plan;
+  end if;
+  if v_plan::text like '%"Sort Key"%' then
+    raise exception 'TENANT_RECENT_HISTORY_QUERY_STILL_SORTS: %',v_plan;
+  end if;
+end
+$assert_recent_history_plan$;
+
+select 'financial indexes, tenant recent-history index plan, and company-account updated_at trigger reconciliation passed' as result;

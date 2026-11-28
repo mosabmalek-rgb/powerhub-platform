@@ -1,3 +1,15 @@
+/**
+ * Only validate the online profile once the first PowerHub origin probe has
+ * succeeded. Offline lease/cache restoration is a separate local path.
+ */
+export function shouldValidateOnlineSession(
+  hasSession: boolean,
+  powerHubReachable: boolean,
+  connectivityChecking: boolean,
+): boolean {
+  return hasSession && powerHubReachable && !connectivityChecking;
+}
+
 export type OfflineAuthTransition =
   | "online-session"
   | "recover-offline-session"
@@ -49,6 +61,13 @@ export function isOfflineCacheWriteCurrent(
  * In that case, the session updated by the event must win over the stale
  * async response, especially when that response contains null.
  */
+/** INITIAL_SESSION(null) is only an initial SDK snapshot, not a sign-out.
+ * It must not invalidate a persisted-session read still in progress.
+ */
+export function isNonAuthoritativeInitialNullSessionEvent(event: string, session: unknown): boolean {
+  return event === "INITIAL_SESSION" && session === null;
+}
+
 export function selectAuthSnapshot<T>(
   snapshot: T | null,
   current: T | null,
@@ -76,17 +95,59 @@ export function isSessionReadBackoffActive(retryAfterMs: number, nowMs = Date.no
   return retryAfterMs > nowMs;
 }
 
-/** A session is usable for an authenticated request only while its access token is unexpired. */
+/** Read exp from a JWT only as a client-side expiry hint; APIs must still verify the token. */
+function getJwtExpirationSeconds(accessToken: string): number | null {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return null;
+
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const claims = JSON.parse(atob(padded)) as { exp?: unknown };
+    return typeof claims.exp === "number" && Number.isFinite(claims.exp)
+      ? claims.exp
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Supabase Session.expires_at is optional in the SDK contract. Prefer it when
+ * present; otherwise read the JWT exp claim so a valid persisted session is not
+ * misclassified as a missing token. This never replaces server-side validation.
+ */
+export function getSupabaseSessionExpirySeconds(
+  session: { access_token?: unknown; expires_at?: number } | null | undefined,
+): number | null {
+  if (!session) return null;
+
+  // The token's own exp is the validity boundary for the bearer credential.
+  // expires_at is SDK metadata and can lag a rotated token's payload during
+  // cross-tab refresh races. Prefer JWT exp when the SDK token is a readable
+  // JWT; fall back to expires_at only when the token has no readable exp.
+  if (typeof session.access_token === "string" && session.access_token.trim().length > 0) {
+    const tokenExpiry = getJwtExpirationSeconds(session.access_token);
+    if (tokenExpiry !== null) return tokenExpiry;
+  }
+
+  const explicitExpiry = session.expires_at;
+  return typeof explicitExpiry === "number" && Number.isFinite(explicitExpiry)
+    ? explicitExpiry
+    : null;
+}
+
 export function isSupabaseSessionUsable(
-  session: { expires_at?: number } | null | undefined,
+  session: { access_token?: unknown; expires_at?: number } | null | undefined,
   nowSeconds = Math.floor(Date.now() / 1000),
 ): boolean {
-  return Boolean(
-    session &&
-    typeof session.expires_at === "number" &&
-    Number.isFinite(session.expires_at) &&
-    session.expires_at > nowSeconds,
-  );
+  if (
+    !session ||
+    typeof session.access_token !== "string" ||
+    session.access_token.trim().length === 0
+  ) return false;
+  const expiresAt = getSupabaseSessionExpirySeconds(session);
+  return typeof expiresAt === "number" && expiresAt > nowSeconds;
 }
 
 /** Refresh before expiry so requests never deliberately reuse a near-expiry token. */

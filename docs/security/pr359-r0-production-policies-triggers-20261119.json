@@ -1,0 +1,3221 @@
+{
+  "format": "R0 policies and triggers inventory v1",
+  "capture_date": "2026-11-19",
+  "environment": "production",
+  "project_ref": "vvcdiqcyhaloxesvpppc",
+  "method": "read-only pg_catalog SELECT",
+  "warning": "Managed schema customization vs provider object cannot be determined by schema alone; no deletion authorization",
+  "counts": {
+    "POLICY.public": 98,
+    "POLICY.realtime": 5,
+    "POLICY.storage": 1,
+    "TRIGGER.auth": 1,
+    "TRIGGER.public": 82,
+    "TRIGGER.realtime": 1,
+    "TRIGGER.storage": 11
+  },
+  "objects": [
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "access_invitations.access_invitations_tenant_isolation",
+      "details": {
+        "name": "access_invitations_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "access_invitations",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "access_recovery_requests.access_recovery_scope_guard",
+      "details": {
+        "name": "access_recovery_scope_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "access_recovery_requests",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "access_recovery_requests.access_recovery_tenant_isolation",
+      "details": {
+        "name": "access_recovery_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "access_recovery_requests",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "account_transactions.account_transactions_tenant_isolation",
+      "details": {
+        "name": "account_transactions_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "account_transactions",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64",
+        "using_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "audit_logs.audit_logs_tenant_isolation",
+      "details": {
+        "name": "audit_logs_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "audit_logs",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64",
+        "using_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_bot_feedback.chat_feedback_select_own",
+      "details": {
+        "name": "chat_feedback_select_own",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_bot_feedback",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "0f3a330abde2322451701abf4e364c98eeeeff8fd4b78a91f27a95cb35513036"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_bot_handoffs.chat_handoffs_select_conversation_access",
+      "details": {
+        "name": "chat_handoffs_select_conversation_access",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_bot_handoffs",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "95c75a6cd2c2bdbd79a8948d5f22e551add4e1fee95d8ba16a76b318194085ec"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_conversation_tags.chat_conversation_tags_select_access",
+      "details": {
+        "name": "chat_conversation_tags_select_access",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_conversation_tags",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "aa20f0e723af56f98ae2da11d6315f7193304a15b8c62ac878504396ee6f983f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_conversations.chat_conversations_select_participant",
+      "details": {
+        "name": "chat_conversations_select_participant",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_conversations",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "505c9ac841a2cb135951c96a2b1249bf01675fc33dc5c224f8abb98f51c5433f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_inbox_notifications.chat_inbox_notifications_select_own",
+      "details": {
+        "name": "chat_inbox_notifications_select_own",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_inbox_notifications",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "0f3a330abde2322451701abf4e364c98eeeeff8fd4b78a91f27a95cb35513036"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_knowledge_articles.chat_knowledge_articles_select_published",
+      "details": {
+        "name": "chat_knowledge_articles_select_published",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_knowledge_articles",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "03404b790895fb357f61c9f931777bbec426bc289a7aca4a92014b54d17f2ed1"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_knowledge_embeddings.chat_knowledge_embeddings_select_published_article",
+      "details": {
+        "name": "chat_knowledge_embeddings_select_published_article",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_knowledge_embeddings",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "a3a7369c839a9b06b21ea7cbca40bcb82cac3b85f485c6206008daf9ebf5e2eb"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_message_attachments.chat_attachments_select_conversation_access",
+      "details": {
+        "name": "chat_attachments_select_conversation_access",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_message_attachments",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "e92c13ec49497d6c197854d4a68e95be97308842cfeb1d7d660d87c0f86a2df5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_message_receipts.chat_message_receipts_select_access",
+      "details": {
+        "name": "chat_message_receipts_select_access",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_message_receipts",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "034e82074143a9c297c3a60430aff7c3b380ab5d34008a7f011fdf0021c58ba3"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_messages.chat_messages_select_conversation_access",
+      "details": {
+        "name": "chat_messages_select_conversation_access",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_messages",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "826de082391434a6e9d59c883efe47df431ff1e5b7409c19a771159afe0c3a46"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_participants.chat_participants_select_self_or_support",
+      "details": {
+        "name": "chat_participants_select_self_or_support",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_participants",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "afa10c224b2f3d62136ee4556baa6f4f921cc186260c022c1e265aca6e522dea"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_assignments.chat_assignments_select_support_only",
+      "details": {
+        "name": "chat_assignments_select_support_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_assignments",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "d1ab99e6de5430a9c9e9ca48c91689a5d8419c40b95e2112e647c72dc00bc095"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_categories.chat_support_categories_select_active",
+      "details": {
+        "name": "chat_support_categories_select_active",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_categories",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "7b06dc1d5a2d27e827aa4164046e96d9b053d1ca56a433e23357d04bca39590f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_feedback.chat_support_feedback_select_own_or_support",
+      "details": {
+        "name": "chat_support_feedback_select_own_or_support",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_feedback",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "d1ae89744e4bc31c0568b64aac5d8d4233770ed3e91e1fa1d0212ad66be2570f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_quick_replies.chat_support_quick_replies_select_active",
+      "details": {
+        "name": "chat_support_quick_replies_select_active",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_quick_replies",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "7b06dc1d5a2d27e827aa4164046e96d9b053d1ca56a433e23357d04bca39590f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_settings.chat_support_settings_select_support",
+      "details": {
+        "name": "chat_support_settings_select_support",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_settings",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "d1ab99e6de5430a9c9e9ca48c91689a5d8419c40b95e2112e647c72dc00bc095"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_sla_policies.chat_support_sla_policies_select",
+      "details": {
+        "name": "chat_support_sla_policies_select",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_sla_policies",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_support_tags.chat_support_tags_select_active",
+      "details": {
+        "name": "chat_support_tags_select_active",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_support_tags",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "7b06dc1d5a2d27e827aa4164046e96d9b053d1ca56a433e23357d04bca39590f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "chat_ticket_events.chat_ticket_events_select_support",
+      "details": {
+        "name": "chat_ticket_events_select_support",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "chat_ticket_events",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "d1ab99e6de5430a9c9e9ca48c91689a5d8419c40b95e2112e647c72dc00bc095"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "collector_sessions.collector_sessions_tenant_isolation",
+      "details": {
+        "name": "collector_sessions_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "collector_sessions",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "company_account_sites.company_account_sites_tenant_isolation",
+      "details": {
+        "name": "company_account_sites_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "company_account_sites",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "company_accounts.company_accounts_tenant_isolation",
+      "details": {
+        "name": "company_accounts_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "company_accounts",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64",
+        "using_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "complaints.complaints_scope_guard",
+      "details": {
+        "name": "complaints_scope_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "complaints",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "complaints.complaints_tenant_isolation",
+      "details": {
+        "name": "complaints_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "complaints",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "custom_permission_roles.custom_permission_roles_tenant_isolation",
+      "details": {
+        "name": "custom_permission_roles_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "custom_permission_roles",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "employee_adjustments.employee_adjustments_tenant_isolation",
+      "details": {
+        "name": "employee_adjustments_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "employee_adjustments",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "employee_attendance.employee_attendance_tenant_isolation",
+      "details": {
+        "name": "employee_attendance_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "employee_attendance",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "employees.employees_tenant_isolation",
+      "details": {
+        "name": "employees_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "employees",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "expenses.expenses_tenant_isolation",
+      "details": {
+        "name": "expenses_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "expenses",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64",
+        "using_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "financial_settlements.financial_settlements_tenant_isolation",
+      "details": {
+        "name": "financial_settlements_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "financial_settlements",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "generators.generators_tenant_isolation",
+      "details": {
+        "name": "generators_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "generators",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64",
+        "using_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "inventory_items.inventory_items_tenant_read",
+      "details": {
+        "name": "inventory_items_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "inventory_items",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "inventory_stock_movements.inventory_stock_movements_tenant_read",
+      "details": {
+        "name": "inventory_stock_movements_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "inventory_stock_movements",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "inventory_warehouses.inventory_warehouses_tenant_read",
+      "details": {
+        "name": "inventory_warehouses_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "inventory_warehouses",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "invoice_lines.invoice_lines_tenant_isolation",
+      "details": {
+        "name": "invoice_lines_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "invoice_lines",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "invoice_share_links.invoice_share_links_tenant_isolation",
+      "details": {
+        "name": "invoice_share_links_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "invoice_share_links",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "invoices.invoices_tenant_isolation",
+      "details": {
+        "name": "invoices_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "invoices",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "messaging_schedule_runs.messaging_schedule_runs_tenant_isolation",
+      "details": {
+        "name": "messaging_schedule_runs_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "messaging_schedule_runs",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "meter_readings.meter_readings_tenant_isolation",
+      "details": {
+        "name": "meter_readings_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "meter_readings",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64",
+        "using_sha256": "a60e4d76a6aca95c08336e12a7d5cc873da9b58b089a9f61b80bdb1b9e71cb64"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "meters.meters_scope_guard",
+      "details": {
+        "name": "meters_scope_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "meters",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "meters.meters_tenant_isolation",
+      "details": {
+        "name": "meters_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "meters",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "mobile_api_sessions.mobile_api_sessions_tenant_isolation",
+      "details": {
+        "name": "mobile_api_sessions_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "mobile_api_sessions",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "mobile_sync_events.mobile_sync_events_tenant_isolation",
+      "details": {
+        "name": "mobile_sync_events_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "mobile_sync_events",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "notification_messages.notification_messages_tenant_isolation",
+      "details": {
+        "name": "notification_messages_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "notification_messages",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "offline_sync_operations.offline_sync_operations_tenant_isolation",
+      "details": {
+        "name": "offline_sync_operations_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "offline_sync_operations",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "payments.payments_tenant_isolation",
+      "details": {
+        "name": "payments_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "payments",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "payroll_adjustment_allocations.payroll_adjustment_allocations_tenant_isolation",
+      "details": {
+        "name": "payroll_adjustment_allocations_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "payroll_adjustment_allocations",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "d036d45a497baa446d1e9a4163430847dd9ca89230262c82fe364c558139bf8f",
+        "using_sha256": "d036d45a497baa446d1e9a4163430847dd9ca89230262c82fe364c558139bf8f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "payroll_items.payroll_items_tenant_isolation",
+      "details": {
+        "name": "payroll_items_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "payroll_items",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "40ecce4032ef8af8dc645f9dbd080216016246cee07725f0e2efc3069bb6eb8c",
+        "using_sha256": "40ecce4032ef8af8dc645f9dbd080216016246cee07725f0e2efc3069bb6eb8c"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "payroll_runs.payroll_runs_tenant_isolation",
+      "details": {
+        "name": "payroll_runs_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "payroll_runs",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_access_invitations.platform_access_invitations_platform_admin_only",
+      "details": {
+        "name": "platform_access_invitations_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_access_invitations",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_role_policies.platform_role_policies_platform_admin_only",
+      "details": {
+        "name": "platform_role_policies_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_role_policies",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_security_events.platform_security_events_platform_admin_guard",
+      "details": {
+        "name": "platform_security_events_platform_admin_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_security_events",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_security_events.platform_security_events_platform_admin_only",
+      "details": {
+        "name": "platform_security_events_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_security_events",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_security_settings.platform_security_settings_platform_admin_guard",
+      "details": {
+        "name": "platform_security_settings_platform_admin_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_security_settings",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_security_settings.platform_security_settings_platform_admin_only",
+      "details": {
+        "name": "platform_security_settings_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_security_settings",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_settings.platform_settings_platform_admin_only",
+      "details": {
+        "name": "platform_settings_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_settings",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_sms_fallback_providers.platform_sms_fallback_admin_only",
+      "details": {
+        "name": "platform_sms_fallback_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_sms_fallback_providers",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_sms_plans.platform_sms_plans_platform_admin_only",
+      "details": {
+        "name": "platform_sms_plans_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_sms_plans",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_tariff_policies.platform_tariff_policies_admin_guard",
+      "details": {
+        "name": "platform_tariff_policies_admin_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_tariff_policies",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_tariff_policies.platform_tariff_policies_platform_admin_only",
+      "details": {
+        "name": "platform_tariff_policies_platform_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_tariff_policies",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e",
+        "using_sha256": "6bc57d2ee024cb7f532c2cc1ff9b1bdba1768609db7ada2269ebac7a15c51e1e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_tweetsms_accounts.platform_tweetsms_admin_only",
+      "details": {
+        "name": "platform_tweetsms_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_tweetsms_accounts",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "platform_tweetsms_balance_alerts.platform_tweetsms_alert_admin_only",
+      "details": {
+        "name": "platform_tweetsms_alert_admin_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "platform_tweetsms_balance_alerts",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251",
+        "using_sha256": "7f0673132325ee4287010bf2068d61d46e1d5d76925d1005235d3029a6ff3251"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "powerhub_user_notifications.powerhub_user_notifications_select_own",
+      "details": {
+        "name": "powerhub_user_notifications_select_own",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "powerhub_user_notifications",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "0f3a330abde2322451701abf4e364c98eeeeff8fd4b78a91f27a95cb35513036"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "site_portal_settings.site_portal_settings_tenant_isolation",
+      "details": {
+        "name": "site_portal_settings_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "site_portal_settings",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "sites.sites_tenant_isolation",
+      "details": {
+        "name": "sites_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "sites",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "sms_package_requests.sms_package_requests_tenant_isolation",
+      "details": {
+        "name": "sms_package_requests_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "sms_package_requests",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "staff_profile_capability_overrides.staff_profile_capability_overrides_tenant_read",
+      "details": {
+        "name": "staff_profile_capability_overrides_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "staff_profile_capability_overrides",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "3e27b97549b3dd6f37e1394f4eb2aa857f6279ef75e9615ad7406263f3414372"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "staff_profile_permission_audit.staff_profile_permission_audit_tenant_read",
+      "details": {
+        "name": "staff_profile_permission_audit_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "staff_profile_permission_audit",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "3e27b97549b3dd6f37e1394f4eb2aa857f6279ef75e9615ad7406263f3414372"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "staff_profiles.staff_profiles_tenant_isolation",
+      "details": {
+        "name": "staff_profiles_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "staff_profiles",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "subscriber_portal_attempts.subscriber_portal_attempts_service_role_only",
+      "details": {
+        "name": "subscriber_portal_attempts_service_role_only",
+        "roles": [
+          "service_role"
+        ],
+        "table": "subscriber_portal_attempts",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b",
+        "using_sha256": "b5bea41b6c623f7c09f1bf24dcae58ebab3c0cdd90ad966bc43a45b44867e12b"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "subscribers.subscribers_tenant_isolation",
+      "details": {
+        "name": "subscribers_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "subscribers",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "subscription_upgrade_requests.subscription_upgrade_requests_tenant_isolation",
+      "details": {
+        "name": "subscription_upgrade_requests_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "subscription_upgrade_requests",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_ledger_entries.supplier_ledger_entries_tenant_read",
+      "details": {
+        "name": "supplier_ledger_entries_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_ledger_entries",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_payment_allocations.supplier_payment_allocations_tenant_read",
+      "details": {
+        "name": "supplier_payment_allocations_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_payment_allocations",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_payments.supplier_payments_tenant_read",
+      "details": {
+        "name": "supplier_payments_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_payments",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_purchase_lines.supplier_purchase_lines_tenant_read",
+      "details": {
+        "name": "supplier_purchase_lines_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_purchase_lines",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_purchase_receipt_lines.supplier_purchase_receipt_lines_tenant_read",
+      "details": {
+        "name": "supplier_purchase_receipt_lines_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_purchase_receipt_lines",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_purchase_receipts.supplier_purchase_receipts_tenant_read",
+      "details": {
+        "name": "supplier_purchase_receipts_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_purchase_receipts",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "supplier_purchases.supplier_purchases_tenant_read",
+      "details": {
+        "name": "supplier_purchases_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "supplier_purchases",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "suppliers.suppliers_tenant_read",
+      "details": {
+        "name": "suppliers_tenant_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "suppliers",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tariffs.tariffs_tenant_isolation",
+      "details": {
+        "name": "tariffs_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tariffs",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_branch_settings.tenant_branch_settings_tenant_isolation",
+      "details": {
+        "name": "tenant_branch_settings_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_branch_settings",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_invoice_message_templates.tenant_invoice_message_templates_tenant_isolation",
+      "details": {
+        "name": "tenant_invoice_message_templates_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_invoice_message_templates",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_members.tenant_members_member_read",
+      "details": {
+        "name": "tenant_members_member_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_members",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_messaging_configurations.tenant_messaging_configurations_tenant_isolation",
+      "details": {
+        "name": "tenant_messaging_configurations_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_messaging_configurations",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_owner_profiles.tenant_owner_profiles_tenant_isolation",
+      "details": {
+        "name": "tenant_owner_profiles_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_owner_profiles",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_payment_receipt_message_templates.tenant_payment_receipt_message_templates_tenant_isolation",
+      "details": {
+        "name": "tenant_payment_receipt_message_templates_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_payment_receipt_message_templates",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_subscriptions.tenant_subscriptions_tenant_isolation",
+      "details": {
+        "name": "tenant_subscriptions_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_subscriptions",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenant_tweetsms_accounts.tenant_tweetsms_tenant_isolation",
+      "details": {
+        "name": "tenant_tweetsms_tenant_isolation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenant_tweetsms_accounts",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345",
+        "using_sha256": "10d749449498dd951af542e94fd0dc8bc57143505b497680700d715d172ac345"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "tenants.tenants_member_read",
+      "details": {
+        "name": "tenants_member_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "tenants",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "a9f6e9d16205cbdd7b4bfa83984df91a5b778cf4b0d575c947e973a50fc7838f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "user_quick_action_preferences.quick_actions_owner_guard",
+      "details": {
+        "name": "quick_actions_owner_guard",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "user_quick_action_preferences",
+        "command": "*",
+        "permissive": false,
+        "check_sha256": "49dd0fe1614ba3d35f76dc6b6bfbc296f1e545efcde5340847a2594ffab61d00",
+        "using_sha256": "49dd0fe1614ba3d35f76dc6b6bfbc296f1e545efcde5340847a2594ffab61d00"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "user_quick_action_preferences.quick_actions_owner_only",
+      "details": {
+        "name": "quick_actions_owner_only",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "user_quick_action_preferences",
+        "command": "*",
+        "permissive": true,
+        "check_sha256": "49dd0fe1614ba3d35f76dc6b6bfbc296f1e545efcde5340847a2594ffab61d00",
+        "using_sha256": "49dd0fe1614ba3d35f76dc6b6bfbc296f1e545efcde5340847a2594ffab61d00"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "public",
+      "identity": "users.users_self_read",
+      "details": {
+        "name": "users_self_read",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "users",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "81f9badf7ef461659fc16e10152f4178b8d5c20a23688fa8a93d98dd7e5eb814"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "realtime",
+      "identity": "messages.chat_conversation_receive",
+      "details": {
+        "name": "chat_conversation_receive",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "messages",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "5a6de092b7171af20214cd07f595af9af9b9868770dfcb404b4459c5fd93a7b3"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "realtime",
+      "identity": "messages.chat_conversation_send",
+      "details": {
+        "name": "chat_conversation_send",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "messages",
+        "command": "a",
+        "permissive": true,
+        "check_sha256": "5a6de092b7171af20214cd07f595af9af9b9868770dfcb404b4459c5fd93a7b3",
+        "using_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "realtime",
+      "identity": "messages.chat_support_receive_conversation",
+      "details": {
+        "name": "chat_support_receive_conversation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "messages",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "e0870335a80a68e7f43a83be7ec8f695a6e4fc1b6c8c190fd5c89f532f7ef018"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "realtime",
+      "identity": "messages.chat_support_send_conversation",
+      "details": {
+        "name": "chat_support_send_conversation",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "messages",
+        "command": "a",
+        "permissive": true,
+        "check_sha256": "e0870335a80a68e7f43a83be7ec8f695a6e4fc1b6c8c190fd5c89f532f7ef018",
+        "using_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "realtime",
+      "identity": "messages.chat_user_notification_receive",
+      "details": {
+        "name": "chat_user_notification_receive",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "messages",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "18c2efd213eede003a9cac7b732f3d26b79f6960ba777d6ceadbe0fc88b0387c"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "POLICY",
+      "schema": "storage",
+      "identity": "objects.chat_storage_select_conversation_access",
+      "details": {
+        "name": "chat_storage_select_conversation_access",
+        "roles": [
+          "authenticated"
+        ],
+        "table": "objects",
+        "command": "r",
+        "permissive": true,
+        "check_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "using_sha256": "e6b06c896ce4e23c2366a2f265374f71f1106f4c68db989b1a5a8b323dde964b"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "auth",
+      "identity": "users.on_auth_user_created_powerhub",
+      "details": {
+        "name": "on_auth_user_created_powerhub",
+        "table": "users",
+        "enabled": "O",
+        "function": "private.powerhub_create_profile_for_auth_user()",
+        "definition_sha256": "b86a03e8f3059b1cef60d4abb9dda686ce61834636bc0c2058d166588ce38b15"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_conversations.chat_after_support_conversation_create_trigger",
+      "details": {
+        "name": "chat_after_support_conversation_create_trigger",
+        "table": "chat_conversations",
+        "enabled": "O",
+        "function": "private.chat_after_support_conversation_create()",
+        "definition_sha256": "2115fd6fb0b0ce2f74277bb00ac91b2cc52016b157d6d3b8a8355eeb61e18569"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_conversations.chat_conversations_set_updated_at",
+      "details": {
+        "name": "chat_conversations_set_updated_at",
+        "table": "chat_conversations",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "ca0625d4ff7fa9a719ecf201acacdff8c93bd24f1af2efe8fe97f03d744605ff"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_conversations.chat_prepare_support_conversation_before_insert",
+      "details": {
+        "name": "chat_prepare_support_conversation_before_insert",
+        "table": "chat_conversations",
+        "enabled": "O",
+        "function": "private.chat_prepare_support_conversation()",
+        "definition_sha256": "ef58dc1e584aec1695eab76ffc5f8f2b5c8b78bf4bde8775d669298a644d4054"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_inbox_notifications.chat_inbox_notifications_broadcast_after_insert",
+      "details": {
+        "name": "chat_inbox_notifications_broadcast_after_insert",
+        "table": "chat_inbox_notifications",
+        "enabled": "O",
+        "function": "private.chat_broadcast_notification_event()",
+        "definition_sha256": "a2afc8ba1ceed23e24c5255d138fb63e30e282b7ea4be9ae989eb59cdca603a9"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_knowledge_articles.chat_knowledge_articles_set_updated_at",
+      "details": {
+        "name": "chat_knowledge_articles_set_updated_at",
+        "table": "chat_knowledge_articles",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "b8da4ad80bd1dec11660cece588d2fc09eb2b271efeff407f85b61eb735126a9"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_knowledge_embeddings.chat_knowledge_embeddings_set_updated_at",
+      "details": {
+        "name": "chat_knowledge_embeddings_set_updated_at",
+        "table": "chat_knowledge_embeddings",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "bb8066131a1b6996e33af0e53c51d1470c0bc603455b9bc247ec6e25d3d798e9"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_message_receipts.chat_message_receipts_broadcast_after_change",
+      "details": {
+        "name": "chat_message_receipts_broadcast_after_change",
+        "table": "chat_message_receipts",
+        "enabled": "O",
+        "function": "private.chat_broadcast_receipt_event()",
+        "definition_sha256": "89591d8004f0c32ddb4144faa38e5bcd9d75b53f6d4a5cd04a11481ddda55295"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_message_receipts.chat_message_receipts_set_updated_at",
+      "details": {
+        "name": "chat_message_receipts_set_updated_at",
+        "table": "chat_message_receipts",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "834661878f344413e69cbf1ec1ac720a87253d1150b75e7d1a88dd77b7c2ac15"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_messages.chat_create_inbox_notification_after_message",
+      "details": {
+        "name": "chat_create_inbox_notification_after_message",
+        "table": "chat_messages",
+        "enabled": "O",
+        "function": "private.chat_create_inbox_notification_for_message()",
+        "definition_sha256": "4ad6f79d595f2468ddefb01f296c6d4efe65aaa7b235adf62258b3867495b4aa"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_messages.chat_messages_broadcast_after_insert",
+      "details": {
+        "name": "chat_messages_broadcast_after_insert",
+        "table": "chat_messages",
+        "enabled": "O",
+        "function": "private.chat_broadcast_message_event()",
+        "definition_sha256": "e315555a5965abd104a11468a0cce9d79ab7a3b5322394f60ab3da6f8d9118f1"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_messages.chat_messages_set_updated_at",
+      "details": {
+        "name": "chat_messages_set_updated_at",
+        "table": "chat_messages",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "b7c31a07d5ec0d65e26da95837b06b812aae05d4789345aa783adda140464d6f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_participants.chat_participants_set_updated_at",
+      "details": {
+        "name": "chat_participants_set_updated_at",
+        "table": "chat_participants",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "8248a0ac4f9c1fa1d844b7309f099fc44c9e9708c047c7feba844678f8cfe44d"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_support_assignments.chat_support_assignments_set_updated_at",
+      "details": {
+        "name": "chat_support_assignments_set_updated_at",
+        "table": "chat_support_assignments",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "71f72020db91fa9332c256c26f1b8ad0b4230752510cdad6f77c1fe06c71699a"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_support_categories.chat_support_categories_set_updated_at",
+      "details": {
+        "name": "chat_support_categories_set_updated_at",
+        "table": "chat_support_categories",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "2b44d1fd68e46b12dabd9c200745dc85f3bf205487772109b2dab983df5563ea"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_support_quick_replies.chat_support_quick_replies_set_updated_at",
+      "details": {
+        "name": "chat_support_quick_replies_set_updated_at",
+        "table": "chat_support_quick_replies",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "e9413648aaf90b9a8ec89eeab8fabf87bcbd21a62523a3ce4004d85b7e53819d"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_support_settings.chat_support_settings_set_updated_at",
+      "details": {
+        "name": "chat_support_settings_set_updated_at",
+        "table": "chat_support_settings",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "2c5e7842c9747c27032a0431a3e8489904e519cff47726d048f1db0c3f2f9833"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_support_sla_policies.chat_support_sla_policies_set_updated_at",
+      "details": {
+        "name": "chat_support_sla_policies_set_updated_at",
+        "table": "chat_support_sla_policies",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "e36b4b6ab6a96e1afb2be9ea0a853b1c22e92b7154e8b6507e9b840e1f9a1cb5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "chat_support_tags.chat_support_tags_set_updated_at",
+      "details": {
+        "name": "chat_support_tags_set_updated_at",
+        "table": "chat_support_tags",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "506de9c47239e580b1065b4cdef3dad12828f0bf4333737ec7ef3b8f445c0860"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "collector_sessions.collector_sessions_set_updated_at",
+      "details": {
+        "name": "collector_sessions_set_updated_at",
+        "table": "collector_sessions",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "ff47a7967829eeafa2629ae5b22f41df00509521301273ee8e3b8506517efb8c"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "company_accounts.company_accounts_set_updated_at",
+      "details": {
+        "name": "company_accounts_set_updated_at",
+        "table": "company_accounts",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "0381ae23cbe0d5bab00c09aa201251cd1aab8eb075288040657d8ab9e8613cf1"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "complaints.complaints_set_updated_at",
+      "details": {
+        "name": "complaints_set_updated_at",
+        "table": "complaints",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "b3c1ab1dde2447bfc420a098e50a6db9571a95ae1455eb43551cead673695fb8"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "custom_permission_roles.custom_permission_roles_set_updated_at",
+      "details": {
+        "name": "custom_permission_roles_set_updated_at",
+        "table": "custom_permission_roles",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "1d19100a8dc864b573c0ece9536e2b3b8b05d8df2767ba06d90b726aeaffb460"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "employees.employees_set_updated_at",
+      "details": {
+        "name": "employees_set_updated_at",
+        "table": "employees",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "91e24f75c8863e80ca4261370edf0978fd857d95f483d3047c3f41dc9617374d"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "financial_settlements.financial_settlements_set_updated_at",
+      "details": {
+        "name": "financial_settlements_set_updated_at",
+        "table": "financial_settlements",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "e4222ecf50efe6879da3558030b52ba0a066ba1a09d37fc883261b91bd0dffd5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "financial_settlements.trg_powerhub_guard_locked_financial_settlement",
+      "details": {
+        "name": "trg_powerhub_guard_locked_financial_settlement",
+        "table": "financial_settlements",
+        "enabled": "O",
+        "function": "powerhub_guard_locked_financial_settlement()",
+        "definition_sha256": "6327490b8c960b35831c3e2101bbe1a304c8293ca0317f29c3af124526859c27"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "generator_fuel_events.generator_fuel_events_evaluate_alerts_after_insert",
+      "details": {
+        "name": "generator_fuel_events_evaluate_alerts_after_insert",
+        "table": "generator_fuel_events",
+        "enabled": "O",
+        "function": "powerhub_inventory_after_fuel_insert_evaluate_alerts()",
+        "definition_sha256": "723aadeb5f1b71d34b4d19b535a2c40857a95ce620a1d498dc3fc2d789898b70"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "generator_fuel_readings.generator_fuel_readings_evaluate_alerts_after_insert",
+      "details": {
+        "name": "generator_fuel_readings_evaluate_alerts_after_insert",
+        "table": "generator_fuel_readings",
+        "enabled": "O",
+        "function": "powerhub_inventory_after_fuel_insert_evaluate_alerts()",
+        "definition_sha256": "cd37e5cd56a245e9cd549c329dc70bd6fa8b9487a2d5c327bcbd571cebc677bb"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "generator_owner_provisioning_operations.powerhub_guard_cancelled_owner_provisioning_operation",
+      "details": {
+        "name": "powerhub_guard_cancelled_owner_provisioning_operation",
+        "table": "generator_owner_provisioning_operations",
+        "enabled": "O",
+        "function": "powerhub_guard_cancelled_owner_provisioning_operation()",
+        "definition_sha256": "fa51c9b8605701f4a92b7459ba87a7f38973b6ccdd53b696ff06ec1515e934b0"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "generators.generators_set_updated_at",
+      "details": {
+        "name": "generators_set_updated_at",
+        "table": "generators",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "e5eeb3ac1ecd106d9dbf6c85a506a05cf9d4a0978ff3faf5e742e90909580920"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "generators.powerhub_delta_sync_changes",
+      "details": {
+        "name": "powerhub_delta_sync_changes",
+        "table": "generators",
+        "enabled": "O",
+        "function": "powerhub_capture_delta_sync_change()",
+        "definition_sha256": "a1043ae5ce1d90e541f2f4e1db2c74cff4dba09704ac42b159bf1a1c97bbc767"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "inventory_items.inventory_items_guard_base_unit_change_trg",
+      "details": {
+        "name": "inventory_items_guard_base_unit_change_trg",
+        "table": "inventory_items",
+        "enabled": "O",
+        "function": "powerhub_inventory_guard_base_unit_change()",
+        "definition_sha256": "15f3a9cea6c4eb59d448eefe2f1ffa67d2f958fbd6b3c7dab76797eb102e9748"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "inventory_stock_movements.inventory_stock_movement_append_only",
+      "details": {
+        "name": "inventory_stock_movement_append_only",
+        "table": "inventory_stock_movements",
+        "enabled": "O",
+        "function": "powerhub_inventory_reject_stock_movement_mutation()",
+        "definition_sha256": "e553d9805eb8e0b077c96469390236e1ab9a02468ea7729c166476abcce8efeb"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "inventory_stock_movements.inventory_stock_movement_default_cost",
+      "details": {
+        "name": "inventory_stock_movement_default_cost",
+        "table": "inventory_stock_movements",
+        "enabled": "O",
+        "function": "powerhub_inventory_default_stock_movement_cost()",
+        "definition_sha256": "ac6efb99fafc6aa2594cb00354fa585ddb5e830853a59ab760e8372295859631"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "inventory_stock_movements.inventory_stock_movements_location_item_guard",
+      "details": {
+        "name": "inventory_stock_movements_location_item_guard",
+        "table": "inventory_stock_movements",
+        "enabled": "O",
+        "function": "powerhub_inventory_validate_location_item()",
+        "definition_sha256": "ec0c2387df373d8547bfba45535927380364fba856510bf9d731589358e9b9a5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "invoices.invoices_block_opening_baseline",
+      "details": {
+        "name": "invoices_block_opening_baseline",
+        "table": "invoices",
+        "enabled": "O",
+        "function": "powerhub_block_opening_baseline_invoice()",
+        "definition_sha256": "453c90467827edd997867dce41169bb569d862a402917a580879c6968bf9f289"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "invoices.invoices_set_updated_at",
+      "details": {
+        "name": "invoices_set_updated_at",
+        "table": "invoices",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "86b653a1a48cd8c3bc340ce0e21ade09e1baef047df979dbf962525ebadde4ec"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "invoices.powerhub_assign_invoice_cycle_before_insert",
+      "details": {
+        "name": "powerhub_assign_invoice_cycle_before_insert",
+        "table": "invoices",
+        "enabled": "O",
+        "function": "powerhub_assign_invoice_cycle()",
+        "definition_sha256": "13d4509f2480e147a305b88107e068824130a98d516edb2aa8e9be7b96c7ad5e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "invoices.powerhub_queue_invoice_sms_after_issue",
+      "details": {
+        "name": "powerhub_queue_invoice_sms_after_issue",
+        "table": "invoices",
+        "enabled": "O",
+        "function": "powerhub_queue_invoice_sms_after_issue()",
+        "definition_sha256": "d37224e368450de411e15adb459f94e354b2f17a12d6c1d26f9bc95554ba88d1"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "meter_readings.meter_readings_set_updated_at",
+      "details": {
+        "name": "meter_readings_set_updated_at",
+        "table": "meter_readings",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "472e48d6a8fc14c79fcbfd6ebb210e665e2081c8607598d21c47ea13fe476f7c"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "meter_readings.powerhub_delta_sync_changes",
+      "details": {
+        "name": "powerhub_delta_sync_changes",
+        "table": "meter_readings",
+        "enabled": "O",
+        "function": "powerhub_capture_delta_sync_change()",
+        "definition_sha256": "617cf5e477332011c294f24283e6ad8a719178fb2f270b3955c1236a0f3b1eb7"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "meters.meters_set_updated_at",
+      "details": {
+        "name": "meters_set_updated_at",
+        "table": "meters",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "deae4ecbad9d8135650dd16cce26cee3852d3d9b220dc322a9acae120a62dfe1"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "mobile_sync_events.powerhub_notify_field_sync_received_after_insert",
+      "details": {
+        "name": "powerhub_notify_field_sync_received_after_insert",
+        "table": "mobile_sync_events",
+        "enabled": "O",
+        "function": "powerhub_notify_field_sync_received()",
+        "definition_sha256": "a4ddd08b6e3d441481a222b9fbda42b7171575999b272aac45919439075eac2c"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "notification_messages.notification_messages_set_updated_at",
+      "details": {
+        "name": "notification_messages_set_updated_at",
+        "table": "notification_messages",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "df71dbf16c737ddfa6130cf95aed0ca6ab3e4f12cc1c92e5e02b129806abd6bc"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "notification_messages.notification_messages_sms_lease_trigger",
+      "details": {
+        "name": "notification_messages_sms_lease_trigger",
+        "table": "notification_messages",
+        "enabled": "O",
+        "function": "powerhub_sync_sms_lease()",
+        "definition_sha256": "3e4e3098eb3bd70844cf78e422f423c98dab8f44dd8ca4c073d2543962ac2a60"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "notification_messages.powerhub_enrich_invoice_notification_cycle_before_insert",
+      "details": {
+        "name": "powerhub_enrich_invoice_notification_cycle_before_insert",
+        "table": "notification_messages",
+        "enabled": "O",
+        "function": "powerhub_enrich_invoice_notification_cycle()",
+        "definition_sha256": "65b1183f12dc2f989f53d072b9db4881d563e06864ae824161b14bd227aefa65"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "payment_documentation_requests.powerhub_notify_payment_documentation_request_after_insert",
+      "details": {
+        "name": "powerhub_notify_payment_documentation_request_after_insert",
+        "table": "payment_documentation_requests",
+        "enabled": "O",
+        "function": "powerhub_notify_payment_documentation_request()",
+        "definition_sha256": "119a98cb15f1120e796f1a4b89ff2841614f1a70e153c480b45b19da6a8a1b26"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "platform_announcements.platform_announcements_touch_updated_at",
+      "details": {
+        "name": "platform_announcements_touch_updated_at",
+        "table": "platform_announcements",
+        "enabled": "O",
+        "function": "powerhub_touch_platform_announcement()",
+        "definition_sha256": "d3a5480ea2b800169fe73c467a27eff71586d31253a524ca8d73017461fae031"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "platform_sms_fallback_providers.platform_sms_fallback_set_updated_at",
+      "details": {
+        "name": "platform_sms_fallback_set_updated_at",
+        "table": "platform_sms_fallback_providers",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "df871ad800084cc6d3e4e63698db366e06fcfa37a308eae40489d13625a2776b"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "platform_sms_plans.platform_sms_plans_set_updated_at",
+      "details": {
+        "name": "platform_sms_plans_set_updated_at",
+        "table": "platform_sms_plans",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "ef01ef5a0dcc9533c770dd5cd218e92674ffd235042d14b9f41703550dc3cb27"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "platform_tweetsms_accounts.platform_tweetsms_set_updated_at",
+      "details": {
+        "name": "platform_tweetsms_set_updated_at",
+        "table": "platform_tweetsms_accounts",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "c704be2643dc97ef4f09783ffe288d26aa609bd8905dd209a259a8a96a0674d3"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "platform_tweetsms_balance_alerts.platform_tweetsms_alert_set_updated_at",
+      "details": {
+        "name": "platform_tweetsms_alert_set_updated_at",
+        "table": "platform_tweetsms_balance_alerts",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "3316e538422b2590d747654ca16cc3645c01c1e8e352cc15e464de9881941405"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "powerhub_message_automations.powerhub_message_automations_updated_at",
+      "details": {
+        "name": "powerhub_message_automations_updated_at",
+        "table": "powerhub_message_automations",
+        "enabled": "O",
+        "function": "powerhub_touch_unified_messaging_updated_at()",
+        "definition_sha256": "4267d2551d052bee092eb23f944572cdc271dd4a3555324e9cfd5352969f3b5e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "powerhub_message_templates.powerhub_message_templates_updated_at",
+      "details": {
+        "name": "powerhub_message_templates_updated_at",
+        "table": "powerhub_message_templates",
+        "enabled": "O",
+        "function": "powerhub_touch_unified_messaging_updated_at()",
+        "definition_sha256": "ad9c142e64c72bbe2f768d4c26575ebdc8eed006f58991b756232afda99ac265"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "sites.powerhub_delta_sync_changes",
+      "details": {
+        "name": "powerhub_delta_sync_changes",
+        "table": "sites",
+        "enabled": "O",
+        "function": "powerhub_capture_delta_sync_change()",
+        "definition_sha256": "b757f11d6e67c201448690f063c62ef04919a851a1439ff46c2859e1917a394a"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "sites.powerhub_sync_invoice_due_interval_trigger",
+      "details": {
+        "name": "powerhub_sync_invoice_due_interval_trigger",
+        "table": "sites",
+        "enabled": "O",
+        "function": "powerhub_sync_invoice_due_interval()",
+        "definition_sha256": "f17805d56e83132b0284b52a5cea59e420d494580b663c7d79fe714d426f0646"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "sites.sites_set_updated_at",
+      "details": {
+        "name": "sites_set_updated_at",
+        "table": "sites",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "82aa5f2d96ebf48d884e7d8a96d14a11210849788a3c194aebc038c90fc91710"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "sms_package_requests.powerhub_notify_admin_sms_request_after_insert",
+      "details": {
+        "name": "powerhub_notify_admin_sms_request_after_insert",
+        "table": "sms_package_requests",
+        "enabled": "O",
+        "function": "powerhub_notify_admin_pending_request()",
+        "definition_sha256": "fb2ccfe1b470bbac8437d76ee4aeaa39df05f6e6c3085082e0ca77286f4f5411"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "staff_profiles.powerhub_enforce_field_user_quota",
+      "details": {
+        "name": "powerhub_enforce_field_user_quota",
+        "table": "staff_profiles",
+        "enabled": "O",
+        "function": "powerhub_enforce_field_user_quota()",
+        "definition_sha256": "731be7885f5d53f117dfb3f84199e3e1735d9a4343bd25f08c72a1248e14ef65"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "staff_profiles.staff_profiles_set_updated_at",
+      "details": {
+        "name": "staff_profiles_set_updated_at",
+        "table": "staff_profiles",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "987421722182a069f50d09c0626e0d106849b174b9649e1988df85d9a4b6585f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "subscribers.powerhub_delta_sync_changes",
+      "details": {
+        "name": "powerhub_delta_sync_changes",
+        "table": "subscribers",
+        "enabled": "O",
+        "function": "powerhub_capture_delta_sync_change()",
+        "definition_sha256": "f709b1123cf88a2c07c1a054059f4d3843aca347dceda23e2ebb0f85c0255207"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "subscribers.subscribers_reference_immutable",
+      "details": {
+        "name": "subscribers_reference_immutable",
+        "table": "subscribers",
+        "enabled": "O",
+        "function": "powerhub_subscriber_reference_immutable()",
+        "definition_sha256": "456e3e7b29a6d592553ec13993f60f85451b6bc785e4004097729fc55ad7919e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "subscribers.subscribers_set_updated_at",
+      "details": {
+        "name": "subscribers_set_updated_at",
+        "table": "subscribers",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "03e8babbca6159dd95627e8510c8bd40ed4e631e89f0fca63442ad0145d2729e"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "subscription_upgrade_requests.powerhub_notify_admin_upgrade_request_after_insert",
+      "details": {
+        "name": "powerhub_notify_admin_upgrade_request_after_insert",
+        "table": "subscription_upgrade_requests",
+        "enabled": "O",
+        "function": "powerhub_notify_admin_pending_request()",
+        "definition_sha256": "0ff75b27383f2080469e4d94ed25cd614acf3ae5a287f2e16462813a3c2e9d0b"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "supplier_purchase_lines.supplier_purchase_lines_validate_item_unit_trg",
+      "details": {
+        "name": "supplier_purchase_lines_validate_item_unit_trg",
+        "table": "supplier_purchase_lines",
+        "enabled": "O",
+        "function": "powerhub_inventory_validate_purchase_line_unit()",
+        "definition_sha256": "f60034bae99964ecda075dcbe0e51baa74b7e6fb6c7bcaafbecbdd2bf2d4152d"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tariffs.powerhub_delta_sync_changes",
+      "details": {
+        "name": "powerhub_delta_sync_changes",
+        "table": "tariffs",
+        "enabled": "O",
+        "function": "powerhub_capture_delta_sync_change()",
+        "definition_sha256": "1a66cec273e86a519ef1e49b731cda9420b8d3fd8fba008971c6e3f6d80dc6c5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tariffs.powerhub_tariff_history_after_write",
+      "details": {
+        "name": "powerhub_tariff_history_after_write",
+        "table": "tariffs",
+        "enabled": "O",
+        "function": "powerhub_tariff_history_after_write()",
+        "definition_sha256": "edeff941a8eb69a52fbbdf732f4fd17266bba3590a8905785eb6bc93df77d5bb"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tariffs.powerhub_tariff_history_before_update",
+      "details": {
+        "name": "powerhub_tariff_history_before_update",
+        "table": "tariffs",
+        "enabled": "O",
+        "function": "powerhub_tariff_history_before_update()",
+        "definition_sha256": "222c095a7c35e452386de85ae199448f100249fbab277f0e31d0d55de99bbf23"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_addon_requests.trg_powerhub_sync_sms_addon_end",
+      "details": {
+        "name": "trg_powerhub_sync_sms_addon_end",
+        "table": "tenant_addon_requests",
+        "enabled": "O",
+        "function": "powerhub_sync_sms_addon_end_to_subscription()",
+        "definition_sha256": "54a8163a948389119f4d5df6640291e61d345e30a87df1d82bc8dfa8d64865e0"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_branch_settings.tenant_branch_settings_set_updated_at",
+      "details": {
+        "name": "tenant_branch_settings_set_updated_at",
+        "table": "tenant_branch_settings",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "9aab9b0e2da5b1fc277a246bea226b0134662d28c025bcb5055511735f1300d7"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_feature_controls.trg_powerhub_tenant_feature_control_scope",
+      "details": {
+        "name": "trg_powerhub_tenant_feature_control_scope",
+        "table": "tenant_feature_controls",
+        "enabled": "O",
+        "function": "powerhub_guard_tenant_feature_control_scope()",
+        "definition_sha256": "d81494c25c0feb3f8ae1f317126c7f7e78e45956cd711bed461c3393ba4cd0e1"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_members.tenant_members_set_updated_at",
+      "details": {
+        "name": "tenant_members_set_updated_at",
+        "table": "tenant_members",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "6576149278f1e28dcf2ea3d6a73af4044708f358f81a24d2b5a2db94aeea445f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_messaging_configurations.tenant_messaging_configs_set_updated_at",
+      "details": {
+        "name": "tenant_messaging_configs_set_updated_at",
+        "table": "tenant_messaging_configurations",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "45c84ccb229cddc8afd7da34a7417720a03fb12d247a7daf842e492b26cdb74f"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_owner_profiles.tenant_owner_profiles_set_updated_at",
+      "details": {
+        "name": "tenant_owner_profiles_set_updated_at",
+        "table": "tenant_owner_profiles",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "599b00a2d5c29357fbd11daf89ec66791c2b8cf60aeca233bc9090a5da48c4c4"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_subscriptions.powerhub_initialize_sms_wallet_accounting",
+      "details": {
+        "name": "powerhub_initialize_sms_wallet_accounting",
+        "table": "tenant_subscriptions",
+        "enabled": "O",
+        "function": "powerhub_initialize_sms_wallet_accounting()",
+        "definition_sha256": "7b7f69174eabb9df11eaa808bf6e88d5850c77803e33fa73e8b0a220da8151d5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_subscriptions.tenant_subscriptions_set_updated_at",
+      "details": {
+        "name": "tenant_subscriptions_set_updated_at",
+        "table": "tenant_subscriptions",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "c55c70f2e47222dc56b94d019bf32f97035beb287ef7cc18f046b3653b4afcf5"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_subscriptions.trg_powerhub_owner_subscription_main_site",
+      "details": {
+        "name": "trg_powerhub_owner_subscription_main_site",
+        "table": "tenant_subscriptions",
+        "enabled": "O",
+        "function": "powerhub_ensure_owner_main_site()",
+        "definition_sha256": "ccd5e6c00fcca41097ede309af76453bd3c00e670266ee89ad22048c7559defa"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_subscriptions.trg_powerhub_trial_duration",
+      "details": {
+        "name": "trg_powerhub_trial_duration",
+        "table": "tenant_subscriptions",
+        "enabled": "O",
+        "function": "powerhub_apply_trial_duration()",
+        "definition_sha256": "aeacbdc14c9bd7bb455deed3f8f519f681d4d3682a5373a0fbb5137ab8859e9c"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenant_tweetsms_accounts.tenant_tweetsms_set_updated_at",
+      "details": {
+        "name": "tenant_tweetsms_set_updated_at",
+        "table": "tenant_tweetsms_accounts",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "246201f64d6fa02f57d5d218a04aedd9affb8f339d6d84d96bace95baf667737"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenants.powerhub_delta_sync_tenant_name",
+      "details": {
+        "name": "powerhub_delta_sync_tenant_name",
+        "table": "tenants",
+        "enabled": "O",
+        "function": "powerhub_capture_tenant_name_delta_sync_change()",
+        "definition_sha256": "e1183eb974c460295877628bdb058acb3ec94b56b1f94784cbbd50d16433bc07"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "tenants.tenants_set_updated_at",
+      "details": {
+        "name": "tenants_set_updated_at",
+        "table": "tenants",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "7d1b01a36355a9eaa491bf59ce047c9338024c7afc7a508ba0862a9ff5133b5b"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "user_quick_action_preferences.quick_actions_set_updated_at",
+      "details": {
+        "name": "quick_actions_set_updated_at",
+        "table": "user_quick_action_preferences",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "11c8ed2ad562fb226928139c225259fbde3970aa9e94dc16912a211966c4245a"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "public",
+      "identity": "users.users_set_updated_at",
+      "details": {
+        "name": "users_set_updated_at",
+        "table": "users",
+        "enabled": "O",
+        "function": "powerhub_set_updated_at()",
+        "definition_sha256": "7ac04ed5535c6c8f9113f8e8978a578dc6ff5a1eb7644ec84eb06314257c5f11"
+      },
+      "classification": "APP_OWNED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "realtime",
+      "identity": "subscription.tr_check_filters",
+      "details": {
+        "name": "tr_check_filters",
+        "table": "subscription",
+        "enabled": "O",
+        "function": "realtime.subscription_check_filters()",
+        "definition_sha256": "a258d0d4b0d8d39e5147a35b1b69af4285621ac14d6e7c7b43b1d2ec2b7290c7"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.enforce_bucket_name_length_trigger",
+      "details": {
+        "name": "enforce_bucket_name_length_trigger",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.enforce_bucket_name_length()",
+        "definition_sha256": "580a7c83d8d39b8d3a8e6d12cc2e8074fc35c08434cfe0b30c74a435396fa3db"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.enforce_versioning_status_transition",
+      "details": {
+        "name": "enforce_versioning_status_transition",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.enforce_versioning_status_transition()",
+        "definition_sha256": "5a438d2fb7bc61cb8dd1c32eb66c4a7d352c1b06319de6e49c1be360a7153fdd"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.protect_active_lifecycle_states",
+      "details": {
+        "name": "protect_active_lifecycle_states",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.protect_active_lifecycle_states()",
+        "definition_sha256": "5bb16b0265c6b832bd991837482753d3ca315761680e0cd7ac00c54010a14cc5"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.protect_bucket_control_insert",
+      "details": {
+        "name": "protect_bucket_control_insert",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.protect_bucket_control_columns()",
+        "definition_sha256": "9c4f45c4c979edd35a555fbc3f8fff288f6e51798a873c5979609f81357eff48"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.protect_bucket_control_update",
+      "details": {
+        "name": "protect_bucket_control_update",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.protect_bucket_control_columns()",
+        "definition_sha256": "fff25903becd8ef98f74225ea9a56c4b05b44eee251bd4dccb884bbb97ce245d"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.protect_bucket_control_update_role",
+      "details": {
+        "name": "protect_bucket_control_update_role",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.enforce_bucket_lifecycle_service_role()",
+        "definition_sha256": "2fcecce16bd2112f9f7a1abe081d62c44e51bc04f948f8e7a2dee96e10be572f"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.protect_buckets_delete",
+      "details": {
+        "name": "protect_buckets_delete",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.protect_delete()",
+        "definition_sha256": "9177b20f0ce99604e60dbeef1f9f05ff05dfc8df075fea756e18b91fa5e8c494"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.wake_lifecycle_on_policy_write",
+      "details": {
+        "name": "wake_lifecycle_on_policy_write",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.wake_lifecycle_state()",
+        "definition_sha256": "5bb8976c591dc1e3028a4bce48a2e9bb2bbfc4019f4d3d428c191b5e1462d83a"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "buckets.wake_lifecycle_on_versioning_enable",
+      "details": {
+        "name": "wake_lifecycle_on_versioning_enable",
+        "table": "buckets",
+        "enabled": "O",
+        "function": "storage.wake_lifecycle_state()",
+        "definition_sha256": "f8c6e39000128d82afb79a6965a6ee46516ea4f422ad512841f7eee5da8db46d"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "objects.protect_objects_delete",
+      "details": {
+        "name": "protect_objects_delete",
+        "table": "objects",
+        "enabled": "O",
+        "function": "storage.protect_delete()",
+        "definition_sha256": "b6dfbee7d5d339f311f34633772872a6474e88b17450da06310aadad83531d9a"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    },
+    {
+      "category": "TRIGGER",
+      "schema": "storage",
+      "identity": "objects.update_objects_updated_at",
+      "details": {
+        "name": "update_objects_updated_at",
+        "table": "objects",
+        "enabled": "O",
+        "function": "storage.update_updated_at_column()",
+        "definition_sha256": "95588c3979662033900b6913b10e0aab15cf1f8ab0d1ccc477fec1aef79ca393"
+      },
+      "classification": "SUPABASE_MANAGED_OR_SHARED_CANDIDATE",
+      "classification_reviewed": false
+    }
+  ]
+}

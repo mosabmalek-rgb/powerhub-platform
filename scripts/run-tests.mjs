@@ -23,7 +23,7 @@ function run(args, timeoutMs = 5 * 60_000) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-const vitestArgs = ["run", "--maxWorkers=1", "--minWorkers=1"];
+const vitestArgs = ["run", "--maxWorkers=1"];
 const pageVitestArgs = [...vitestArgs, "--config", "vitest.pages.config.ts"];
 
 function runVitest(paths) {
@@ -31,6 +31,7 @@ function runVitest(paths) {
 }
 
 runVitest(["server"]);
+runVitest(["scripts/supabase-migration-target.test.mjs"]);
 runVitest(["client/src/components"]);
 runVitest(["client/src/lib", "client/src/contexts", "client/src/hooks"]);
 
@@ -52,7 +53,9 @@ if (existsSync(pagesDir)) {
       run(pageVitestArgs.concat([roleGuardsPath, "-t", name]), 120_000);
     }
   }
-  for (const entry of ["client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx", "client/src/pages/QuickActionsPage.ui.test.tsx", "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx", "client/src/pages/collection-form-reset.contract.test.ts"]) {
+  // Keep the login recovery/diagnostics UI regression suite in the required CI path.
+  // It is intentionally separate from the larger page suites for faster, clearer failures.
+  for (const entry of ["client/src/pages/LoginPage.ui.test.tsx", "client/src/pages/BillingPage.test.tsx", "client/src/pages/OperationsPage.test.tsx", "client/src/pages/SettingsPage.test.tsx", "client/src/pages/QuickActionsPage.ui.test.tsx", "client/src/pages/WorkspaceHome.smsQuota.ui.test.tsx", "client/src/pages/PlatformAccessPanel.ui.test.tsx", "client/src/pages/TenantAccessInvitationPanel.ui.test.tsx", "client/src/pages/collection-form-reset.contract.test.ts", "client/src/pages/subscriber-account-statement-pagination.contract.test.ts"]) {
     if (existsSync(entry)) run(pageVitestArgs.concat([entry]));
   }
 }

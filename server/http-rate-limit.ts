@@ -1,9 +1,13 @@
 import crypto from "node:crypto";
-import type { Request } from "express";
+import type { Request, RequestHandler } from "express";
 import { supabaseAdmin } from "./supabase-admin";
 
-function rateLimitSecret() {
-  return process.env.JWT_SECRET ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "powerhub-development-rate-limit";
+function rateLimitSecret(): string {
+  const secret = process.env.JWT_SECRET?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!secret || secret.length < 32) {
+    throw new Error("A server-side rate-limit HMAC secret of at least 32 characters is required.");
+  }
+  return secret;
 }
 
 export function getClientIp(req: Pick<Request, "ip" | "headers" | "socket">): string {
@@ -11,6 +15,9 @@ export function getClientIp(req: Pick<Request, "ip" | "headers" | "socket">): st
 }
 
 export function hashRateLimitKey(scope: string, keyMaterial: string): string {
+  if (!scope.trim() || !keyMaterial.trim()) {
+    throw new Error("HTTP rate-limit scope and key material must be non-empty.");
+  }
   return crypto
     .createHmac("sha256", rateLimitSecret())
     .update(`${scope}:${keyMaterial}`, "utf8")
@@ -35,4 +42,41 @@ export async function consumeHttpRateLimit(input: {
 
   if (error) throw new Error(`HTTP rate limiter unavailable: ${error.message}`);
   return data === true;
+}
+
+/**
+ * Express 4 does not automatically forward rejected async middleware promises.
+ * Handle both the rate-limit decision and dependency failure here so a missing
+ * limiter never allows the protected request through or leaves it hanging.
+ */
+export function httpRateLimitMiddleware(input: {
+  scope: string;
+  windowSeconds: number;
+  maxAttempts: number;
+  blockedRetryAfterSeconds?: number;
+  unavailableRetryAfterSeconds?: number;
+}): RequestHandler {
+  return (req, res, next) => {
+    void consumeHttpRateLimit({
+      req,
+      scope: input.scope,
+      windowSeconds: input.windowSeconds,
+      maxAttempts: input.maxAttempts,
+    }).then((allowed) => {
+      if (!allowed) {
+        res.setHeader("Retry-After", String(input.blockedRetryAfterSeconds ?? input.windowSeconds));
+        res.status(429).json({ error: "rate_limit_exceeded" });
+        return;
+      }
+      next();
+    }).catch((error: unknown) => {
+      console.error("[PowerHub] HTTP rate limiter unavailable", {
+        scope: input.scope,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+      if (res.headersSent) return;
+      res.setHeader("Retry-After", String(input.unavailableRetryAfterSeconds ?? 30));
+      res.status(503).json({ error: "rate_limit_unavailable" });
+    });
+  };
 }

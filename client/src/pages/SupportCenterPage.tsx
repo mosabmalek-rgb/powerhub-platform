@@ -7,6 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
+import { compareChatMessageOrder } from "@/lib/chat-message-order";
 import { trpc } from "@/lib/trpc";
 import { listChatMessageReceipts, listChatNotifications, subscribeToChatNotifications, subscribeToChatConversation, type ChatReceipt } from "@/lib/chatReceipts";
 import { Check, CheckCheck, Loader2, MessageCircle, RefreshCw, Send, Settings2, ShieldAlert, Trash2, UserRoundCheck } from "lucide-react";
@@ -365,7 +366,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
     const viewport = messageViewportRef.current;
     const wasNearBottom = !viewport || viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 160;
     if (!options.silent) setLoadingMessages(true);
-    const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true });
+    const { data, error } = await supabase.from("chat_messages").select("id,conversation_id,sender_user_id,sender_type,message_type,body,visibility,created_at").eq("conversation_id", conversationId).order("created_at", { ascending: true }).order("id", { ascending: true });
     if (error) toast.error("تعذر تحميل الرسائل.");
     const loadedMessages = (data ?? []) as MessageRow[];
     const previousLastId = lastMessageIdRef.current;
@@ -490,7 +491,7 @@ export default function SupportCenterPage({ embedded = false }: SupportCenterPag
           .maybeSingle();
         if (data) {
           const row = data as MessageRow;
-          setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row].sort((a, b) => a.created_at.localeCompare(b.created_at)));
+          setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row].sort(compareChatMessageOrder));
           if (row.sender_type === "human" && row.sender_user_id !== user?.id) {
             try {
               await supabase.rpc("chat_mark_delivered", { p_message_id: row.id });

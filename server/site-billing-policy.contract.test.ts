@@ -96,7 +96,9 @@ describe("site billing minimum and fractional settlement contract", () => {
     expect(server).toContain("powerhub_create_payment_with_discount");
     expect(server).toContain("manualDiscountAmount");
     expect(collectionUi).toContain("manualDiscountReason");
-    expect(collectionUi).toContain("مبلغ التحصيل والخصم معًا يتجاوزان الرصيد المستحق");
+    expect(collectionUi).toContain("الخصم اليدوي مع مبلغ التحصيل يتجاوزان الرصيد المستحق");
+    expect(collectionUi).toContain("selectedInvoiceIds.length===1");
+    expect(collectionUi).toContain("سيُسجل الفائض");
   });
 
   it("rejects sub-cent payment and manual-discount amounts before the financial RPC", () => {

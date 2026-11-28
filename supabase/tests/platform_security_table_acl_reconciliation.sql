@@ -80,6 +80,32 @@ INSERT INTO public.platform_security_settings(id,setting_key,value)
 \ir ../migrations/20261025182440_powerhub_scoped_platform_admin_and_recovery_rpc.sql
 -- Run the scoped correction twice to detect duplicate policies or non-repeatable DDL.
 \ir ../migrations/20261025182440_powerhub_scoped_platform_admin_and_recovery_rpc.sql
+\ir ../migrations/20261105223416_powerhub_platform_management_admin_search_path_hardening.sql
+
+DO $management_admin_search_path_contract$
+DECLARE
+  v_config text[];
+  v_owner text;
+  v_security_definer boolean;
+BEGIN
+  SELECT p.proconfig,pg_catalog.pg_get_userbyid(p.proowner),p.prosecdef
+    INTO v_config,v_owner,v_security_definer
+  FROM pg_catalog.pg_proc p
+  WHERE p.oid='private.powerhub_is_platform_management_admin()'::regprocedure;
+
+  IF v_owner <> 'postgres'
+     OR NOT v_security_definer
+     OR v_config IS DISTINCT FROM ARRAY['search_path=""']::text[] THEN
+    RAISE EXCEPTION 'PLATFORM_MANAGEMENT_ADMIN_SEARCH_PATH_CONTRACT_MISMATCH';
+  END IF;
+
+  IF has_function_privilege('anon','private.powerhub_is_platform_management_admin()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','private.powerhub_is_platform_management_admin()','EXECUTE')
+     OR NOT has_function_privilege('service_role','private.powerhub_is_platform_management_admin()','EXECUTE') THEN
+    RAISE EXCEPTION 'PLATFORM_MANAGEMENT_ADMIN_EXECUTE_ACL_MISMATCH';
+  END IF;
+END
+$management_admin_search_path_contract$;
 
 DO $acl_contract$
 DECLARE

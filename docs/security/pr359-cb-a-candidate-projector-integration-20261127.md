@@ -1,0 +1,5 @@
+# CB-A.4 candidate integration — 2026-11-27
+
+The existing networkless Docker fixture still exercises the archived Append/Capture/Emit and original synthetic projectors unchanged. A new, separate rolled-back transaction in pr359_real_capture expands the synthetic tables, loads the three SHA-pinned archived projector definitions and reuses the preflight DO block from the existing Append candidate fixture. The runner requires markers for full projected payload equality in the journal, tenant/site/parent boundaries, branch/parent moves, synthetic FK cascade, exact source/journal/scope rollback and fixture restoration. Cost sentinel columns are not projected. No hosted operation or migration.
+
+The source tables, FK and two membership refreshers remain synthetic; real schema RLS, ACL, indirect refresh triggers, complete financial-field inventory, concurrent candidate execution and full caller closure are NOT established by this fixture. A missing projector can intentionally emit a tombstone in archived Emit, so this test is not a proof of all referential integrity. New-head CI evidence is required; no approval flags are changed.

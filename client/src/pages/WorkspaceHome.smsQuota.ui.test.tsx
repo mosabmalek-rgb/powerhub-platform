@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceHome } from "./Home";
+import { writeCachedWorkspaceSites } from "@/lib/workspace-sites-cache";
 
 const state = vi.hoisted(() => ({
   authLoading: false,
@@ -11,7 +12,12 @@ const state = vi.hoisted(() => ({
   user: { id: 4, role: "user", mustChangePassword: false } as { id: number; role: string; mustChangePassword: boolean } | null,
   accessRole: "owner" as string,
   financialOverviewEnabled: true,
-  periodMetricsEnabled: true,
+  periodKpiEnabled: true,
+  financialKpiEnabled: true,
+  activeSubscribersKpiEnabled: true,
+  powerHubReachable: false,
+  sitesInitialData: undefined as unknown,
+  sitesRefetchOnMount: undefined as unknown,
   setLocation: vi.fn(),
   configured: true,
   isActive: true,
@@ -21,6 +27,8 @@ const state = vi.hoisted(() => ({
   smsUsed: 42,
   branchPolicyError: false,
   financialOverviewError: false,
+  dashboardCachedOnError: false,
+  dashboardRevisionError: false,
   companyAccountsError: false,
   refetchFinancialOverview: vi.fn(),
   refetchCompanyAccounts: vi.fn(),
@@ -34,7 +42,12 @@ const state = vi.hoisted(() => ({
   refetchSubaccountQuota: vi.fn(),
 }));
 
-vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ isAuthenticated: state.isAuthenticated, loading: state.authLoading, user: state.user }) }));
+vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({
+  isAuthenticated: state.isAuthenticated,
+  loading: state.authLoading,
+  user: state.user,
+  powerHubReachable: state.powerHubReachable,
+}) }));
 vi.mock("@/components/DashboardLayout", () => ({ default: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/MetricCard", () => ({ MetricCard: ({ label, value }: { label: string; value: string }) => <div>{label}: {value}</div> }));
 vi.mock("@/hooks/useBranchFilter", () => ({ useBranchFilter: () => ({ branchId: 1, setBranchId: vi.fn() }) }));
@@ -43,9 +56,13 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 vi.mock("@/lib/trpc", () => ({
   trpc: {
     powerhub: {
-      sites: { list: { useQuery: () => ({ data: [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: false }) }, branchPolicy: { useQuery: () => ({ data: state.branchPolicy, isLoading: false, isError: state.branchPolicyError, refetch: state.refetchBranchPolicy }) } },
+      sites: { list: { useQuery: (_input?: unknown, options?: { initialData?: unknown; refetchOnMount?: unknown }) => {
+        state.sitesInitialData = options?.initialData;
+        state.sitesRefetchOnMount = options?.refetchOnMount;
+        return { data: options?.initialData ?? [{ id: 1, name: "فرع الاختبار" }], isLoading: false, isError: false, error: null };
+      } }, multiBranchAccess: { useQuery: () => ({ data: {siteId:1,enabled:false,activeSiteCount:1}, isSuccess:true,isLoading:false,isFetching:false,isError:false }) }, branchPolicy: { useQuery: () => ({ data: state.branchPolicy, isLoading: false, isError: state.branchPolicyError, refetch: state.refetchBranchPolicy }) } },
       readingCycle: { currentBounds: { useQuery: () => ({ data: { cycleKey: "2026-10", cycleLabel: "أكتوبر 2026", billingPeriod: "2026-10", startAt: "2026-10-01T00:00:00.000Z", endAt: "2026-10-31T20:59:59.999Z" }, isLoading: false, isError: false, refetch: vi.fn() }) }, boundsAt: { useQuery: () => ({ data: { cycleKey: "2026-09", cycleLabel: "سبتمبر 2026", billingPeriod: "2026-09", startAt: "2026-09-01T00:00:00.000Z", endAt: "2026-09-30T20:59:59.999Z" }, isLoading: false, isError: false, refetch: vi.fn() }) } },
-      dashboard: { summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.financialOverviewEnabled = Boolean(options?.enabled); return { data: { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }; } }, periodMetrics: { useQuery: (input: { siteId: number; scope: "branch" | "all"; startDate: string; endDate: string }, options?: { enabled?: boolean }) => { state.periodMetricsEnabled = Boolean(options?.enabled); return { data: { range: { startDate: input.startDate, endDate: input.endDate }, scope: input.scope, summary: { invoiced: 0, collected: 0, collectionRate: 0, outstanding: 0, overdue: 0, overdueInvoiceCount: 0, overdueSubscriberCount: 0 }, outstandingInvoices: [] }, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } } },
+      dashboard: { deltaRevision: { useQuery: () => ({ data: { revision: "0", observedAt: "2026-10-29T00:00:00.000Z", scope: "branch", siteId: 1 }, isLoading: false, isError: state.dashboardRevisionError, refetch: vi.fn() }) }, summary: { useQuery: () => ({ data: { failedNotifications: 0 }, isLoading: false, isError: false, refetch: vi.fn() }) }, allBranchesSummary: { useQuery: () => ({ data: { branchSummaries: [] }, isLoading: false, isError: false, refetch: vi.fn() }) }, financialOverview: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.financialOverviewEnabled = Boolean(options?.enabled); return { data: state.financialOverviewError && !state.dashboardCachedOnError ? undefined : { month: { invoiced: 0, collected: 0, collectionRate: 0, netCash: 0, expenses: 0 }, today: { invoiced: 0, collected: 0, collectionRate: 0 }, outstanding: { total: 0, accountCount: 0, overdue: 0, partialInvoices: 0 }, period: { month: "أغسطس" }, branchSummaries: [], topDebtors: [], trend: [] }, isLoading: false, isError: state.financialOverviewError, refetch: state.refetchFinancialOverview }; } } , periodKpi: { useQuery: (input: { siteId: number; scope: "branch" | "all"; metric: string; startDate: string; endDate: string }, options?: { enabled?: boolean }) => { state.periodKpiEnabled = Boolean(options?.enabled); const hasSnapshot = !state.financialOverviewError || state.dashboardCachedOnError; return { data: hasSnapshot ? { metric: input.metric, value: 0, auxiliaryCount: 0, range: { startDate: input.startDate, endDate: input.endDate }, scope: input.scope, siteId: input.siteId } : undefined, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } }, activeSubscribersKpi: { useQuery: (_input: unknown, options?: { enabled?: boolean }) => { state.activeSubscribersKpiEnabled = Boolean(options?.enabled); const hasSnapshot = !state.financialOverviewError || state.dashboardCachedOnError; return { data: hasSnapshot ? { metric: "activeSubscribers", value: 25, scope: "branch", siteId: 1 } : undefined, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } }, financialKpi: { useQuery: (input: { metric: string }, options?: { enabled?: boolean }) => { state.financialKpiEnabled = Boolean(options?.enabled); const hasSnapshot = !state.financialOverviewError || state.dashboardCachedOnError; const data = input.metric === "expenses" ? { metric: input.metric, expenses: 0, scope: "branch", siteId: 1 } : input.metric === "netCash" ? { metric: input.metric, expenses: 0, collected: 0, netCash: 0, scope: "branch", siteId: 1 } : { metric: input.metric, outstanding: 0, overdue: 0, partialInvoices: 0, accountCount: 0, scope: "branch", siteId: 1 }; return { data: hasSnapshot ? data : undefined, isLoading: false, isError: state.financialOverviewError, refetch: vi.fn() }; } } },
       performance: {
         readingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
         allBranchesReadingKpis: { useQuery: () => ({ data: { consumption: 0, average: 0, approvedCount: 0, pendingCount: 0, latestReadingAt: null }, isLoading: false, isError: false }) },
@@ -55,7 +72,7 @@ vi.mock("@/lib/trpc", () => ({
       publicPackageCatalog: { useQuery: () => ({ data: { packages: [{ code: "basic", active: true }, { code: "advanced", active: true }, { code: "professional", active: true }, { code: "business", active: true }, { code: "vip", active: true }] }, isLoading: false, isError: false }) },
       companyAccounts: { list: { useQuery: () => ({ data: [], isLoading: false, isError: state.companyAccountsError, refetch: state.refetchCompanyAccounts }) } },
       subscribers: { quota: { useQuery: () => ({ data: state.subscriberQuota, isLoading: false, isError: false, refetch: vi.fn() }) } },
-      staff: { myAccess: { useQuery: () => ({ data: { role: state.accessRole } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
+      staff: { myAccess: { useQuery: () => ({ data: { role: state.accessRole, permissions: state.accessRole === "technician" ? [] : ["viewFinancialReports", "collectPayments", "manageExpenses"] } }) }, allBranchAccess: { useQuery: () => ({ data: { isGlobal: false } }) }, allowedSubaccountRoles: { useQuery: () => ({ data: { limit: 5, currentCount: 2, fieldUserLimit: 2, fieldUserCount: 1 }, isLoading: false, isError: state.subaccountQuotaError, refetch: state.refetchSubaccountQuota }) } },
       messaging: { smsQuota: { useQuery: () => ({ data: { total: 500, used: state.smsUsed, remaining: Math.max(0, 500 - state.smsUsed), senderName: "PowerHub", configured: state.configured, isActive: state.isActive, lastError: null, providerMonthlyLimit: 2000, providerMonthlyUsed: 90 }, isLoading: false, isError: state.smsQuotaError, refetch: state.refetchSmsQuota }) }, smsCreditPackages: { useQuery: () => ({ data: [{ id: 11, code: "sms-1000", name: "حزمة 1000 رسالة", messages: 1000, price: 0, currency: "ILS" }], isLoading: false, isError: false }) }, currentSmsPackageRequest: { useQuery: () => ({ data: null, isLoading: false, isError: state.smsPackageRequestError, refetch: state.refetchSmsPackageRequest }) }, requestSmsPackage: { useMutation: () => ({ mutate: state.requestSmsPackage, isPending: false }) } },
       subscription: { ownerRenewalStatus: { useQuery: () => ({ data: { isOwner: false, subscription: null }, isLoading: false, isError: false, refetch: vi.fn() }) }, currentUpgradeRequest: { useQuery: () => ({ data: null }) }, currentAddonRequests: { useQuery: () => ({ data: [] }) }, requestUpgrade: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) }, requestAddon: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) } },
     },
@@ -68,7 +85,9 @@ afterEach(() => {
   state.user = { id: 4, role: "user", mustChangePassword: false };
   state.accessRole = "owner";
   state.financialOverviewEnabled = true;
-  state.periodMetricsEnabled = true;
+  state.periodKpiEnabled = true;
+  state.financialKpiEnabled = true;
+  state.activeSubscribersKpiEnabled = true;
   state.setLocation.mockReset();
   state.configured = true;
   state.isActive = true;
@@ -78,7 +97,13 @@ afterEach(() => {
   state.smsUsed = 42;
   state.branchPolicyError = false;
   state.financialOverviewError = false;
+  state.dashboardCachedOnError = false;
+  state.dashboardRevisionError = false;
   state.companyAccountsError = false;
+  state.powerHubReachable = false;
+  state.sitesInitialData = undefined;
+  state.sitesRefetchOnMount = undefined;
+  window.sessionStorage.clear();
   state.refetchFinancialOverview.mockReset();
   state.refetchCompanyAccounts.mockReset();
   state.smsQuotaError = false;
@@ -113,6 +138,36 @@ describe("تهيئة مصادقة مساحة العمل", () => {
     render(<WorkspaceHome />);
 
     expect(screen.getByText("جارٍ توجيهك إلى تسجيل الدخول…")).toBeInTheDocument();
+  });
+});
+
+describe("استعادة نطاق لوحة التحكم دون اتصال", () => {
+  it("uses the stored site list to enable site-scoped KPI snapshots after a hard reload offline", () => {
+    writeCachedWorkspaceSites(4, [{
+      id: 1,
+      tenantId: 9,
+      tenantName: "Tenant",
+      name: "فرع الاختبار",
+      code: "BR-1",
+      city: null,
+      address: null,
+      status: "active",
+      anomalyAlertPercent: 20,
+      invoiceDueDays: 3,
+      invoiceDueHours: 72,
+      createdAt: new Date("2026-10-31T12:00:00.000Z"),
+    }]);
+    state.powerHubReachable = false;
+
+    render(<WorkspaceHome />);
+
+    expect(state.sitesInitialData).toBeDefined();
+    expect((state.sitesInitialData as Array<{ id: number }>)[0].id).toBe(1);
+    expect(state.sitesRefetchOnMount).toBe("always");
+    expect(state.periodKpiEnabled).toBe(true);
+    expect(state.financialKpiEnabled).toBe(true);
+    expect(state.activeSubscribersKpiEnabled).toBe(true);
+    expect(screen.getByText("المشتركون النشطون: 25")).toBeInTheDocument();
   });
 });
 
@@ -205,11 +260,23 @@ describe("بطاقة رصيد SMS في لوحة المالك", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThan(2);
   });
 
+  it("يعرض اللقطة المحفوظة عند تعذر الشبكة ويصرّح بأنها غير مؤكدة الحداثة", () => {
+    state.financialOverviewError = true;
+    state.dashboardCachedOnError = true;
+    state.dashboardRevisionError = true;
+    render(<WorkspaceHome />);
+    expect(screen.getByText(/تعذر التحقق من حداثة لقطة لوحة التحكم/)).toBeInTheDocument();
+    expect(screen.getByText("فوترة الفترة: 0")).toBeInTheDocument();
+    expect(screen.getByText("تحصيل الفترة: 0")).toBeInTheDocument();
+  });
+
   it("لا يطلب الملخص المالي ولا مؤشرات الفترة للأدوار التي لا يسمح لها الخادم بقراءتها", () => {
     state.accessRole = "technician";
     render(<WorkspaceHome />);
     expect(state.financialOverviewEnabled).toBe(false);
-    expect(state.periodMetricsEnabled).toBe(false);
+    expect(state.periodKpiEnabled).toBe(false);
+    expect(state.financialKpiEnabled).toBe(false);
+    expect(state.activeSubscribersKpiEnabled).toBe(false);
     expect(screen.queryByText("تعذر تحميل بعض بيانات لوحة التحكم")).not.toBeInTheDocument();
   });
 

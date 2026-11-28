@@ -1,0 +1,3639 @@
+{
+  "format": "PR359 R0 managed service read-only source reference v1",
+  "capture_date": "2026-11-19",
+  "source_project_ref": "vvcdiqcyhaloxesvpppc",
+  "source_sha_at_reference": "7bd8ecc6019c36fd53bd7243dd05ad35db8e334c",
+  "scope": "managed catalog columns and provider-service migration ledger only; no business, Auth identity or secrets",
+  "staging_service_ledger_exact_match": true,
+  "warning": "Snapshot not transactionally atomic; refresh under a protected repeatable read for R0 acceptance. Realtime partitions are environment-lifecycle objects.",
+  "migration_records": [
+    {
+      "service": "auth",
+      "version": "00",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20171026211738",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20171026211808",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20171026211834",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20180103212743",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20180108183307",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20180119214651",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20180125194653",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20210710035447",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20210722035447",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20210730183235",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20210909172000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20210927181326",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20211122151130",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20211124214934",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20211202183645",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220114185221",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220114185340",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220224000811",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220323170000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220429102000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220531120530",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220614074223",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20220811173540",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221003041349",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221003041400",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221011041400",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221020193600",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221021073300",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221021082433",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221027105023",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221114143122",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221114143410",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221125140132",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221208132122",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221215195500",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221215195800",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20221215195900",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230116124310",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230116124412",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230131181311",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230322519590",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230402418590",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230411005111",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230508135423",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230523124323",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230818113222",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20230914180801",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20231027141322",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20231114161723",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20231117164230",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240115144230",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240214120130",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240306115329",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240314092811",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240427152123",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240612123726",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240729123726",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240802193726",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20240806073726",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20241009103726",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250717082212",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250731150234",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250804100000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250901200500",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250903112500",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250904133000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20250925093508",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20251007112900",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20251104100000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20251111201300",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20251201000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260115000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260121000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260219120000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260302000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260625000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260821000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260821010000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260824000000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260824000001",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260831180000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20260911120000",
+      "checksum": null
+    },
+    {
+      "service": "auth",
+      "version": "20261030120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116024918",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116045059",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116050929",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116051442",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116212300",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116213355",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116213934",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211116214523",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211122062447",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211124070109",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211202204204",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211202204605",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211210212804",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20211228014915",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220107221237",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220228202821",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220312004840",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220603231003",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220603232444",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220615214548",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220712093339",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220908172859",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20220916233421",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230119133233",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230128025114",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230128025212",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230227211149",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230228184745",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230308225145",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20230328144023",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20231018144023",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20231204144023",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20231204144024",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20231204144025",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240108234812",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240109165339",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240227174441",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240311171622",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240321100241",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240401105812",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240418121054",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240523004032",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240618124746",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240801235015",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240805133720",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240827160934",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240919163303",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20240919163305",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241019105805",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241030150047",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241108114728",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241121104152",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241130184212",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241220035512",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241220123912",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20241224161212",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250107150512",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250110162412",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250123174212",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250128220012",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250506224012",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250523164012",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250714121412",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20250905041441",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20251103001201",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20251120212548",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20251120215549",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260218120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260326120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260514120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260527120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260528120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260603120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260605120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260606110000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260616120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260624120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260626120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260706120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260707120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260709120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260714120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260827120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260914120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260916120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260922120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260925120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20260928120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261002120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261007120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261008120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261009120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261022120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261027120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261029120000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261103130000",
+      "checksum": null
+    },
+    {
+      "service": "realtime",
+      "version": "20261111120000",
+      "checksum": null
+    },
+    {
+      "service": "storage",
+      "version": "add_owner_id_column_deprecate_owner",
+      "checksum": "e7a511b379110b08e2f214be852c35414749fe66"
+    },
+    {
+      "service": "storage",
+      "version": "add-automatic-avif-detection-flag",
+      "checksum": "8e92e1266eb29518b6a4c5313ab8f29dd0d08df9"
+    },
+    {
+      "service": "storage",
+      "version": "add-bucket-custom-limits",
+      "checksum": "cce962054138135cd9a8c4bcd531598684b25e7d"
+    },
+    {
+      "service": "storage",
+      "version": "add-bucket-name-length-trigger",
+      "checksum": "3944135b4e3e8b22d6d4cbb568fe3b0b51df15c1"
+    },
+    {
+      "service": "storage",
+      "version": "add-can-insert-object-function",
+      "checksum": "934146bc38ead475f4ef4b555c524ee5d66799e5"
+    },
+    {
+      "service": "storage",
+      "version": "add-insert-trigger-prefixes",
+      "checksum": "458fe0ffd07ec53f5e3ce9df51bfdf4861929ccc"
+    },
+    {
+      "service": "storage",
+      "version": "add-migrations-rls",
+      "checksum": "427c5b63fe1c5937495d9c635c263ee7a5905058"
+    },
+    {
+      "service": "storage",
+      "version": "add-object-level-update-trigger",
+      "checksum": "07fcf1a22165849b7a029deed059ffcde08d1ae0"
+    },
+    {
+      "service": "storage",
+      "version": "add-public-to-buckets",
+      "checksum": "fd670db39ed65f9d08b01db09d6202503ca2bab3"
+    },
+    {
+      "service": "storage",
+      "version": "add-rls-to-buckets",
+      "checksum": "e7e7f86adbc51049f341dfe8d30256c1abca17aa"
+    },
+    {
+      "service": "storage",
+      "version": "add-search-v2-sort-support",
+      "checksum": "6706c5f2928846abee18461279799ad12b279b78"
+    },
+    {
+      "service": "storage",
+      "version": "add-size-functions",
+      "checksum": "79e081a1455b63666c1294a440f8ad4b1e6a7f84"
+    },
+    {
+      "service": "storage",
+      "version": "add-trigger-to-auto-update-updated_at-column",
+      "checksum": "7425bdb14366d1739fa8a18c83100636d74dcaa2"
+    },
+    {
+      "service": "storage",
+      "version": "add-version",
+      "checksum": "76debf38d3fd07dcfc747ca49096457d95b1221b"
+    },
+    {
+      "service": "storage",
+      "version": "alter-default-value-objects-id",
+      "checksum": "02e5e22a78626187e00d173dc45f58fa66a4f043"
+    },
+    {
+      "service": "storage",
+      "version": "backward-compatible-index-on-objects",
+      "checksum": "e0c37182b0f7aee3efd823298fb3c76f1042c0f7"
+    },
+    {
+      "service": "storage",
+      "version": "backward-compatible-index-on-prefixes",
+      "checksum": "b480e99ed951e0900f033ec4eb34b5bdcb4e3d49"
+    },
+    {
+      "service": "storage",
+      "version": "bucket-lifecycle-configuration",
+      "checksum": "3c08f6f889922f399519722a932b51007c11bebc"
+    },
+    {
+      "service": "storage",
+      "version": "buckets-objects-grants",
+      "checksum": "fedeb96d60fefd8e02ab3ded9fbde05632f84aed"
+    },
+    {
+      "service": "storage",
+      "version": "buckets-objects-grants-postgres",
+      "checksum": "072b1195d0d5a2f888af6b2302a1938dd94b8b3d"
+    },
+    {
+      "service": "storage",
+      "version": "change-column-name-in-get-size",
+      "checksum": "ded78e2f1b5d7e616117897e6443a925965b30d2"
+    },
+    {
+      "service": "storage",
+      "version": "create-migrations-table",
+      "checksum": "e18db593bcde2aca2a408c4d1100f6abba2195df"
+    },
+    {
+      "service": "storage",
+      "version": "create-prefixes",
+      "checksum": "ad2c1207f76703d11a9f9007f821620017a66c21"
+    },
+    {
+      "service": "storage",
+      "version": "custom-metadata",
+      "checksum": "d974c6057c3db1c1f847afa0e291e6165693b990"
+    },
+    {
+      "service": "storage",
+      "version": "drop-bucketid-objname-index",
+      "checksum": "302beb09e1b469d7d4db19566f2389d280b64aa3"
+    },
+    {
+      "service": "storage",
+      "version": "drop-index-lower-name",
+      "checksum": "d0cb18777d9e2a98ebe0bc5cc7a42e57ebe41854"
+    },
+    {
+      "service": "storage",
+      "version": "drop-index-object-level",
+      "checksum": "6289e048b1472da17c31a7eba1ded625a6457e67"
+    },
+    {
+      "service": "storage",
+      "version": "drop-not-used-indexes-and-functions",
+      "checksum": "5cc44c8696749ac11dd0dc37f2a3802075f3a171"
+    },
+    {
+      "service": "storage",
+      "version": "drop-owner-foreign-key",
+      "checksum": "f1cbb288f1b7a4c1eb8c38504b80ae2a0153d101"
+    },
+    {
+      "service": "storage",
+      "version": "drop-unused-functions",
+      "checksum": "38456f13e39691c2bbb4b5151d0d1cdbabd4a8c4"
+    },
+    {
+      "service": "storage",
+      "version": "enforce-bucket-lifecycle-update-role",
+      "checksum": "8454a556116c985db857d3b99de94a31a68ad273"
+    },
+    {
+      "service": "storage",
+      "version": "fix-object-level",
+      "checksum": "84b35d6caca9d937478ad8a797491f38b8c2979f"
+    },
+    {
+      "service": "storage",
+      "version": "fix-optimized-search-function",
+      "checksum": "b823ed1e418101032fa01374edc9a436e54e3ed4"
+    },
+    {
+      "service": "storage",
+      "version": "fix-prefix-race-conditions-optimized",
+      "checksum": "7ad69982ae2d372b21f48fc4829ae9752c518f6b"
+    },
+    {
+      "service": "storage",
+      "version": "fix-search-by-timestamp-sqli",
+      "checksum": "0af424ecd388a39bb1645184b222185a12149675"
+    },
+    {
+      "service": "storage",
+      "version": "fix-search-function",
+      "checksum": "af597a1b590c70519b464a4ab3be54490712796b"
+    },
+    {
+      "service": "storage",
+      "version": "fix-search-name-relative-to-prefix",
+      "checksum": "c7485e417624f795ce8bb2da21927f48e088904d"
+    },
+    {
+      "service": "storage",
+      "version": "iceberg-catalog-flag-on-buckets",
+      "checksum": "02716b81ceec9705aed84aa1501657095b32e5c5"
+    },
+    {
+      "service": "storage",
+      "version": "iceberg-catalog-ids",
+      "checksum": "e0e8b460c609b9999ccd0df9ad14294613eed939"
+    },
+    {
+      "service": "storage",
+      "version": "iceberg-table-metadata",
+      "checksum": "649df56855c24d8b36dd4cc1aeb8251aa9ad42c2"
+    },
+    {
+      "service": "storage",
+      "version": "index-backward-compatible-search",
+      "checksum": "2ee395d433f76e38bcd3856debaf6e0e5b674011"
+    },
+    {
+      "service": "storage",
+      "version": "initialmigration",
+      "checksum": "6ab16121fbaa08bbd11b712d05f358f9b555d777"
+    },
+    {
+      "service": "storage",
+      "version": "lifecycle-writer-coordination",
+      "checksum": "3b38458424d2099e6b2e3cb4233590060f527fe1"
+    },
+    {
+      "service": "storage",
+      "version": "list-objects-with-delimiter",
+      "checksum": "cd694ae708e51ba82bf012bba00caf4f3b6393b7"
+    },
+    {
+      "service": "storage",
+      "version": "list-objects-with-versions",
+      "checksum": "5c17c3777616cd8d7b18b82835525fa3205af57b"
+    },
+    {
+      "service": "storage",
+      "version": "mark-filename-immutable",
+      "checksum": "fe0096517ae9d60aaec1d110172ba9036dc66bb7"
+    },
+    {
+      "service": "storage",
+      "version": "noncurrent-lifecycle",
+      "checksum": "052cbe11956fd14b85861fc19537c0303b73010e"
+    },
+    {
+      "service": "storage",
+      "version": "noncurrent-lifecycle-archived-due-index",
+      "checksum": "c82ba0e577ec5c3496b1077ff385ce4645497698"
+    },
+    {
+      "service": "storage",
+      "version": "noncurrent-lifecycle-archived-order-index",
+      "checksum": "d68b03438a987aa1324a0fca68f7078cb2ffb849"
+    },
+    {
+      "service": "storage",
+      "version": "object-bucket-name-sorting",
+      "checksum": "c73a2b5b5d4041e39705814fd3a1b95502d38ce4"
+    },
+    {
+      "service": "storage",
+      "version": "object-versioning-core",
+      "checksum": "c6567e688f8c4a76887e7c1b117b2d58f4feccba"
+    },
+    {
+      "service": "storage",
+      "version": "objects-current-version-index",
+      "checksum": "191466c93aa2c46a00e36505577c5fcab8d7cb4b"
+    },
+    {
+      "service": "storage",
+      "version": "objects-delete-marker-index",
+      "checksum": "6d14858e66c66f8d6accf8a2630aefd1527fddba"
+    },
+    {
+      "service": "storage",
+      "version": "objects-key-version-index",
+      "checksum": "da319c4b89ba800ce795d1b699f3a70675138058"
+    },
+    {
+      "service": "storage",
+      "version": "objects-level-index",
+      "checksum": "b40367c14c3440ec75f19bbce2d71e914ddd3da0"
+    },
+    {
+      "service": "storage",
+      "version": "objects-null-version-index",
+      "checksum": "15bfe8c35b66642b6c78ba60060fa8793bd2207a"
+    },
+    {
+      "service": "storage",
+      "version": "objects-prefixes",
+      "checksum": "215cabcb7f78121892a5a2037a09fedf9a1ae322"
+    },
+    {
+      "service": "storage",
+      "version": "operation-ergonomics",
+      "checksum": "00ca5d483b3fe0d522133d9002ccc5df98365120"
+    },
+    {
+      "service": "storage",
+      "version": "operation-function",
+      "checksum": "8312e37c2bf9e76bbe841aa5fda889206d2bf8aa"
+    },
+    {
+      "service": "storage",
+      "version": "optimise-existing-functions",
+      "checksum": "6ae5fca6af5c55abe95369cd4f93985d1814ca8f"
+    },
+    {
+      "service": "storage",
+      "version": "optimize-existing-functions-again",
+      "checksum": "db35e1c91a9201e59f4fef8d972c2f277d68b157"
+    },
+    {
+      "service": "storage",
+      "version": "optimize-search-function",
+      "checksum": "9d7e604cddc4b56a5422dc68c9313f4a1b6f132c"
+    },
+    {
+      "service": "storage",
+      "version": "optimize-search-function-v1",
+      "checksum": "ca80a3dc7bfef894df17108785ce29a7fc8ee456"
+    },
+    {
+      "service": "storage",
+      "version": "pathtoken-column",
+      "checksum": "2cb1b0004b817b29d5b0a971af16bafeede4b70d"
+    },
+    {
+      "service": "storage",
+      "version": "prevent-direct-deletes",
+      "checksum": "262a4798d5e0f2e7c8970232e03ce8be695d5819"
+    },
+    {
+      "service": "storage",
+      "version": "revoke-extra-lifecycle-postgres-grants",
+      "checksum": "18cfbf5c5b356469e1e95f3aa1b59ba111d82a06"
+    },
+    {
+      "service": "storage",
+      "version": "revoke-grants-to-unused-operations",
+      "checksum": "ba9244051be09f22f714fc0170a2539f8b5f0e68"
+    },
+    {
+      "service": "storage",
+      "version": "rollback-prefix-triggers",
+      "checksum": "771479077764adc09e2ea2043eb627503c034cd4"
+    },
+    {
+      "service": "storage",
+      "version": "s3-multipart-uploads",
+      "checksum": "8c804d4a566c40cd1e4cc5b3725a664a9303657f"
+    },
+    {
+      "service": "storage",
+      "version": "s3-multipart-uploads-big-ints",
+      "checksum": "9737dc258d2397953c9953d9b86920b8be0cdb73"
+    },
+    {
+      "service": "storage",
+      "version": "s3-multipart-uploads-metadata",
+      "checksum": "f127886e00d1b374fadbc7c6b31e09336aad5287"
+    },
+    {
+      "service": "storage",
+      "version": "search-files-search-function",
+      "checksum": "b595f05e92f7e91211af1bbfe9c6a13bb3391e16"
+    },
+    {
+      "service": "storage",
+      "version": "search-v2",
+      "checksum": "859ba38092ac96eb3964d83bf53ccc0b141663a6"
+    },
+    {
+      "service": "storage",
+      "version": "search-v2-optimised",
+      "checksum": "6323ac4f850aa14e7387eb32102869578b5bd478"
+    },
+    {
+      "service": "storage",
+      "version": "storage-schema",
+      "checksum": "cdc19a79b298ce37cc730487821a1a7b06b98105"
+    },
+    {
+      "service": "storage",
+      "version": "unlock-object-versioning",
+      "checksum": "dacb58ecb37678de855505b3e1c5aec0d5df7894"
+    },
+    {
+      "service": "storage",
+      "version": "update-object-levels",
+      "checksum": "2be814ff05c8252fdfdc7cfb4b7f5c7e17f0bed6"
+    },
+    {
+      "service": "storage",
+      "version": "use-bytes-for-max-size",
+      "checksum": "941c41b346f9802b411f06f30e972ad4744dad27"
+    },
+    {
+      "service": "storage",
+      "version": "validate-bucket-lifecycle-constraints",
+      "checksum": "4febacaaaa0e61e2b783bef081fe03a287e65eb3"
+    },
+    {
+      "service": "storage",
+      "version": "vector-bucket-type",
+      "checksum": "99c20c0ffd52bb1ff1f32fb992f3b351e3ef8fb3"
+    },
+    {
+      "service": "storage",
+      "version": "vector-buckets",
+      "checksum": "049e27196d77a7cb76497a85afae669d8b230953"
+    }
+  ],
+  "catalog_columns": [
+    {
+      "type": "uuid",
+      "table": "audit_log_entries",
+      "column": "instance_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "audit_log_entries",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "json",
+      "table": "audit_log_entries",
+      "column": "payload",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "audit_log_entries",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(64)",
+      "table": "audit_log_entries",
+      "column": "ip_address",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "custom_oauth_providers",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "provider_type",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "identifier",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "name",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "client_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "client_secret",
+      "schema": "auth"
+    },
+    {
+      "type": "text[]",
+      "table": "custom_oauth_providers",
+      "column": "acceptable_client_ids",
+      "schema": "auth"
+    },
+    {
+      "type": "text[]",
+      "table": "custom_oauth_providers",
+      "column": "scopes",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "custom_oauth_providers",
+      "column": "pkce_enabled",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "custom_oauth_providers",
+      "column": "attribute_mapping",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "custom_oauth_providers",
+      "column": "authorization_params",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "custom_oauth_providers",
+      "column": "enabled",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "custom_oauth_providers",
+      "column": "email_optional",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "issuer",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "discovery_url",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "custom_oauth_providers",
+      "column": "skip_nonce_check",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "custom_oauth_providers",
+      "column": "cached_discovery",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "custom_oauth_providers",
+      "column": "discovery_cached_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "authorization_url",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "token_url",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "userinfo_url",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "custom_oauth_providers",
+      "column": "jwks_uri",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "custom_oauth_providers",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "custom_oauth_providers",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text[]",
+      "table": "custom_oauth_providers",
+      "column": "custom_claims_allowlist",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "flow_state",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "flow_state",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "auth_code",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.code_challenge_method",
+      "table": "flow_state",
+      "column": "code_challenge_method",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "code_challenge",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "provider_type",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "provider_access_token",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "provider_refresh_token",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "flow_state",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "flow_state",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "authentication_method",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "flow_state",
+      "column": "auth_code_issued_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "invite_token",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "flow_state",
+      "column": "referrer",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "flow_state",
+      "column": "oauth_client_state_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "flow_state",
+      "column": "linking_target_id",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "flow_state",
+      "column": "email_optional",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "identities",
+      "column": "provider_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "identities",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "identities",
+      "column": "identity_data",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "identities",
+      "column": "provider",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "identities",
+      "column": "last_sign_in_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "identities",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "identities",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "identities",
+      "column": "email",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "identities",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "instances",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "instances",
+      "column": "uuid",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "instances",
+      "column": "raw_base_config",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "instances",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "instances",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_amr_claims",
+      "column": "session_id",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_amr_claims",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_amr_claims",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "mfa_amr_claims",
+      "column": "authentication_method",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_amr_claims",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_challenges",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_challenges",
+      "column": "factor_id",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_challenges",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_challenges",
+      "column": "verified_at",
+      "schema": "auth"
+    },
+    {
+      "type": "inet",
+      "table": "mfa_challenges",
+      "column": "ip_address",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "mfa_challenges",
+      "column": "otp_code",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "mfa_challenges",
+      "column": "web_authn_session_data",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_factors",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_factors",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "mfa_factors",
+      "column": "friendly_name",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.factor_type",
+      "table": "mfa_factors",
+      "column": "factor_type",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.factor_status",
+      "table": "mfa_factors",
+      "column": "status",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_factors",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_factors",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "mfa_factors",
+      "column": "secret",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "mfa_factors",
+      "column": "phone",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_factors",
+      "column": "last_challenged_at",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "mfa_factors",
+      "column": "web_authn_credential",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_factors",
+      "column": "web_authn_aaguid",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "mfa_factors",
+      "column": "last_webauthn_challenge_data",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_recovery_code_sets",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_recovery_code_sets",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_recovery_code_sets",
+      "column": "mfa_factor_id",
+      "schema": "auth"
+    },
+    {
+      "type": "integer",
+      "table": "mfa_recovery_code_sets",
+      "column": "failed_verification_count",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_recovery_code_sets",
+      "column": "verification_locked_until",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_recovery_code_sets",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_recovery_code_sets",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_recovery_codes",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "mfa_recovery_codes",
+      "column": "mfa_recovery_code_set_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "mfa_recovery_codes",
+      "column": "code_hash",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_recovery_codes",
+      "column": "consumed_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "mfa_recovery_codes",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_authorizations",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "authorization_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_authorizations",
+      "column": "client_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_authorizations",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "redirect_uri",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "scope",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "state",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "resource",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "code_challenge",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.code_challenge_method",
+      "table": "oauth_authorizations",
+      "column": "code_challenge_method",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.oauth_response_type",
+      "table": "oauth_authorizations",
+      "column": "response_type",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.oauth_authorization_status",
+      "table": "oauth_authorizations",
+      "column": "status",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "authorization_code",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_authorizations",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_authorizations",
+      "column": "expires_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_authorizations",
+      "column": "approved_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_authorizations",
+      "column": "nonce",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_client_states",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_client_states",
+      "column": "provider_type",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_client_states",
+      "column": "code_verifier",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_client_states",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_clients",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "client_secret_hash",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.oauth_registration_type",
+      "table": "oauth_clients",
+      "column": "registration_type",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "redirect_uris",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "grant_types",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "client_name",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "client_uri",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "logo_uri",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_clients",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_clients",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_clients",
+      "column": "deleted_at",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.oauth_client_type",
+      "table": "oauth_clients",
+      "column": "client_type",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_clients",
+      "column": "token_endpoint_auth_method",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_consents",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_consents",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "oauth_consents",
+      "column": "client_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "oauth_consents",
+      "column": "scopes",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_consents",
+      "column": "granted_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "oauth_consents",
+      "column": "revoked_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "one_time_tokens",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "one_time_tokens",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.one_time_token_type",
+      "table": "one_time_tokens",
+      "column": "token_type",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "one_time_tokens",
+      "column": "token_hash",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "one_time_tokens",
+      "column": "relates_to",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "one_time_tokens",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "one_time_tokens",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "one_time_tokens",
+      "column": "expires_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "one_time_tokens",
+      "column": "link_token_hash",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "refresh_tokens",
+      "column": "instance_id",
+      "schema": "auth"
+    },
+    {
+      "type": "bigint",
+      "table": "refresh_tokens",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "refresh_tokens",
+      "column": "token",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "refresh_tokens",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "refresh_tokens",
+      "column": "revoked",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "refresh_tokens",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "refresh_tokens",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "refresh_tokens",
+      "column": "parent",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "refresh_tokens",
+      "column": "session_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "saml_providers",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "saml_providers",
+      "column": "sso_provider_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_providers",
+      "column": "entity_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_providers",
+      "column": "metadata_xml",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_providers",
+      "column": "metadata_url",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "saml_providers",
+      "column": "attribute_mapping",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "saml_providers",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "saml_providers",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_providers",
+      "column": "name_id_format",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "saml_providers",
+      "column": "dedicated_scope",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "saml_relay_states",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "saml_relay_states",
+      "column": "sso_provider_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_relay_states",
+      "column": "request_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_relay_states",
+      "column": "for_email",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "saml_relay_states",
+      "column": "redirect_to",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "saml_relay_states",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "saml_relay_states",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "saml_relay_states",
+      "column": "flow_state_id",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "schema_migrations",
+      "column": "version",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "scim_tokens",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "scim_tokens",
+      "column": "sso_provider_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "scim_tokens",
+      "column": "token_hash",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "scim_tokens",
+      "column": "prefix",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_tokens",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_tokens",
+      "column": "expires_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_tokens",
+      "column": "revoked_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_tokens",
+      "column": "last_used_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "scim_users",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "scim_users",
+      "column": "sso_provider_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "scim_users",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "scim_users",
+      "column": "resource",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "scim_users",
+      "column": "user_name",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "scim_users",
+      "column": "external_id",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "scim_users",
+      "column": "active",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_users",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_users",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "scim_users",
+      "column": "deleted_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sessions",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sessions",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sessions",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sessions",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sessions",
+      "column": "factor_id",
+      "schema": "auth"
+    },
+    {
+      "type": "auth.aal_level",
+      "table": "sessions",
+      "column": "aal",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sessions",
+      "column": "not_after",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "sessions",
+      "column": "refreshed_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "sessions",
+      "column": "user_agent",
+      "schema": "auth"
+    },
+    {
+      "type": "inet",
+      "table": "sessions",
+      "column": "ip",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "sessions",
+      "column": "tag",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sessions",
+      "column": "oauth_client_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "sessions",
+      "column": "refresh_token_hmac_key",
+      "schema": "auth"
+    },
+    {
+      "type": "bigint",
+      "table": "sessions",
+      "column": "refresh_token_counter",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "sessions",
+      "column": "scopes",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sso_domains",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sso_domains",
+      "column": "sso_provider_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "sso_domains",
+      "column": "domain",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sso_domains",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sso_domains",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "sso_providers",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "sso_providers",
+      "column": "resource_id",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sso_providers",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "sso_providers",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "sso_providers",
+      "column": "disabled",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "users",
+      "column": "instance_id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "users",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "aud",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "role",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "email",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "encrypted_password",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "email_confirmed_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "invited_at",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "confirmation_token",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "confirmation_sent_at",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "recovery_token",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "recovery_sent_at",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "email_change_token_new",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "email_change",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "email_change_sent_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "last_sign_in_at",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "users",
+      "column": "raw_app_meta_data",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "users",
+      "column": "raw_user_meta_data",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "users",
+      "column": "is_super_admin",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "users",
+      "column": "phone",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "phone_confirmed_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "users",
+      "column": "phone_change",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "phone_change_token",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "phone_change_sent_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "confirmed_at",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "email_change_token_current",
+      "schema": "auth"
+    },
+    {
+      "type": "smallint",
+      "table": "users",
+      "column": "email_change_confirm_status",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "banned_until",
+      "schema": "auth"
+    },
+    {
+      "type": "character varying(255)",
+      "table": "users",
+      "column": "reauthentication_token",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "reauthentication_sent_at",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "users",
+      "column": "is_sso_user",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "users",
+      "column": "deleted_at",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "users",
+      "column": "is_anonymous",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "webauthn_challenges",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "webauthn_challenges",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "webauthn_challenges",
+      "column": "challenge_type",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "webauthn_challenges",
+      "column": "session_data",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "webauthn_challenges",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "webauthn_challenges",
+      "column": "expires_at",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "webauthn_credentials",
+      "column": "id",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "webauthn_credentials",
+      "column": "user_id",
+      "schema": "auth"
+    },
+    {
+      "type": "bytea",
+      "table": "webauthn_credentials",
+      "column": "credential_id",
+      "schema": "auth"
+    },
+    {
+      "type": "bytea",
+      "table": "webauthn_credentials",
+      "column": "public_key",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "webauthn_credentials",
+      "column": "attestation_type",
+      "schema": "auth"
+    },
+    {
+      "type": "uuid",
+      "table": "webauthn_credentials",
+      "column": "aaguid",
+      "schema": "auth"
+    },
+    {
+      "type": "bigint",
+      "table": "webauthn_credentials",
+      "column": "sign_count",
+      "schema": "auth"
+    },
+    {
+      "type": "jsonb",
+      "table": "webauthn_credentials",
+      "column": "transports",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "webauthn_credentials",
+      "column": "backup_eligible",
+      "schema": "auth"
+    },
+    {
+      "type": "boolean",
+      "table": "webauthn_credentials",
+      "column": "backed_up",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "webauthn_credentials",
+      "column": "friendly_name",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "webauthn_credentials",
+      "column": "created_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "webauthn_credentials",
+      "column": "updated_at",
+      "schema": "auth"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "webauthn_credentials",
+      "column": "last_used_at",
+      "schema": "auth"
+    },
+    {
+      "type": "text",
+      "table": "messages",
+      "column": "topic",
+      "schema": "realtime"
+    },
+    {
+      "type": "text",
+      "table": "messages",
+      "column": "extension",
+      "schema": "realtime"
+    },
+    {
+      "type": "jsonb",
+      "table": "messages",
+      "column": "payload",
+      "schema": "realtime"
+    },
+    {
+      "type": "text",
+      "table": "messages",
+      "column": "event",
+      "schema": "realtime"
+    },
+    {
+      "type": "boolean",
+      "table": "messages",
+      "column": "private",
+      "schema": "realtime"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "messages",
+      "column": "updated_at",
+      "schema": "realtime"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "messages",
+      "column": "inserted_at",
+      "schema": "realtime"
+    },
+    {
+      "type": "uuid",
+      "table": "messages",
+      "column": "id",
+      "schema": "realtime"
+    },
+    {
+      "type": "bytea",
+      "table": "messages",
+      "column": "binary_payload",
+      "schema": "realtime"
+    },
+    {
+      "type": "boolean",
+      "table": "messages",
+      "column": "skip_broadcast",
+      "schema": "realtime"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "messages",
+      "column": "expires_at",
+      "schema": "realtime"
+    },
+    {
+      "type": "bigint",
+      "table": "schema_migrations",
+      "column": "version",
+      "schema": "realtime"
+    },
+    {
+      "type": "timestamp(0) without time zone",
+      "table": "schema_migrations",
+      "column": "inserted_at",
+      "schema": "realtime"
+    },
+    {
+      "type": "bigint",
+      "table": "subscription",
+      "column": "id",
+      "schema": "realtime"
+    },
+    {
+      "type": "uuid",
+      "table": "subscription",
+      "column": "subscription_id",
+      "schema": "realtime"
+    },
+    {
+      "type": "regclass",
+      "table": "subscription",
+      "column": "entity",
+      "schema": "realtime"
+    },
+    {
+      "type": "realtime.user_defined_filter[]",
+      "table": "subscription",
+      "column": "filters",
+      "schema": "realtime"
+    },
+    {
+      "type": "jsonb",
+      "table": "subscription",
+      "column": "claims",
+      "schema": "realtime"
+    },
+    {
+      "type": "regrole",
+      "table": "subscription",
+      "column": "claims_role",
+      "schema": "realtime"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "subscription",
+      "column": "created_at",
+      "schema": "realtime"
+    },
+    {
+      "type": "text",
+      "table": "subscription",
+      "column": "action_filter",
+      "schema": "realtime"
+    },
+    {
+      "type": "text[]",
+      "table": "subscription",
+      "column": "selected_columns",
+      "schema": "realtime"
+    },
+    {
+      "type": "text",
+      "table": "bucket_lifecycle_states",
+      "column": "bucket_id",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "bucket_lifecycle_states",
+      "column": "generation",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "bucket_lifecycle_states",
+      "column": "next_run_at",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "bucket_lifecycle_states",
+      "column": "claim_id",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "bucket_lifecycle_states",
+      "column": "claim_until",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "bucket_lifecycle_states",
+      "column": "continuation",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "bucket_lifecycle_states",
+      "column": "last_started_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "bucket_lifecycle_states",
+      "column": "last_completed_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "bucket_lifecycle_states",
+      "column": "last_success_at",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "bucket_lifecycle_states",
+      "column": "last_result",
+      "schema": "storage"
+    },
+    {
+      "type": "integer",
+      "table": "bucket_lifecycle_states",
+      "column": "failure_count",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "bucket_lifecycle_states",
+      "column": "last_error",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "bucket_lifecycle_states",
+      "column": "updated_at",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets",
+      "column": "name",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "buckets",
+      "column": "owner",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets",
+      "column": "updated_at",
+      "schema": "storage"
+    },
+    {
+      "type": "boolean",
+      "table": "buckets",
+      "column": "public",
+      "schema": "storage"
+    },
+    {
+      "type": "boolean",
+      "table": "buckets",
+      "column": "avif_autodetection",
+      "schema": "storage"
+    },
+    {
+      "type": "bigint",
+      "table": "buckets",
+      "column": "file_size_limit",
+      "schema": "storage"
+    },
+    {
+      "type": "text[]",
+      "table": "buckets",
+      "column": "allowed_mime_types",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets",
+      "column": "owner_id",
+      "schema": "storage"
+    },
+    {
+      "type": "storage.buckettype",
+      "table": "buckets",
+      "column": "type",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets",
+      "column": "versioning_status",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "buckets",
+      "column": "lifecycle_configuration",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "buckets",
+      "column": "lifecycle_configuration_generation",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets_analytics",
+      "column": "name",
+      "schema": "storage"
+    },
+    {
+      "type": "storage.buckettype",
+      "table": "buckets_analytics",
+      "column": "type",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets_analytics",
+      "column": "format",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets_analytics",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets_analytics",
+      "column": "updated_at",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "buckets_analytics",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets_analytics",
+      "column": "deleted_at",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "buckets_vectors",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "storage.buckettype",
+      "table": "buckets_vectors",
+      "column": "type",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets_vectors",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "buckets_vectors",
+      "column": "updated_at",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "lifecycle_abandoned_artifacts",
+      "column": "bucket_id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "lifecycle_abandoned_artifacts",
+      "column": "key",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "lifecycle_abandoned_artifacts",
+      "column": "name",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "lifecycle_abandoned_artifacts",
+      "column": "version",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "lifecycle_abandoned_artifacts",
+      "column": "attempted_at",
+      "schema": "storage"
+    },
+    {
+      "type": "integer",
+      "table": "migrations",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "character varying(100)",
+      "table": "migrations",
+      "column": "name",
+      "schema": "storage"
+    },
+    {
+      "type": "character varying(40)",
+      "table": "migrations",
+      "column": "hash",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp without time zone",
+      "table": "migrations",
+      "column": "executed_at",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "objects",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "objects",
+      "column": "bucket_id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "objects",
+      "column": "name",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "objects",
+      "column": "owner",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "objects",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "objects",
+      "column": "updated_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "objects",
+      "column": "last_accessed_at",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "objects",
+      "column": "metadata",
+      "schema": "storage"
+    },
+    {
+      "type": "text[]",
+      "table": "objects",
+      "column": "path_tokens",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "objects",
+      "column": "version",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "objects",
+      "column": "owner_id",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "objects",
+      "column": "user_metadata",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "objects",
+      "column": "archived_at",
+      "schema": "storage"
+    },
+    {
+      "type": "boolean",
+      "table": "objects",
+      "column": "is_delete_marker",
+      "schema": "storage"
+    },
+    {
+      "type": "boolean",
+      "table": "objects",
+      "column": "is_versioned",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "bigint",
+      "table": "s3_multipart_uploads",
+      "column": "in_progress_size",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads",
+      "column": "upload_signature",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads",
+      "column": "bucket_id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads",
+      "column": "key",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads",
+      "column": "version",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads",
+      "column": "owner_id",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "s3_multipart_uploads",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "s3_multipart_uploads",
+      "column": "user_metadata",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "s3_multipart_uploads",
+      "column": "metadata",
+      "schema": "storage"
+    },
+    {
+      "type": "uuid",
+      "table": "s3_multipart_uploads_parts",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads_parts",
+      "column": "upload_id",
+      "schema": "storage"
+    },
+    {
+      "type": "bigint",
+      "table": "s3_multipart_uploads_parts",
+      "column": "size",
+      "schema": "storage"
+    },
+    {
+      "type": "integer",
+      "table": "s3_multipart_uploads_parts",
+      "column": "part_number",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads_parts",
+      "column": "bucket_id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads_parts",
+      "column": "key",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads_parts",
+      "column": "etag",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads_parts",
+      "column": "owner_id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "s3_multipart_uploads_parts",
+      "column": "version",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "s3_multipart_uploads_parts",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "vector_indexes",
+      "column": "id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "vector_indexes",
+      "column": "name",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "vector_indexes",
+      "column": "bucket_id",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "vector_indexes",
+      "column": "data_type",
+      "schema": "storage"
+    },
+    {
+      "type": "integer",
+      "table": "vector_indexes",
+      "column": "dimension",
+      "schema": "storage"
+    },
+    {
+      "type": "text",
+      "table": "vector_indexes",
+      "column": "distance_metric",
+      "schema": "storage"
+    },
+    {
+      "type": "jsonb",
+      "table": "vector_indexes",
+      "column": "metadata_configuration",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "vector_indexes",
+      "column": "created_at",
+      "schema": "storage"
+    },
+    {
+      "type": "timestamp with time zone",
+      "table": "vector_indexes",
+      "column": "updated_at",
+      "schema": "storage"
+    }
+  ]
+}

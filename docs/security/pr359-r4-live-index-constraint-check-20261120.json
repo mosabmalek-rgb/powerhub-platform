@@ -1,0 +1,35 @@
+{
+  "format": "PR359 R4 staging index/constraint summary read-only v1",
+  "capture_date": "2026-11-20",
+  "source_sha": "76f4a9384aea6cf507c92303f993532c698e3120",
+  "project_ref": "iyuryuhaylhisjfcrwkz",
+  "capture_mode": "single-statement-read-only",
+  "metadata": {
+    "indexes": 688,
+    "constraints": 1437,
+    "foreign_keys": 561,
+    "invalid_indexes": 0,
+    "unvalidated_constraints": 0,
+    "managed_foreign_keys": [
+      {
+        "name": "powerhub_user_device_locks_user_id_fkey",
+        "table": "powerhub_user_device_locks",
+        "references": "auth.users",
+        "owner_schema": "public"
+      },
+      {
+        "name": "staff_password_reset_intents_auth_user_id_fkey",
+        "table": "staff_password_reset_intents",
+        "references": "auth.users",
+        "owner_schema": "public"
+      },
+      {
+        "name": "users_auth_user_id_fkey",
+        "table": "users",
+        "references": "auth.users",
+        "owner_schema": "public"
+      }
+    ]
+  },
+  "caveat": "Live counts and cross-schema FK identity only, not live SHA comparison; never a deletion authority."
+}

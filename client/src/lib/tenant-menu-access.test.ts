@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { tenantMenuRouteAllowed } from "./tenant-menu-access";
+import { tenantMenuRouteAllowed, firstPermittedTenantRoute, canonicalTenantRoute, shouldShowBranchManagement } from "./tenant-menu-access";
 
 describe("tenant sidebar access", () => {
   it("keeps limited roles away from owner-only and management routes", () => {
     expect(tenantMenuRouteAllowed("/staff", "collector")).toBe(false);
     expect(tenantMenuRouteAllowed("/portal-settings", "viewer")).toBe(false);
     expect(tenantMenuRouteAllowed("/notifications", "technician")).toBe(false);
-    expect(tenantMenuRouteAllowed("/payroll", "manager")).toBe(true);
+    expect(tenantMenuRouteAllowed("/payroll", "manager")).toBe(false);
   });
 
   it("allows operational read routes only where the role has read access", () => {
@@ -19,7 +19,7 @@ describe("tenant sidebar access", () => {
   it("respects explicit delegated capabilities", () => {
     expect(tenantMenuRouteAllowed("/payment-documentation/review", "viewer", ["approvePaymentDocumentation"])).toBe(true);
     expect(tenantMenuRouteAllowed("/notifications", "viewer", ["manageMessaging"])).toBe(true);
-    expect(tenantMenuRouteAllowed("/staff", "viewer", ["manageTeam"])).toBe(true);
+    expect(tenantMenuRouteAllowed("/staff", "viewer", ["manageTeam"])).toBe(false);
   });
 
   it("honors explicit permission overrides even when the base role normally has read access", () => {
@@ -31,6 +31,98 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/inventory", "viewer", ["viewInventoryReports"], true)).toBe(true);
     expect(tenantMenuRouteAllowed("/inventory", "technician", [], true)).toBe(false);
     expect(tenantMenuRouteAllowed("/inventory", "manager", ["viewInventory"], true)).toBe(true);
+  });
+
+  it("restricts field distribution to owners even when team management is delegated", () => {
+    expect(tenantMenuRouteAllowed("/field-distribution", "owner")).toBe(true);
+    expect(tenantMenuRouteAllowed("/field-distribution", "manager", ["manageTeam"], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/field-distribution", "technician", ["manageTeam"], true)).toBe(false);
+  });
+
+  it("shows only payment-documentation review for a customized approval-only staff account", () => {
+    const rights = ["approvePaymentDocumentation"] as const;
+    for (const path of [
+      "/workspace", "/quick-actions", "/subscribers", "/generators",
+      "/readings", "/invoices", "/collections", "/expenses", "/reports",
+      "/company-accounts", "/financial-dashboard", "/financial-settlements",
+      "/inventory", "/staff", "/settings", "/notifications", "/audit",
+      "/announcements", "/support-chat", "/ai-support", "/offline-sync",
+      "/payment-documentation", "/payroll", "/attendance", "/mobile-sync",
+    ]) {
+      expect(tenantMenuRouteAllowed(path, "accountant", rights, true), path).toBe(false);
+    }
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "accountant", rights, true)).toBe(true);
+    expect(firstPermittedTenantRoute("accountant", [...rights], true)).toBe("/payment-documentation/review");
+    // Personal password changes are still possible at a direct profile URL.
+    expect(tenantMenuRouteAllowed("/profile", "accountant", rights, true)).toBe(true);
+  });
+
+  it("does not expose unrelated invoice, inventory, dashboard or report tabs from a single delegated operation", () => {
+    const cases: Array<{ capability: "collectPayments" | "recordReadings" | "viewFinancialReports" | "manageGenerators"; shown: string; denied: string[] }> = [
+      { capability: "collectPayments", shown: "/collections", denied: ["/invoices", "/readings", "/inventory", "/workspace", "/reports"] },
+      { capability: "recordReadings", shown: "/readings", denied: ["/invoices", "/generators", "/inventory", "/workspace", "/collections"] },
+      { capability: "viewFinancialReports", shown: "/reports", denied: ["/invoices", "/expenses", "/company-accounts", "/workspace", "/collections"] },
+      { capability: "manageGenerators", shown: "/generators", denied: ["/inventory", "/readings", "/workspace", "/collections"] },
+    ];
+    for (const scenario of cases) {
+      expect(tenantMenuRouteAllowed(scenario.shown, "viewer", [scenario.capability], true)).toBe(true);
+      for (const denied of scenario.denied)
+        expect(tenantMenuRouteAllowed(denied, "viewer", [scenario.capability], true), scenario.capability + ": " + denied).toBe(false);
+    }
+  });
+
+  it("hides every operational page for an explicit empty capability set", () => {
+    expect(firstPermittedTenantRoute("collector", [], true)).toBeNull();
+    expect(tenantMenuRouteAllowed("/workspace", "collector", [], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "collector", [], true)).toBe(false);
+  });
+
+  it("lets individually granted rights open their own pages without restoring missing role defaults", () => {
+    expect(tenantMenuRouteAllowed("/subscribers", "technician", ["manageSubscribers"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/readings", "accountant", ["recordReadings"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/collections", "accountant", ["recordReadings"], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/payment-documentation", "collector", ["collectPayments"], true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "collector", ["collectPayments"], true)).toBe(false);
+  });
+
+  it.each(["accountant", "collector", "technician", "manager", "viewer"] as const)(
+    "%s with only approval permission sees documentation review, never role default tabs",
+    (role) => {
+      const rights = ["approvePaymentDocumentation"] as const;
+      expect(tenantMenuRouteAllowed("/payment-documentation/review", role, rights, true)).toBe(true);
+      expect(firstPermittedTenantRoute(role, [...rights], true)).toBe("/payment-documentation/review");
+      for (const path of ["/workspace", "/invoices", "/collections", "/readings", "/reports", "/subscribers", "/inventory", "/staff"]) {
+        expect(tenantMenuRouteAllowed(path, role, rights, true), role + ": " + path).toBe(false);
+      }
+    },
+  );
+
+  it.each(["accountant", "collector", "technician", "manager", "viewer"] as const)(
+    "%s with a deliberately empty override has no operational landing page",
+    (role) => {
+      expect(firstPermittedTenantRoute(role, [], true)).toBeNull();
+      for (const path of ["/workspace", "/payment-documentation/review", "/invoices", "/collections", "/readings", "/reports"]) {
+        expect(tenantMenuRouteAllowed(path, role, [], true), role + ": " + path).toBe(false);
+      }
+      expect(tenantMenuRouteAllowed("/profile", role, [], true)).toBe(true);
+    },
+  );
+
+  it("switches access immediately when explicit permissions are removed or replaced", () => {
+    const old = ["approvePaymentDocumentation"] as const;
+    const next = ["recordReadings"] as const;
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "accountant", old, true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/payment-documentation/review", "accountant", next, true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/readings", "accountant", next, true)).toBe(true);
+    expect(tenantMenuRouteAllowed("/readings", "accountant", [], true)).toBe(false);
+    expect(firstPermittedTenantRoute("accountant", [], true)).toBeNull();
+  });
+
+  it("normalizes dynamic detail routes without skipping their authorization rules", () => {
+    expect(canonicalTenantRoute("/mobile-sync/readings/321")).toBe("/mobile-sync");
+    expect(canonicalTenantRoute("/subscriber-statement/41?tab=payment")).toBe("/subscriber-statement");
+    expect(tenantMenuRouteAllowed("/mobile-sync/readings/321", "viewer", [], true)).toBe(false);
+    expect(tenantMenuRouteAllowed("/subscriber-statement/41", "viewer", ["manageSubscribers"], true)).toBe(true);
   });
 
   it("does not expose unknown routes", () => {
@@ -49,4 +141,24 @@ describe("tenant sidebar access", () => {
     expect(tenantMenuRouteAllowed("/inventory", "viewer", ["approveStocktakes"], true)).toBe(true);
   });
 
+});
+
+describe("branch navigation feature limit", () => {
+  it("hides branch management when the effective limit is one even if more sites exist", () => {
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: 1 })).toBe(false);
+  });
+  it("shows branch management only when the feature is enabled and the limit exceeds one", () => {
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: 2 })).toBe(true);
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: 25 })).toBe(true);
+  });
+  it("hides disabled, missing, unknown, and not-yet-loaded policies without guessing", () => {
+    expect(shouldShowBranchManagement({ isEnabled: false, maxBranches: 10 })).toBe(false);
+    expect(shouldShowBranchManagement(undefined)).toBe(false);
+    expect(shouldShowBranchManagement({ isEnabled: true })).toBe(false);
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: null })).toBe(false);
+    expect(shouldShowBranchManagement({ isEnabled: true, maxBranches: Number.NaN })).toBe(false);
+  });
+  it("does not hide platform-admin navigation when tenant policy is not queried", () => {
+    expect(shouldShowBranchManagement(undefined, "admin")).toBe(true);
+  });
 });
