@@ -355,6 +355,37 @@ async function run() {
     equal(rebuilds, 0, "unexpected snapshot download");
     await assertScope("5", 2, "delta");
     equal(await readProtected(), JSON.parse(baseline), "outbox changed during delta catch-up");
+    let retentionPulls = 0;
+    await pullDeltaPages({ scope, afterCursor: "5",
+      rebuildSnapshot: async (floor) => {
+        equal(floor, "7", "incorrect retention snapshot floor");
+        return { cursor: "7", rows: [{ ...row, itemName: "retention" }] };
+      },
+      pull: async (args): Promise<DeltaPage> => {
+        retentionPulls++;
+        if (retentionPulls === 1) {
+          equal(args.afterCursor, "5", "incorrect pre-reset cursor");
+          return { status: "reset_required", entity_type: scope.entityType, current_cursor: "7",
+            retained_from_cursor: "6", snapshot_cursor: "7", through_cursor: "7", next_cursor: null, has_more: false, changes: [] };
+        }
+        equal(args.afterCursor, "7", "incorrect post-reset cursor");
+        return { status: "ok", entity_type: scope.entityType, current_cursor: "7", retained_from_cursor: "6",
+          snapshot_cursor: null, through_cursor: "7", next_cursor: "7", has_more: false, changes: [] };
+      },
+    });
+    equal(retentionPulls, 2, "retention did not catch up");
+    await assertScope("7", 2, "retention");
+    await rejectAction(replaceDeltaSnapshot(scope, [row], "7", 7, undefined, 1), "old repair accepted after retention reset");
+    await pullDeltaPages({ scope, afterCursor: "5", repairSnapshot: true, repairVersion: 2,
+      rebuildSnapshot: async () => { throw new Error("retention reset erased completed repair"); },
+      pull: async (args) => {
+        equal(args.afterCursor, "7", "repair resumed from wrong retention checkpoint");
+        return { status: "ok", entity_type: scope.entityType, current_cursor: "7", retained_from_cursor: "6",
+          snapshot_cursor: null, through_cursor: "7", next_cursor: "7", has_more: false, changes: [] };
+      },
+    });
+    await assertScope("7", 2, "retention");
+    equal(await readProtected(), JSON.parse(baseline), "retention reset modified protected stores");
     check(sessionStorage.getItem("obsolete-run-verified") === "yes", "missing obsolete-run proof");
     check(sessionStorage.getItem("cache-retry-verified") === "yes", "missing cache retry proof");
     check(sessionStorage.getItem("cache-ahead-checkpoint-replay-verified") === "yes", "missing cache-ahead checkpoint replay proof");
@@ -366,7 +397,7 @@ async function run() {
     check(sessionStorage.getItem("prune-race-verified") === "yes", "missing prune race proof");
     await assertHydratedCache("103", "fresh");
     check(sessionStorage.getItem("hydration-races-verified") === "yes", "missing hydration race proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS", "PR359_NATIVE_CACHE_AHEAD_CHECKPOINT_ABORT_REPLAY_PASS"] });
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS", "PR359_NATIVE_REAL_QUERY_CACHE_ABORT_RETRY_RELOAD_PASS", "PR359_NATIVE_HYDRATION_LIVE_AND_IDENTITY_RACE_PASS", "PR359_NATIVE_TOP_LEVEL_WINDOW_LOCK_PASS", "PR359_NATIVE_PRUNE_REFRESH_RACE_PASS", "PR359_NATIVE_CACHE_AHEAD_CHECKPOINT_ABORT_REPLAY_PASS", "PR359_NATIVE_RETENTION_REPAIR_VERSION_PASS"] });
     return;
   }
   await seedProtected();

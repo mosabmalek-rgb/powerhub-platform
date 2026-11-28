@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
+import { compareChatMessageOrder } from "@/lib/chat-message-order";
 import { trpc } from "@/lib/trpc";
 import {
   listChatMessageReceipts,
@@ -176,7 +177,7 @@ export default function SupportChatPage() {
       .from("chat_messages")
       .select("id,conversation_id,sender_user_id,sender_type,message_type,body,created_at,client_message_id")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true }).order("id", { ascending: true });
     if (error) {
       if (!options.silent) {
         toast.error("تعذر تحميل رسائل المحادثة.");
@@ -260,7 +261,7 @@ export default function SupportChatPage() {
           .maybeSingle();
         if (data) {
           const row = data as MessageRow;
-          setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row].sort((a, b) => a.created_at.localeCompare(b.created_at)));
+          setMessages((current) => current.some((item) => item.id === row.id) ? current : [...current, row].sort(compareChatMessageOrder));
           if (row.sender_user_id !== user?.id) {
             try {
               await markChatMessageDelivered(row.id);

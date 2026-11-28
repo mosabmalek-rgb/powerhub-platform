@@ -108,7 +108,7 @@ function memoryStorage(initialCursor = "0", initialRows: Record<string, unknown>
       if (BigInt(next) < BigInt(cursor)) throw new Error("stale snapshot");
       rows = new Map(limitDeltaEntityRows(targetScope.entityType, snapshot).map(row => [String(row.id), row]));
       cursor = next;
-      repairVersion = version;
+      if (version !== undefined) repairVersion = version;
     },
     clearUser: async () => { cursor = "0"; rows.clear(); repairVersion = undefined; },
   };
@@ -980,6 +980,24 @@ describe("Versioned scoped Delta repair", () => {
     expect(await storage.getRepairVersion!(partScope)).toBe(2);
     await pullDeltaPages(input);
     expect(rebuildSnapshot).toHaveBeenCalledTimes(2);
+  });
+  it("preserves a completed repair across an ordinary retention reset without certifying a new version", async () => {
+    const storage = memoryStorage("10", [row]);
+    const rebuildSnapshot = vi.fn(async () => ({ cursor: "12", rows: [row] }));
+    await pullDeltaPages({ scope: partScope, storage, afterCursor: "10", repairSnapshot: true, repairVersion: 2,
+      pull: async () => pullAt("12"), rebuildSnapshot });
+    const resetSnapshot = vi.fn(async () => ({ cursor: "15", rows: [row] }));
+    const resetPull = vi.fn()
+      .mockResolvedValueOnce(page({ entity_type: partScope.entityType, status: "reset_required", current_cursor: "15",
+        retained_from_cursor: "14", snapshot_cursor: "15", through_cursor: "15", next_cursor: null, changes: [] }))
+      .mockResolvedValueOnce(pullAt("15"));
+    await pullDeltaPages({ scope: partScope, storage, afterCursor: "12", pull: resetPull, rebuildSnapshot: resetSnapshot });
+    expect(await storage.getRepairCheckpoint!(partScope)).toEqual({ cursor: "15", repairVersion: 2 });
+    const repeated = vi.fn(async () => ({ cursor: "15", rows: [row] }));
+    await pullDeltaPages({ scope: partScope, storage, afterCursor: "12", repairSnapshot: true, repairVersion: 2,
+      pull: async () => pullAt("15"), rebuildSnapshot: repeated });
+    expect(repeated).not.toHaveBeenCalled();
+    expect(resetSnapshot).toHaveBeenCalledTimes(1);
   });
   it("does not mark a failed snapshot and resumes catch-up after a committed repair", async () => {
     const storage = memoryStorage("10", [row]);

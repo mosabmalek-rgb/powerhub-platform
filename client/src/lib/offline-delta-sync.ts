@@ -824,7 +824,10 @@ export async function replaceDeltaSnapshot<Row extends Record<string, unknown>>(
         for (const [entityId, rowData] of boundedNormalized) {
           entities.put({ scopeKey: key, ...scope, entityId, rowData, updatedAt: now });
         }
-        cursors.put({ ...scope, cursor, updatedAt: now, ...(repairVersion !== undefined ? { repairVersion } : {}) } satisfies DeltaCursorRecord);
+        // An ordinary retention snapshot must not erase a completed repair.
+        // It cannot certify a new version; only an explicitly versioned repair can do that.
+        const committedRepairVersion = repairVersion ?? previous?.repairVersion;
+        cursors.put({ ...scope, cursor, updatedAt: now, ...(committedRepairVersion !== undefined ? { repairVersion: committedRepairVersion } : {}) } satisfies DeltaCursorRecord);
       };
     };
     tx.oncomplete = () => { db.close(); if (!rejected) resolve(); };
