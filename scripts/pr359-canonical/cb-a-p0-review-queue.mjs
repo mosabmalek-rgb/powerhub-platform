@@ -9,6 +9,7 @@ import {verifyLiveOwnershipCatalog} from '../pr359-r4/verify-live-ownership-cata
 import {assessRootDependencies} from '../pr359-r4/verify-root-dependency-digests.mjs';
 import {buildIndex} from './source-index.mjs';
 import {buildCbBGapReviewBundle,loadCbBGapReviewInputs} from './cb-b-gap-review-bundle.mjs';
+import {auditDefinerAttachments,loadDefinerAttachmentEvidence} from './cb-a-definer-attachments.mjs';
 import {validateMigrationProvenance} from '../pr359-r4/verify-legacy-migration-provenance.mjs';
 
 const dir='docs/security/';
@@ -105,6 +106,38 @@ export function attachForensicGaps(report,bundle){
   with_forensic_gap_evidence:gaps.filter(x=>x.forensic_gap_evidence).length,
   without_forensic_gap_evidence:gaps.filter(x=>!x.forensic_gap_evidence).length};
 }
+export function attachGapCallerEvidence(report,attachments){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(attachments.full_runtime_call_graph_verified,false);
+ assert.equal(attachments.trigger_runtime_firing_verified,false);
+ assert.equal(attachments.security_definer_signoff_complete,false);
+ assert.equal(attachments.source_ownership_approved,false);
+ assert.equal(attachments.exact_security_definers,3);
+ assert.equal(attachments.attached_direct_triggers,2);
+ const byId=new Map(attachments.direct_trigger_bindings.map(x=>[x.function_identity,x]));
+ assert.equal(byId.size,2);
+ assert.ok(!byId.has(attachments.mobile_session_function_identity));
+ const ids=new Set([...byId.keys(),attachments.mobile_session_function_identity]);
+ assert.equal(ids.size,3);
+ assert.deepEqual([...ids].sort(),[...report.missing_historical_identities].sort(),'gap attachment identity mismatch');
+ assert.equal(attachments.mobile_api_scoped_direct_update_in_pinned_code,true);
+ assert.equal(attachments.mobile_api_direct_touch_rpc_literal_in_pinned_code,false);
+ const records=report.records.map(row=>{
+  if(!ids.has(row.identity)) return row;
+  assert.ok(row.forensic_gap_evidence,'missing forensic definition');
+  const binding=byId.get(row.identity);
+  return {...row,forensic_caller_evidence:{
+   evidence_git_blob_sha:attachments.evidence_git_blob_sha,
+   direct_trigger_binding:binding??null,
+   pinned_mobile_api_source:binding?null:{
+    blob_sha:attachments.inspected_mobile_api_git_blob_sha,
+    scoped_direct_update:true,direct_touch_rpc_literal:false},
+   full_runtime_call_graph_verified:false,trigger_runtime_firing_verified:false
+  }};
+ });
+ return {...report,records,gap_caller_evidence_count:records.filter(x=>x.forensic_caller_evidence).length,
+  gap_runtime_caller_closure_approved:false};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -112,7 +145,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  const manifest=JSON.parse(readFileSync(dir+'pr359-r4-legacy-migration-provenance-20261123.json','utf8'));
  validateMigrationProvenance(manifest);
  const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
- const report=attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...loadCbBGapReviewInputs()));
+ const gapInputs=loadCbBGapReviewInputs();
+ const report=attachGapCallerEvidence(
+  attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...gapInputs)),
+  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')));
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,app_owned_approved:false}));
 }

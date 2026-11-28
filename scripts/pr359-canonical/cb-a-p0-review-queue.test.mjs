@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps} from './cb-a-p0-review-queue.mjs';
+import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence} from './cb-a-p0-review-queue.mjs';
 import {readFileSync} from 'node:fs';
 const head='a'.repeat(40);
 test('joins all 296 P0 candidates without promoting ownership',()=>{
@@ -47,4 +47,16 @@ test('forensic evidence binds definition hash without approving execution',()=>{
  assert.equal(joined.records[0].forensic_gap_evidence.ddl_selected_for_execution,false);
  bundle.records[0].exact_catalog_definition_sha256='f'.repeat(64);
  assert.throws(()=>attachForensicGaps(input,bundle),/forensic DDL drift/);
+});
+
+test('attaches exactly two historical trigger bindings and one mobile source hint without runtime approval',()=>{
+ const ids=['a()','b()','c()'];
+ const report={app_owned_approved:false,missing_historical_identities:ids,records:ids.map(identity=>({identity,forensic_gap_evidence:{definition_sha256:'a'.repeat(64)}}))};
+ const attachments={full_runtime_call_graph_verified:false,trigger_runtime_firing_verified:false,security_definer_signoff_complete:false,source_ownership_approved:false,exact_security_definers:3,attached_direct_triggers:2,direct_trigger_bindings:ids.slice(0,2).map(function_identity=>({function_identity,relation:'fixture'})),mobile_session_function_identity:ids[2],mobile_api_scoped_direct_update_in_pinned_code:true,mobile_api_direct_touch_rpc_literal_in_pinned_code:false};
+ const result=attachGapCallerEvidence(report,attachments);
+ assert.equal(result.gap_caller_evidence_count,3);assert.equal(result.gap_runtime_caller_closure_approved,false);
+ assert.equal(result.records[2].forensic_caller_evidence.pinned_mobile_api_source.scoped_direct_update,true);
+ assert.equal(result.records[0].forensic_caller_evidence.direct_trigger_binding.function_identity,'a()');
+ assert.throws(()=>attachGapCallerEvidence(report,{...attachments,mobile_session_function_identity:'other()'}),/identity mismatch/);
+ assert.throws(()=>attachGapCallerEvidence(report,{...attachments,full_runtime_call_graph_verified:true}));
 });

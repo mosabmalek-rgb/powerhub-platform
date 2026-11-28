@@ -99,8 +99,20 @@ async function repairWithNativePeer() {
       await wait("peer-requested");
       // The browser must report a queued lock for this user while the parent owns it.
       const name = "powerhub:delta-sync:user:" + scope.userId;
-      const state = await navigator.locks.query();
-      check(state.held?.some(x => x.name === name) && state.pending?.some(x => x.name === name), "missing native cross-context lock contention");
+      // postMessage and the browser's lock service use separate asynchronous queues.
+      // Observe the actual held/pending condition with a bounded deadline, not a
+      // single scheduling-dependent query and not an unconditional delay.
+      const deadline = performance.now() + 5000;
+      let state = await navigator.locks.query();
+      for (;;) {
+        check(!messages.has("peer-acquired"), "peer entered before parent released");
+        const held = state.held?.filter(x => x.name === name && x.mode === "exclusive") ?? [];
+        const pending = state.pending?.filter(x => x.name === name && x.mode === "exclusive") ?? [];
+        if (held.length === 1 && pending.length === 1) break;
+        check(performance.now() < deadline, "missing native cross-context lock contention: " + JSON.stringify(state));
+        await new Promise<void>(resolve => setTimeout(resolve, 20));
+        state = await navigator.locks.query();
+      }
       check(!messages.has("peer-acquired"), "peer entered before parent released");
       await withDeltaSyncLock(other, async () => {
         equal(await getDeltaRepairCheckpoint(other), { cursor: "3", repairVersion: 1 }, "independent user lock blocked or changed");
@@ -133,7 +145,8 @@ async function run() {
     equal(rebuilds, 0, "unexpected snapshot download");
     await assertScope("5", 2, "delta");
     equal(await readProtected(), JSON.parse(baseline), "outbox changed during delta catch-up");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS"] });
+    check(sessionStorage.getItem("obsolete-run-verified") === "yes", "missing obsolete-run proof");
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS"] });
     return;
   }
   await seedProtected();
@@ -156,6 +169,24 @@ async function run() {
   check(injected, "native transaction abort not injected");
   await assertScope("3", 1, "before");
   equal(await readProtected(), before, "outbox changed after abort");
+  // A late snapshot from an obsolete authenticated run must not reach the
+  // cache callback or the native IndexedDB commit. Simulate the identity
+  // change at the async response boundary (not a hosted auth test).
+  let active = true;
+  let cacheApplications = 0;
+  await rejectAction(pullDeltaPages({ scope, afterCursor: "3", repairSnapshot: true, repairVersion: 2,
+    isCurrent: () => active,
+    rebuildSnapshot: async () => {
+      active = false;
+      return { cursor: "4", rows: [{ ...row, itemName: "obsolete" }],
+        applyCache: async () => { cacheApplications++; } };
+    },
+    pull: async () => { throw new Error("obsolete run unexpectedly reached pull"); },
+  }), "obsolete snapshot unexpectedly committed");
+  equal(cacheApplications, 0, "obsolete run reached cache");
+  await assertScope("3", 1, "before");
+  equal(await readProtected(), before, "outbox changed during obsolete run");
+  sessionStorage.setItem("obsolete-run-verified", "yes");
   await repairWithNativePeer();
   await rejectAction(replaceDeltaSnapshot(scope, [row], "4", 4, undefined, 1), "old version unexpectedly committed");
   await assertScope("4", 2, "repaired");
