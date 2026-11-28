@@ -1,6 +1,6 @@
 
 import { openOfflineWorkspaceDatabase } from "../../client/src/lib/offline-workspace-db";
-import { replaceDeltaSnapshot, getDeltaRepairCheckpoint, listDeltaEntities, pullDeltaPages, type DeltaCursorScope, type DeltaPage } from "../../client/src/lib/offline-delta-sync";
+import { replaceDeltaSnapshot, getDeltaRepairCheckpoint, listDeltaEntities, pullDeltaPages, withDeltaSyncLock, type DeltaCursorScope, type DeltaPage } from "../../client/src/lib/offline-delta-sync";
 
 const scope: DeltaCursorScope = { userId: 1, tenantId: 2, siteId: 3, entityType: "maintenance_work_order_parts:42" };
 const other = { ...scope, userId: 9 };
@@ -56,6 +56,65 @@ async function rejectAction(task: Promise<unknown>, label: string) {
 async function report(result: Record<string, unknown>) {
   await fetch("/result", { method: "POST", body: JSON.stringify(result), headers: { "Content-Type": "application/json" } });
 }
+async function runPeer() {
+  check(location.hostname === "127.0.0.1" && window.parent !== window, "isolated peer only");
+  const send = (type: string, data: Record<string, unknown> = {}) =>
+    window.parent.postMessage({ type, ...data }, location.origin);
+  await new Promise<void>((resolve, reject) => {
+    const receive = (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.source !== window.parent || event.data?.type !== "start") return;
+      window.removeEventListener("message", receive);
+      const pending = withDeltaSyncLock(scope, async () => {
+        const checkpoint = await getDeltaRepairCheckpoint(scope);
+        send("peer-acquired", { checkpoint });
+      });
+      send("peer-requested");
+      pending.then(resolve, reject);
+    };
+    window.addEventListener("message", receive);
+    send("peer-ready");
+  });
+}
+
+async function repairWithNativePeer() {
+  check(!!navigator.locks, "native Web Locks unavailable");
+  const frame = document.createElement("iframe");
+  frame.src = "/peer";
+  const messages = new Map<string, any>();
+  const waiters = new Map<string, (value: any) => void>();
+  const receive = (event: MessageEvent) => {
+    if (event.origin !== location.origin || event.source !== frame.contentWindow || typeof event.data?.type !== "string") return;
+    messages.set(event.data.type, event.data);
+    waiters.get(event.data.type)?.(event.data);
+  };
+  const wait = (type: string): Promise<any> => messages.has(type)
+    ? Promise.resolve(messages.get(type))
+    : new Promise(resolve => waiters.set(type, resolve));
+  window.addEventListener("message", receive);
+  try {
+    await withDeltaSyncLock(scope, async () => {
+      document.body.append(frame);
+      await wait("peer-ready");
+      frame.contentWindow!.postMessage({ type: "start" }, location.origin);
+      await wait("peer-requested");
+      // The browser must report a queued lock for this user while the parent owns it.
+      const name = "powerhub:delta-sync:user:" + scope.userId;
+      const state = await navigator.locks.query();
+      check(state.held?.some(x => x.name === name) && state.pending?.some(x => x.name === name), "missing native cross-context lock contention");
+      check(!messages.has("peer-acquired"), "peer entered before parent released");
+      await withDeltaSyncLock(other, async () => {
+        equal(await getDeltaRepairCheckpoint(other), { cursor: "3", repairVersion: 1 }, "independent user lock blocked or changed");
+      });
+      await replaceDeltaSnapshot(scope, [{ ...row, itemName: "repaired" }], "4", 3, undefined, 2);
+    });
+    const acquired = await wait("peer-acquired");
+    equal(acquired.checkpoint, { cursor: "4", repairVersion: 2 }, "peer did not observe committed repair");
+  } finally {
+    window.removeEventListener("message", receive);
+    frame.remove();
+  }
+}
+
 async function run() {
   check(location.hostname === "127.0.0.1", "local fixture only");
   if (sessionStorage.getItem("repair-phase") === "reload") {
@@ -74,7 +133,7 @@ async function run() {
     equal(rebuilds, 0, "unexpected snapshot download");
     await assertScope("5", 2, "delta");
     equal(await readProtected(), JSON.parse(baseline), "outbox changed during delta catch-up");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS"] });
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS"] });
     return;
   }
   await seedProtected();
@@ -97,7 +156,7 @@ async function run() {
   check(injected, "native transaction abort not injected");
   await assertScope("3", 1, "before");
   equal(await readProtected(), before, "outbox changed after abort");
-  await replaceDeltaSnapshot(scope, [{ ...row, itemName: "repaired" }], "4", 3, undefined, 2);
+  await repairWithNativePeer();
   await rejectAction(replaceDeltaSnapshot(scope, [row], "4", 4, undefined, 1), "old version unexpectedly committed");
   await assertScope("4", 2, "repaired");
   equal(await readProtected(), before, "outbox changed after repair");
@@ -105,4 +164,4 @@ async function run() {
   sessionStorage.setItem("repair-phase", "reload");
   location.reload();
 }
-run().catch(error => report({ ok: false, error: String(error?.stack ?? error) }));
+(location.pathname === "/peer" ? runPeer() : run()).catch(error => report({ ok: false, error: String(error?.stack ?? error) }));

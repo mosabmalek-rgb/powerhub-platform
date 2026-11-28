@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates} from './cb-a-p0-review-queue.mjs';
+import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps} from './cb-a-p0-review-queue.mjs';
 import {readFileSync} from 'node:fs';
 const head='a'.repeat(40);
 test('joins all 296 P0 candidates without promoting ownership',()=>{
@@ -33,4 +33,18 @@ test('joins exact identities but never promotes a lexical historical candidate',
  assert.deepEqual(joined.records[0].historical_source_candidates,[candidate]);
  index.objects.find(x=>x.id===first).approved=true;
  assert.throws(()=>attachHistoricalCandidates(report,index));
+});
+
+test('forensic evidence binds definition hash without approving execution',()=>{
+ const report=buildP0Review(loadSources(),head);
+ const row=report.records[0];
+ const input={...report,records:[{...row,historical_source_candidates:[]}]};
+ const bundle={canonical_baseline_approved:false,executable_sql_approved:false,evidence:{function_source_blob_sha1:'a'.repeat(40)},records:[{kind:'function',identity:row.identity,exact_catalog_definition_sha256:row.definition_sha256,security_definer:true,ddl_selected_for_execution:false,app_owned_approved:false,blockers:['REVIEW_PENDING']}]};
+ const joined=attachForensicGaps(input,bundle);
+ assert.equal(joined.with_forensic_gap_evidence,1);
+ assert.deepEqual(joined.missing_historical_identities,[row.identity]);
+ assert.equal(joined.records[0].canonical_source,null);
+ assert.equal(joined.records[0].forensic_gap_evidence.ddl_selected_for_execution,false);
+ bundle.records[0].exact_catalog_definition_sha256='f'.repeat(64);
+ assert.throws(()=>attachForensicGaps(input,bundle),/forensic DDL drift/);
 });

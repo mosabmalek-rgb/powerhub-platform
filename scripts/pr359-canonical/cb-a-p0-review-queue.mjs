@@ -8,6 +8,7 @@ import {auditOwnershipCandidates} from '../pr359-r4/audit-ownership-candidates.m
 import {verifyLiveOwnershipCatalog} from '../pr359-r4/verify-live-ownership-catalog.mjs';
 import {assessRootDependencies} from '../pr359-r4/verify-root-dependency-digests.mjs';
 import {buildIndex} from './source-index.mjs';
+import {buildCbBGapReviewBundle,loadCbBGapReviewInputs} from './cb-b-gap-review-bundle.mjs';
 import {validateMigrationProvenance} from '../pr359-r4/verify-legacy-migration-provenance.mjs';
 
 const dir='docs/security/';
@@ -82,6 +83,28 @@ export function attachHistoricalCandidates(report,index){
   without_lexical_source_candidates:records.filter(x=>x.historical_source_candidates.length===0).length,
   historical_source_candidates_only:true};
 }
+export function attachForensicGaps(report,bundle){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(bundle.canonical_baseline_approved,false);
+ assert.equal(bundle.executable_sql_approved,false);
+ const byId=new Map(bundle.records.filter(x=>x.kind==='function').map(x=>[x.identity,x]));
+ const records=report.records.map(row=>{
+  if(row.historical_source_candidates.length) return row;
+  const evidence=byId.get(row.identity);
+  if(!evidence) return {...row,forensic_gap_evidence:null};
+  assert.equal(evidence.exact_catalog_definition_sha256,row.definition_sha256,'forensic DDL drift: '+row.identity);
+  assert.equal(evidence.security_definer,true);
+  assert.equal(evidence.ddl_selected_for_execution,false);
+  assert.equal(evidence.app_owned_approved,false);
+  return {...row,forensic_gap_evidence:{source_blob_sha:bundle.evidence.function_source_blob_sha1,
+   definition_sha256:evidence.exact_catalog_definition_sha256,identity_arguments:evidence.identity_arguments,
+   blockers:evidence.blockers,ddl_selected_for_execution:false}};
+ });
+ const gaps=records.filter(row=>!row.historical_source_candidates.length);
+ return {...report,records,missing_historical_identities:gaps.map(x=>x.identity),
+  with_forensic_gap_evidence:gaps.filter(x=>x.forensic_gap_evidence).length,
+  without_forensic_gap_evidence:gaps.filter(x=>!x.forensic_gap_evidence).length};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -89,7 +112,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  const manifest=JSON.parse(readFileSync(dir+'pr359-r4-legacy-migration-provenance-20261123.json','utf8'));
  validateMigrationProvenance(manifest);
  const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
- const report=attachHistoricalCandidates(buildP0Review(input,commit),index);
+ const report=attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...loadCbBGapReviewInputs()));
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,app_owned_approved:false}));
 }

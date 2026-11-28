@@ -443,7 +443,7 @@ describe("offline delta sync", () => {
       .mockResolvedValueOnce(page({ current_cursor: "22", through_cursor: "22", next_cursor: "22", changes: [change("22", "7", "upsert", { id: 7, tenantId: 1, siteId: 7 })] }));
     const result = await pullDeltaPages({
       scope, storage, afterCursor: null, pull,
-      rebuildSnapshot: async () => ({ cursor: "21", rows: [{ id: 6, name: "snapshot" }] }),
+      rebuildSnapshot: async () => ({ cursor: "21", rows: [{ id: 6, tenantId: 1, siteId: 7, name: "snapshot" }] }),
     });
     expect(pull.mock.calls[1][0]).toEqual({ afterCursor: "21", throughCursor: null, pageSize: 200 });
     expect(await storage.getCursor(scope)).toBe("22");
@@ -1076,3 +1076,14 @@ describe("Validated snapshot cache application boundary", () => {
     expect(await storage.getCursor(target)).toBe("15");
   });
 });
+
+ it("rejects retention reset rows without explicit tenant/site before cache writes", async () => {
+    const storage = memoryStorage("3", [{ id: 5, tenantId: 1, siteId: 7 }]);
+    const applyCache = vi.fn(async () => undefined);
+    await expect(pullDeltaPages({ scope, storage, afterCursor: "3",
+      pull: async () => page({ status: "reset_required", snapshot_cursor: "20", current_cursor: "20", through_cursor: "20", next_cursor: null, changes: [] }),
+      rebuildSnapshot: async () => ({ cursor: "20", rows: [{ id: 6, name: "unscoped" }], applyCache }),
+    })).rejects.toThrow();
+    expect(applyCache).not.toHaveBeenCalled();
+    expect(await storage.getCursor(scope)).toBe("3");
+  });

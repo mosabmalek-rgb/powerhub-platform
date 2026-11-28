@@ -21,9 +21,9 @@ let child, timeout;
 let settle, fail;
 const result = new Promise((resolve, reject) => { settle = resolve; fail = reject; });
 const server = createServer(async (req, res) => {
-  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; frame-ancestors 'self'");
   res.setHeader("Cache-Control", "no-store");
-  if (req.method === "GET" && req.url === "/") {
+  if (req.method === "GET" && (req.url === "/" || req.url === "/peer")) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.end('<!doctype html><title>PR359 isolated repair fixture</title><script type="module" src="/fixture.js"></script>');
   }
@@ -56,7 +56,7 @@ try {
   timeout = setTimeout(() => fail(new Error("Native IndexedDB fixture timed out\n" + stderr)), 90000);
   const outcome = await result;
   assert.equal(outcome.ok, true, outcome.error);
-  const required = ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS"];
+  const required = ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS"];
   assert.deepEqual(outcome.markers, required);
   for (const marker of required) console.log(marker);
   console.log("PR359_NATIVE_IDB_FIXTURE_ONLY_NO_HOSTED_AUTHORIZATION");
