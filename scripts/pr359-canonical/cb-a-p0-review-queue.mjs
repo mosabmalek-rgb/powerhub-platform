@@ -138,6 +138,28 @@ export function attachGapCallerEvidence(report,attachments){
  return {...report,records,gap_caller_evidence_count:records.filter(x=>x.forensic_caller_evidence).length,
   gap_runtime_caller_closure_approved:false};
 }
+export function summarizePrivilegeReview(report){
+ assert.equal(report.app_owned_approved,false);
+ assert.equal(report.records.length,296);
+ const groups={anon_execute:[],authenticated_only:[],neither_client_role:[],missing_historical_search_path:[]};
+ for(const row of report.records){
+  assert.equal(typeof row.anon_execute,'boolean');
+  assert.equal(typeof row.authenticated_execute,'boolean');
+  assert.equal(row.review_status,'PENDING');
+  if(row.anon_execute) groups.anon_execute.push(row.identity);
+  else if(row.authenticated_execute) groups.authenticated_only.push(row.identity);
+  else groups.neither_client_role.push(row.identity);
+  if(row.historical_search_path===null) groups.missing_historical_search_path.push(row.identity);
+ }
+ assert.equal(groups.anon_execute.length+groups.authenticated_only.length+groups.neither_client_role.length,296);
+ return {...report,privilege_review_summary:{
+  source:'archived_effective_execute_flags_and_historical_proconfig',
+  review_order:['anon_execute','authenticated_only','neither_client_role'],
+  counts:Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,v.length])),
+  identities:groups,security_review_approved:false,
+  caveat:'Client execute exposure or missing explicit search_path is a review signal, not proof of an exploit or current grant state.'
+ }};
+}
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
  assert.equal(process.argv.length,4);assert.equal(process.argv[2],'--out');
  const commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
@@ -146,9 +168,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1]
  validateMigrationProvenance(manifest);
  const index=buildIndex(input.register,manifest.files.map(f=>({path:f.path,sha:f.sha,bytes:readFileSync(f.path)})));
  const gapInputs=loadCbBGapReviewInputs();
- const report=attachGapCallerEvidence(
+ const report=summarizePrivilegeReview(attachGapCallerEvidence(
   attachForensicGaps(attachHistoricalCandidates(buildP0Review(input,commit),index),buildCbBGapReviewBundle(...gapInputs)),
-  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8')));
+  auditDefinerAttachments(loadDefinerAttachmentEvidence(),gapInputs,readFileSync('server/mobile-api.ts','utf8'))));
  writeFileSync(process.argv[3],JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
- console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,app_owned_approved:false}));
+ console.log('PR359_CB_A_P0_REVIEW_QUEUE',JSON.stringify({commit,candidates:report.candidate_count,signed_approvals:report.signed_approvals,with_lexical_source_candidates:report.with_lexical_source_candidates,without_lexical_source_candidates:report.without_lexical_source_candidates,missing_historical_identities:report.missing_historical_identities,with_forensic_gap_evidence:report.with_forensic_gap_evidence,without_forensic_gap_evidence:report.without_forensic_gap_evidence,gap_caller_evidence_count:report.gap_caller_evidence_count,privilege_review_counts:report.privilege_review_summary.counts,app_owned_approved:false}));
 }

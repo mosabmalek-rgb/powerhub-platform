@@ -282,7 +282,8 @@ export const powerhubMaintenanceRouter = router({
   addPart: protectedProcedure.input(z.object({
     siteId: z.number().int().positive(), workOrderId: z.number().int().positive(),
     itemId: z.number().int().positive(), warehouseId: z.number().int().positive(),
-    quantity: z.number().positive().max(1000000), notes: z.string().max(1000).optional(), operationKey,
+    // The part-issue RPC and rollback retry guard cap this key at 150, unlike other maintenance writers.
+    quantity: z.number().positive().max(1000000), notes: z.string().max(1000).optional(), operationKey: operationKey.max(150),
   })).mutation(async ({ ctx, input }) => {
     const access = await requireMaintenanceManageAccess(ctx.user.id, input.siteId);
     if (!access.allowedCapabilities.includes("issueInventory")) throw new TRPCError({ code: "FORBIDDEN", message: "تحتاج إلى صلاحية صرف المخزون لاستخدام قطع الغيار." });

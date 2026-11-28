@@ -11,6 +11,13 @@ describe("bounded whole-RPC retry on confirmed database rollback", () => {
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
+  it("retries the maximum 150-character key without altering it", async () => {
+    const key = "x".repeat(150);
+    const invoke = vi.fn().mockResolvedValueOnce(failure("40P01")).mockResolvedValueOnce(success);
+    await expect(retryRolledBackRpc(key, invoke)).resolves.toBe(success);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
   it("returns the final rollback error after three total attempts", async () => {
     const final = failure("40001");
     const invoke = vi.fn().mockResolvedValueOnce(failure("40P01"))

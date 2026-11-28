@@ -146,7 +146,8 @@ async function run() {
     await assertScope("5", 2, "delta");
     equal(await readProtected(), JSON.parse(baseline), "outbox changed during delta catch-up");
     check(sessionStorage.getItem("obsolete-run-verified") === "yes", "missing obsolete-run proof");
-    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS"] });
+    check(sessionStorage.getItem("cache-retry-verified") === "yes", "missing cache retry proof");
+    await report({ ok: true, markers: ["PR359_NATIVE_IDB_ATOMIC_ABORT_PASS", "PR359_NATIVE_IDB_RELOAD_REPAIR_PASS", "PR359_NATIVE_IDB_OUTBOX_ISOLATION_PASS", "PR359_NATIVE_WEB_LOCK_CROSS_CONTEXT_PASS", "PR359_NATIVE_OBSOLETE_RUN_REJECTED_PASS", "PR359_NATIVE_CACHE_FAILURE_RETRY_PASS"] });
     return;
   }
   await seedProtected();
@@ -187,6 +188,26 @@ async function run() {
   await assertScope("3", 1, "before");
   equal(await readProtected(), before, "outbox changed during obsolete run");
   sessionStorage.setItem("obsolete-run-verified", "yes");
+  // Fail cache persistence before the native checkpoint, then retry with the same repair version.
+  let attempts = 0;
+  let pulls = 0;
+  const input = { scope, afterCursor: "3", repairSnapshot: true, repairVersion: 2,
+    rebuildSnapshot: async () => ({ cursor: "4", rows: [{ ...row, itemName: "repaired" }], applyCache: async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("injected cache persistence failure");
+      // Deliberately do not commit this attempt: the peer test below owns the successful repair.
+      throw new Error("injected interruption before checkpoint");
+    }}),
+    pull: async (): Promise<DeltaPage> => { pulls++; throw new Error("failed cache attempt reached pull"); },
+  };
+  await rejectAction(pullDeltaPages(input), "first cache failure unexpectedly committed");
+  await assertScope("3", 1, "before");
+  await rejectAction(pullDeltaPages(input), "second cache failure unexpectedly committed");
+  equal(attempts, 2, "repair did not retry after cache failure");
+  equal(pulls, 0, "failed cache attempt reached pull");
+  await assertScope("3", 1, "before");
+  equal(await readProtected(), before, "outbox changed during cache failure");
+  sessionStorage.setItem("cache-retry-verified", "yes");
   await repairWithNativePeer();
   await rejectAction(replaceDeltaSnapshot(scope, [row], "4", 4, undefined, 1), "old version unexpectedly committed");
   await assertScope("4", 2, "repaired");

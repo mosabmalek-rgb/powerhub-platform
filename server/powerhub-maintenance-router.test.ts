@@ -217,3 +217,21 @@ describe("maintenance compound RPC rollback retry", () => {
     expect(state.rpc).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe("maintenance part issue operation key contract", () => {
+  it("matches the historical SQL limit and keeps other maintenance writers unchanged", async () => {
+    const sql = readFileSync(resolve(process.cwd(), "supabase/migrations/20261023090000_powerhub_generator_maintenance.sql"), "utf8");
+    const definition = sql.split("create or replace function public.powerhub_maintenance_add_part(")[1].split("create or replace function")[0];
+    expect(definition).toContain("length(btrim(p_operation_key)) not between 1 and 150");
+    const { powerhubMaintenanceRouter } = await import("./powerhub-maintenance-router");
+    const routes = (powerhubMaintenanceRouter as any)._def.record;
+    const schema = routes.addPart._def.inputs.at(-1);
+    const base = { siteId: 7, workOrderId: 8, itemId: 4, warehouseId: 5, quantity: 1 };
+    expect(schema.safeParse({ ...base, operationKey: "x".repeat(150) }).success).toBe(true);
+    expect(schema.safeParse({ ...base, operationKey: "x".repeat(151) }).success).toBe(false);
+    expect(schema.safeParse({ ...base, operationKey: "x".repeat(7) }).success).toBe(false);
+    const assign = routes.assignSupplier._def.inputs.at(-1);
+    expect(assign.safeParse({ siteId: 7, workOrderId: 8, supplierId: 12, operationKey: "x".repeat(180) }).success).toBe(true);
+  });
+});

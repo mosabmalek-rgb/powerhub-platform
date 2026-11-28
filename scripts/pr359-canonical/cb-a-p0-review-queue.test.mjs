@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence} from './cb-a-p0-review-queue.mjs';
+import {buildP0Review,loadSources,parsePinned,sources,attachHistoricalCandidates,attachForensicGaps,attachGapCallerEvidence,summarizePrivilegeReview} from './cb-a-p0-review-queue.mjs';
 import {readFileSync} from 'node:fs';
 const head='a'.repeat(40);
 test('joins all 296 P0 candidates without promoting ownership',()=>{
@@ -59,4 +59,16 @@ test('attaches exactly two historical trigger bindings and one mobile source hin
  assert.equal(result.records[0].forensic_caller_evidence.direct_trigger_binding.function_identity,'a()');
  assert.throws(()=>attachGapCallerEvidence(report,{...attachments,mobile_session_function_identity:'other()'}),/identity mismatch/);
  assert.throws(()=>attachGapCallerEvidence(report,{...attachments,full_runtime_call_graph_verified:true}));
+});
+
+test('privilege review buckets partition 296 pending records without granting signoff',()=>{
+ const report=buildP0Review(loadSources(),head);
+ const result=summarizePrivilegeReview(report);
+ const s=result.privilege_review_summary;
+ assert.equal(s.counts.anon_execute+s.counts.authenticated_only+s.counts.neither_client_role,296);
+ assert.equal(new Set([...s.identities.anon_execute,...s.identities.authenticated_only,...s.identities.neither_client_role]).size,296);
+ assert.equal(s.security_review_approved,false);
+ assert.equal(result.signed_approvals,0);
+ const broken=structuredClone(report);broken.records[0].review_status='APPROVED';
+ assert.throws(()=>summarizePrivilegeReview(broken));
 });
